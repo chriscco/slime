@@ -29,7 +29,8 @@ macOS 窗口切换器。参考 [alt-tab-macos](https://github.com/lwouis/alt-tab
 - 优先删代码而不是加代码；无聊胜过聪明，聪明是留给凌晨三点的人解码的
 - **TDD**：代码行为变更先写一个通过公开接口观察行为的失败测试，再写最小实现使其通过；
   一次只做一个 red → green 纵向切片
-- 测试放在 `Tests/slimeTests/`，用 XCTest；本地提交前运行 `scripts/test`
+- 测试放在 `Tests/slimeTests/`，用 **swift-testing**（`import Testing`，不是 XCTest）；
+  本地提交前运行 `scripts/test`（本机补 Testing 路径的 workaround 在脚本里）
 - 故意砍掉的角标 `shortcut:` 注释，写明上限和升级路径
 
 **这个项目里 KISS 有牙齿的地方**：`Core/` 那两个纯逻辑文件（`Trigger`、`Search`）
@@ -179,8 +180,11 @@ AXObserver 增量更新。理由见 spec §4 / §6 / §7。
   ```
 
   **别把它当成"网络坏了"** —— 提示是超时，根因是没有代理。
-- **Swift 语言模式锁在 5。** Swift 6 的严格并发会让 AppKit 代码到处要标 `@Sendable`，
-  迁过去是独立的一次改造，不要顺手做。
+- **Swift 6 语言模式**（tools 6.0 默认）。这是对 spec §13「Swift 5 锁」的有意偏离：
+  本机拿不到 XCTest，而 swift-testing 只随 Swift 6 工具链来 —— 用 Swift 6，
+  测试就不依赖完整 Xcode。代价是 AppKit 代码要按严格并发写（`@MainActor`、
+  少量有注释的 `@unchecked Sendable`）。理由和推翻条件在
+  `docs/modules/app/decision.md`。
 - 生成物（`.build/`、`build/`）不入库。
 
 ---

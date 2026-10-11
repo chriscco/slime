@@ -1,16 +1,9 @@
-import Foundation
 import Testing
 
 @testable import slime
 
-private func w(
-  _ app: String,
-  _ title: String,
-  pid: pid_t = 1,
-  id: UInt32 = 1,
-  minimized: Bool = false
-) -> Window {
-  Window(pid: pid, windowID: id, appName: app, title: title, isMinimized: minimized)
+private func w(_ app: String, _ title: String, id: UInt32 = 1) -> Window {
+  Window(pid: 1, windowID: id, appName: app, title: title, isMinimized: false)
 }
 
 // Window.label 是列表显示和搜索匹配共用的拼接串：app名 + " — " + 标题。

@@ -1,0 +1,70 @@
+#!/bin/sh
+# 建一张自签的 Code Signing 证书，让辅助功能权限扛得住 rebuild。
+#
+# 为什么需要它（CLAUDE.md 第五条）：TCC 认的是代码签名的 designated requirement。
+# ad-hoc 签名（codesign -s -）的 DR 只有 cdhash，每次重新编译哈希都变，
+# 于是每次 rebuild 都要去系统设置里重新勾一遍辅助功能权限。
+#
+# 证书签出来的 DR 是 `identifier X and certificate leaf = H"…"` —— 锚定证书身份，
+# 证书不变 DR 就不变，rebuild 不掉权限。一次性 10 分钟，省掉后面每一次重新授权。
+#
+# 用法：scripts/setup-signing          （幂等，已存在就跳过）
+#
+# 两个必须踩对的坑：
+#   1. Basic Constraints 必须是 CA:FALSE。证书里 CA:TRUE 的话
+#      `security find-identity -v -p codesigning` 会把它标成
+#      "Invalid Key Usage for policy" —— 能导入但签不了名。
+#      （openssl req -x509 默认就带 CA:TRUE，所以必须显式覆盖。）
+#   2. `openssl pkcs12 -export` 必须带 -legacy，否则 OpenSSL 3 的默认导出格式
+#      过不了 `security import` 的 MAC 校验（报 "MAC verification failed"）。
+#
+# 私钥只在生成时存在磁盘上，导入钥匙串后立刻删掉 —— 之后只有 keychain 里有。
+# 证书（.crt）留着当记录，已在 .gitignore 里排除私钥和 p12。
+
+set -eu
+
+cd "$(dirname "$0")/.."
+
+CN="slime Local Signing"
+KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+DIR=".signing"
+
+if security find-identity -v -p codesigning 2>/dev/null | grep -q " \"$CN\"$"; then
+  echo "✓ 证书 \"$CN\" 已存在，跳过。"
+  echo "  scripts/build-app 会直接用它签名。"
+  exit 0
+fi
+
+mkdir -p "$DIR"
+
+# 1. 自签证书 + 私钥。扩展显式写成 CA:FALSE / KeyUsage=digitalSignature，
+#    覆盖 `openssl req -x509` 默认的 CA:TRUE。
+openssl req -x509 -newkey rsa:2048 \
+  -keyout "$DIR/slime-signing.key" -out "$DIR/slime-signing.crt" \
+  -days 3650 -nodes -subj "/CN=$CN" \
+  -config /dev/stdin -extensions code_sign_leaf <<'EOF'
+[ req ]
+distinguished_name = dn
+[ dn ]
+[ code_sign_leaf ]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = codeSigning
+EOF
+
+# 2. 打包成 pkcs12 给 security import 吃。-legacy 必需，见上面第 2 个坑。
+openssl pkcs12 -export -legacy \
+  -in "$DIR/slime-signing.crt" -inkey "$DIR/slime-signing.key" \
+  -out "$DIR/slime-signing.p12" -passout pass:slime
+
+# 3. 导入登录钥匙串。-T /usr/bin/codesign 让后续签名不再弹窗。
+security import "$DIR/slime-signing.p12" -k "$KEYCHAIN" -P slime -T /usr/bin/codesign
+
+# 4. 信任它做 codeSign，同样是为了免掉首次使用的交互弹窗。
+security add-trusted-cert -p codeSign -k "$KEYCHAIN" "$DIR/slime-signing.crt"
+
+# 5. 私钥不留磁盘 —— 已经在钥匙串里了。
+rm -f "$DIR/slime-signing.key" "$DIR/slime-signing.p12"
+
+echo "✓ 证书 \"$CN\" 已导入。"
+security find-identity -v -p codesigning | grep " \"$CN\"$"

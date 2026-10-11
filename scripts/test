@@ -1,6 +1,36 @@
 #!/bin/sh
+# 跑测试。仓库文档里说的 `swift test` 就是这条。
+#
+# 本机只有 CommandLineTools，没有完整 Xcode：XCTest 拿不到，但 Swift 6 工具链
+# 自带 swift-testing，测试用 `import Testing`（不是 XCTest）。Testing 的
+# 模块和动态库在工具链的 Developer 目录里，SwiftPM 默认不往那儿找，所以要：
+#
+#   -Xswiftc -F     编译期：测试和 SwiftPM 生成的 runner 都要能 import Testing
+#   -Xlinker -F     链接期：测试 bundle 解析 Testing 的 autolink
+#   -Xlinker -rpath 运行期：加载 Testing.framework 和 lib_TestingInterop.dylib
+#
+# 注意：这些不能写进 Package.swift。SwiftPM 把 test target 的 unsafe flags
+# 转给生成的 runner 时会把 `-F <dir>` 改写成 `-I <dir> -L <dir>`，runner 的
+# `#if canImport(Testing)` 就为假 —— 测试静默地一个都不跑，还退出 0。
+#
+# 有完整 Xcode 的机器（CI 的 macos-latest）走默认搜索路径，不需要补。所以
+# 先探测目录存不存在，不存在就用普通的 `swift test`。
 set -eu
 
 cd "$(dirname "$0")/.."
 
-swift test
+FW=/Library/Developer/CommandLineTools/Library/Developer/Frameworks
+LIB=/Library/Developer/CommandLineTools/Library/Developer/usr/lib
+
+# 判据是「swift 用的是哪个 toolchain」：xcode-select 指向 CommandLineTools
+# 才需要补路径；装了完整 Xcode 且被选中的机器，默认就能找到 Testing。
+if [ "$(xcode-select -p 2>/dev/null)" = "/Library/Developer/CommandLineTools" ] &&
+   [ -d "$FW/Testing.framework" ] && [ -f "$LIB/lib_TestingInterop.dylib" ]; then
+  exec swift test \
+    -Xswiftc -F -Xswiftc "$FW" \
+    -Xlinker -F -Xlinker "$FW" \
+    -Xlinker -rpath -Xlinker "$FW" \
+    -Xlinker -rpath -Xlinker "$LIB"
+fi
+
+exec swift test

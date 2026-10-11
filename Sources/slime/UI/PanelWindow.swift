@@ -230,7 +230,9 @@ final class HighlightView: NSView {
     super.init(frame: .zero)
     wantsLayer = true
     layer?.cornerRadius = 6
-    layer?.backgroundColor = NSColor.selectedContentBackgroundColor.cgColor
+    // 半透明：行文字保持 labelColor 不换色，对比度也够。深浅手动验收时再调。
+    layer?.backgroundColor = NSColor.selectedContentBackgroundColor.withAlphaComponent(0.35)
+      .cgColor
   }
 
   required init?(coder: NSCoder) { fatalError("高亮条只从代码建") }

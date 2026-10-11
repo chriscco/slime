@@ -1,4 +1,11 @@
-// slime 0.0.1 —— 脚手架。真正的实现在 docs/specs/2026-10-11-slime-0.0.1-spec.md，
-// 按 spec §5 的 App / UI / System / Core 分层分批落地；这个文件会被
-// main + AppDelegate 取代（spec §7 启动流程）。
-print("slime: not implemented yet")
+import AppKit
+
+// slime 0.0.1 —— 入口（spec §7）。
+//
+// .accessory：无 Dock 图标、不出现在系统的 ⌘+Tab 列表里（spec §2 第 1 条）。
+// delegate 是强引用：NSApplication.delegate 是 weak，顶层 let 活到进程退出。
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()

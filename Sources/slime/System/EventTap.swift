@@ -217,6 +217,9 @@ final class EventTap: @unchecked Sendable {
 /// keyCode → Event 的按键表。两个事件源（EventTap 的 CGEvent、PanelWindow 的
 /// NSEvent）共用它 —— spec §6 的两个事件源一个状态机，语义必须一致，
 /// 靠两张各写各的表是保不住的。
+///
+/// shortcut: 快捷键硬编码成 ⌘Tab / ⌥Tab（和这里的 keyCode 一起），被某个
+/// app 冲突烦到时再做可配置 —— 那时硬编码要改成一张可读的绑定表。
 enum KeyTable {
   /// `character` 传 keyboard-layout 感知、且「忽略修饰键」后的字符。
   static func event(

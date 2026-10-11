@@ -1,0 +1,19 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # 必须 macOS：包里有 import AppKit 的 target，Linux runner 编不过。
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: swift --version
+      - run: scripts/test

@@ -1,0 +1,35 @@
+#!/bin/sh
+# 拒绝直接提交到 main —— 变更必须走 issue + PR。
+#
+# 启用（克隆后跑一次）：
+#     git config core.hooksPath scripts/hooks
+#
+# 这是**本地**约束。远端层面的等价物是 GitHub 分支保护。
+# 唯一的合法例外是仓库初始化期，见 CLAUDE.md 第二条。
+# 确实需要绕过时：git commit --no-verify
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null)
+
+case "$branch" in
+  main|master)
+    cat >&2 <<'MSG'
+
+✗ 拒绝直接提交到 main。
+
+本项目要求所有变更通过 issue + PR 合入：
+
+    gh issue create --title "..." --body "..."
+    git switch -c feat/<短描述>
+    git commit -m "..."
+    git push -u origin feat/<短描述>
+    gh pr create --fill --body "Closes #<issue>"
+
+仓库初始化期是唯一例外（见 CLAUDE.md 第二条）。
+确实需要绕过：git commit --no-verify
+
+MSG
+    exit 1
+    ;;
+esac
+
+exit 0

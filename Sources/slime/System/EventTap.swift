@@ -183,24 +183,12 @@ final class EventTap: @unchecked Sendable {
       }
 
     case .keyDown:
-      switch keyCode {
-      case 48:
-        return .tab(shift: flags.contains(.maskShift))
-      case 36, 76:  // 主 / 小键盘回车
-        return .enter
-      case 51:
-        return .backspace
-      case 53:
-        return .escape
-      case 126:
-        return .arrow(-1)  // ↑
-      case 125:
-        return .arrow(1)  // ↓
-      case 3 where flags.contains(.maskCommand) || flags.contains(.maskAlternate):
-        return .focusSearch  // ⌘F / ⌥F（spec §2 第 6 条：两种模式都要）
-      default:
-        return character(event).map(Event.char)
-      }
+      return KeyTable.event(
+        keyCode: Int(keyCode),
+        shift: flags.contains(.maskShift),
+        commandOrOption: flags.contains(.maskCommand) || flags.contains(.maskAlternate),
+        character: character(event)
+      )
 
     default:
       return nil  // keyUp：状态机不感知；进 holding 时按上面的兜底吞
@@ -222,16 +210,42 @@ final class EventTap: @unchecked Sendable {
     var buffer = [UniChar](repeating: 0, count: length)
     event.keyboardGetUnicodeString(
       maxStringLength: length, actualStringLength: &length, unicodeString: &buffer)
-    guard
-      let first = String(decoding: buffer.prefix(length), as: UTF16.self).first,
-      !first.isControlLike
-    else { return nil }
-    return first
+    return String(decoding: buffer.prefix(length), as: UTF16.self).first
   }
 }
 
-private extension Character {
-  /// 控制字符不进 query（回车 / Esc / Tab 已在 keycode 分支处理，这里兜漏网）。
+/// keyCode → Event 的按键表。两个事件源（EventTap 的 CGEvent、PanelWindow 的
+/// NSEvent）共用它 —— spec §6 的两个事件源一个状态机，语义必须一致，
+/// 靠两张各写各的表是保不住的。
+enum KeyTable {
+  /// `character` 传 keyboard-layout 感知、且「忽略修饰键」后的字符。
+  static func event(
+    keyCode: Int, shift: Bool, commandOrOption: Bool, character: Character?
+  ) -> Event? {
+    switch keyCode {
+    case 48:
+      return .tab(shift: shift)
+    case 36, 76:  // 主 / 小键盘回车
+      return .enter
+    case 51:
+      return .backspace
+    case 53:
+      return .escape
+    case 126:
+      return .arrow(-1)  // ↑
+    case 125:
+      return .arrow(1)  // ↓
+    case 3 where commandOrOption:
+      return .focusSearch  // ⌘F / ⌥F（spec §2 第 6 条：两种模式都要）
+    default:
+      guard let character, !character.isControlLike else { return nil }
+      return .char(character)
+    }
+  }
+}
+
+extension Character {
+  /// 控制字符不翻译成 Event（回车 / Esc / Tab 已被 keycode 分支接走，这是兜漏网）。
   var isControlLike: Bool {
     unicodeScalars.allSatisfy { $0.value < 0x20 || $0.value == 0x7F }
   }

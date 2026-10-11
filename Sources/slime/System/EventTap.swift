@@ -1,5 +1,5 @@
-import AppKit
 import CoreGraphics
+import Foundation
 
 /// `CGEvent ↔ Event` 的翻译、吞放、状态机宿主（spec §5 / §6）。
 ///
@@ -138,7 +138,9 @@ final class EventTap: @unchecked Sendable {
     return effects.contains(.swallow) ? nil : Unmanaged.passUnretained(event)
   }
 
-  /// 跑纯状态机，把（状态, Effect）发布到主线程执行。返回 Effect 供吞放判断。
+  /// 跑纯状态机，把（状态, Effect）发布到主线程执行。返回 Effect 供吞放判断
+  /// （lingering 分支不需要 —— 那里一律放行）。
+  @discardableResult
   private func transition(_ event: Event) -> [Effect] {
     let (next, effects) = reduce(state, event)
     state = next

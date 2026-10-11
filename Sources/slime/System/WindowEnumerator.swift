@@ -1,6 +1,6 @@
-import AppKit
 import ApplicationServices
 import CoreGraphics
+import Foundation
 
 /// 窗口枚举：`CGWindowList` 定「有哪些窗口」，AX 取标题和最小化状态
 /// （spec §5 / §7）。必须在后台线程跑 —— 一次枚举是成串的跨进程同步 IPC，

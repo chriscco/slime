@@ -30,7 +30,7 @@ private func w(
 
 // 打字即时搜索的核心用例（spec §2 第 5 条）：`ghb` 能命中 `Chrome — GitHub`。
 @Test func rankFindsSubsequenceAcrossAppAndTitle() {
-  let windows = [w("Chrome", "GitHub"), w("Terminal", "zsh")]
+  let windows = [w("Chrome", "GitHub", id: 1), w("Terminal", "zsh", id: 2)]
   #expect(Search.rank(windows, query: "ghb").map(\.windowID) == [1])
 }
 

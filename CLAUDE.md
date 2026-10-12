@@ -108,7 +108,8 @@ chore(scripts): probe the toolchain in scripts/test
 
 ### Issue 与 PR review
 
-- 新 issue 使用 `.github/ISSUE_TEMPLATE/issue.md`：写清目标、原因、范围与可证伪的验收标准。
+- 新 issue 默认用英文模板 `.github/ISSUE_TEMPLATE/issue.md`，中文版用
+  `.github/ISSUE_TEMPLATE/issue-zh.md`：写清目标、原因、范围与可证伪的验收标准。
 - 审查 PR 或发布 review comment 时，读取并遵循 `.agents/skills/pr-review/SKILL.md`。
 
 ### PR 必须关联 issue —— 但两类关联别用错
@@ -117,6 +118,8 @@ chore(scripts): probe the toolchain in scripts/test
 |---|---|---|
 | `Closes #N` | 该 PR 把 issue 的交付物**做完了** | 自动关闭 issue |
 | `Refs #N` | 只完成一部分（例如只产出 spec，还没实现） | 只建立链接，**不关闭** |
+
+**每个合并的 PR 都必须关闭它关联的 issue（`Closes #N`）；`Refs #N` 的 PR 不合并。**
 
 **用错 `Closes` 会把没做完的 issue 关掉。** issue 关了但活没干，比不关更糟 ——
 它会从待办列表里消失，然后被忘掉。

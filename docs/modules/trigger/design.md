@@ -20,7 +20,7 @@
 
 - `idle`：只认 `modifierDown` → `armed`；其余全部 `passThrough`（不装手势时键盘完全是应用的）。
 - `armed(m)`：`tab` → `holding(m, "", 0)` + `showPanel`（⇧Tab 等价）；`modifierUp(m)` → `idle`；**其余（含 ⌘C 这类按键、另一个修饰键）全放行**。
-- `holding(m)`：`modifierUp(m)` 是会话出口 —— `.cmd` 松手 → `activate + hidePanel`；`.opt` 松手 → `lingering` + `focusSearchField`。其余键盘事件走共用的 `panelStep`。
+- `holding(m)`：`modifierUp(m)` 是会话出口 —— `.cmd` 松手 → `activate + hidePanel`；`.opt` 松手 → `lingering` + `focusSearchField`。`:cmd` 模式下 ⌘F 也转 `lingering`（「我要慢慢找」；见 decision.md）。其余键盘事件走共用的 `panelStep`。
 - `lingering`：`modifierDown` → 关面板并回 `armed`（开始新手势）；键盘事件与 `holding` 走同一个 `panelStep`（spec §6 的「同上转移」）。
 
 `panelStep` 是 holding / lingering 共用的转移（tab/char/backspace/arrow/focusSearch/enter/escape），两处实现不分别写，免得漂移。

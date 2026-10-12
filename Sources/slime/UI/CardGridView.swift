@@ -64,14 +64,13 @@ final class CardGridView: NSView {
   }
 
   private func highlightRect(_ index: Int) -> NSRect {
+    // 贴合卡片本身，不外扩：document view 边缘不再裁到高亮，四边留白也均匀。
     let origin = layout.origin(of: index)
-    // 比卡片大一圈，卡片整个落在高亮上。
-    let inset: CGFloat = 4
     return NSRect(
-      x: origin.x - inset,
-      y: origin.y - inset,
-      width: layout.cardWidth + inset * 2,
-      height: layout.cardHeight + inset * 2
+      x: origin.x,
+      y: origin.y,
+      width: layout.cardWidth,
+      height: layout.cardHeight
     )
   }
 
@@ -107,7 +106,10 @@ final class CardGridView: NSView {
 final class CardView: NSView {
   private static let iconSide: CGFloat = 64
   private static let labelHeight: CGFloat = 16
+  /// 图标与文字的间隙；上下内边距与它一致（卡片内边距统一）。
   private static let labelGap: CGFloat = 4
+  /// 文字左右的内边距（图标水平居中，不贴边）。
+  private static let labelSidePadding: CGFloat = 6
 
   private let icon = NSImageView()
   private let label = NSTextField(labelWithString: "")
@@ -140,23 +142,38 @@ final class CardView: NSView {
       width: Self.iconSide,
       height: Self.iconSide)
     label.frame = NSRect(
-      x: 6,
+      x: Self.labelSidePadding,
       y: Self.labelGap + Self.iconSide + Self.labelGap,
-      width: max(0, bounds.width - 12),
+      width: max(0, bounds.width - Self.labelSidePadding * 2),
       height: Self.labelHeight)
   }
 }
 
-/// 高亮条：圆角、系统强调色。动画由 `CardGridView.setSelection` 驱动。
+/// 高亮：强调色 2pt 轮廓 + 8% 同色填充，贴合卡片尺寸（动画由
+/// `CardGridView.setSelection` 驱动）。
 final class HighlightView: NSView {
+  private static let cornerRadius: CGFloat = 12
+
   init() {
     super.init(frame: .zero)
     wantsLayer = true
-    layer?.cornerRadius = 10
-    // 半透明：卡片文字保持 labelColor 不换色，对比度也够。
-    layer?.backgroundColor = NSColor.selectedContentBackgroundColor.withAlphaComponent(0.35)
-      .cgColor
+    layer?.cornerRadius = Self.cornerRadius
+    layer?.borderWidth = 2
+    applyAccent()
   }
 
   required init?(coder: NSCoder) { fatalError("高亮条只从代码建") }
+
+  /// 强调色是动态颜色，浅 / 深色模式下分辨率不同；CGColor 不会跟着变，重解析。
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    applyAccent()
+  }
+
+  /// 外圈轮廓 + 极轻填充：文字保持 labelColor 不换色，80% 的玻璃面透上来。
+  private func applyAccent() {
+    let accent = NSColor.selectedContentBackgroundColor
+    layer?.borderColor = accent.cgColor
+    layer?.backgroundColor = accent.withAlphaComponent(0.08).cgColor
+  }
 }

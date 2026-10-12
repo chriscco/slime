@@ -33,9 +33,9 @@ macOS 窗口切换器。参考 [alt-tab-macos](https://github.com/lwouis/alt-tab
   本地提交前运行 `scripts/test`（本机补 Testing 路径的 workaround 在脚本里）
 - 故意砍掉的角标 `shortcut:` 注释，写明上限和升级路径
 
-**这个项目里 KISS 有牙齿的地方**：`Core/` 那两个纯逻辑文件（`Trigger`、`Search`）
-是唯一能单测的东西。任何把系统 API 拉进 `Core/` 的改动，都会让这个项目变成
-「只能靠手点来验证」—— 那等于放弃测试。
+**这个项目里 KISS 有牙齿的地方**：`Core/` 的那几个纯逻辑文件（`Window`、`Search`、
+`Trigger`、`GridLayout`）是唯一能单测的东西。任何把系统 API 拉进 `Core/` 的改动，
+都会让这个项目变成「只能靠手点来验证」—— 那等于放弃测试。
 
 ---
 
@@ -212,8 +212,9 @@ AXObserver 增量更新。理由见 spec §4 / §6 / §7。
 Sources/slime/
   App/        main.swift, AppDelegate.swift, Permission.swift
   Core/       Window.swift, Search.swift, Trigger.swift, GridLayout.swift
-  System/     EventTap.swift, WindowEnumerator.swift, WindowCache.swift, WindowActivator.swift
-  UI/         PanelWindow.swift, PanelController.swift
+  System/     EventTap.swift, WindowEnumerator.swift, WindowCache.swift, WindowActivator.swift,
+              AppIcons.swift, Settings.swift
+  UI/         PanelWindow.swift, PanelController.swift, CardGridView.swift, SettingsWindow.swift
 Tests/slimeTests/
 docs/         specs / modules / templates
 scripts/      build-app, test, hooks/
@@ -249,4 +250,4 @@ func reduce(_ state: State, _ event: Event) -> (State, [Effect])
 | `Sources/slime/System/` 下新增文件 | 真的出现了新的系统边界时 |
 | 分层守卫测试 | `Core/` 到第 4 个文件时补 —— **已补**：`Tests/slimeTests/LayeringTests.swift` 拦 Core/ 里 import AppKit / CoreGraphics / ApplicationServices |
 
-**12 个源文件够了。** 加文件之前先问：能不能并进已有的那个？
+**源文件保持精简（0.0.2 时 17 个）。** 加文件之前先问：能不能并进已有的那个？

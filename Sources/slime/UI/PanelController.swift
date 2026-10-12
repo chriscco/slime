@@ -99,7 +99,7 @@ final class PanelController {
     // 新会话从空 query / 第 0 行开始（纯状态表：armed + Tab → holding(m, "", 0)）。
     query = ""
     selection = 0
-    panel.content.searchLabel.stringValue = ""
+    panel.content.setSearchText("")
     rerank(following: nil)
     resizeAndPosition()
     // 手动布局：上屏前跑一遍，第一帧就是完整列表（spec §7「瞬时」）。
@@ -165,14 +165,14 @@ final class PanelController {
 
   private func append(_ character: Character) {
     query.append(character)
-    panel.content.searchLabel.stringValue = query
+    panel.content.setSearchText(query)
     selection = 0  // 纯状态表：appendQuery 后选中归零
     rerank(following: nil)
   }
 
   private func backspace() {
     query = String(query.dropLast())
-    panel.content.searchLabel.stringValue = query
+    panel.content.setSearchText(query)
     selection = 0  // 纯状态表：deleteQueryChar 后选中归零
     rerank(following: nil)
   }

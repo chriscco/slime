@@ -9,8 +9,8 @@
 ## 数据结构
 
 - `PanelWindow: NSPanel`：`.nonactivatingPanel + .borderless`，覆写 `canBecomeKey`（无边框窗口默认拒绝 key 状态），`level = .floating`，`collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]`。
-- `PanelContentView`：搜索框 + `NSScrollView` + 空态标签；手动 `layout()`，document view 的宽度经 `gridView.setContentWidth(scrollView.contentSize.width)` 传下去。
-- `CardGridView`（document view）：手动排卡片；`HighlightView`（圆角、半透明强调色）是它 `positioned: .below` 的普通子视图，跟着滚动走；选中的动画由 `setSelection(_:animated:)` 用 `animator()` 驱动。
+- `PanelContentView`：搜索行 + `NSScrollView` + 空态标签；手动 `layout()`，document view 的宽度经 `gridView.setContentWidth(scrollView.contentSize.width)` 传下去。搜索行是无框的「放大镜 + 文本」pill（白 8%、圆角 8、无硬边），空查询显示占位「输入以过滤」（`setSearchText`，次要色），有查询显示查询（主色）。
+- `CardGridView`（document view）：手动排卡片；`HighlightView`（强调色 2pt 轮廓 + 8% 同色填充、圆角 12，贴合卡片尺寸）是它 `positioned: .below` 的普通子视图，跟着滚动走；选中的动画由 `setSelection(_:animated:)` 用 `animator()` 驱动。
 - `CardView`：单张卡片 —— app 图标在上（`AppIcons.icon(for:)`，`isFlipped`），窗口标题在下；标题为空时退回 app 名。
 - `GridLayout`（`Core/`，纯数学）：列数（最多 5）、行数、可见排数（最多 3）、`origin(of:)`、`panelWidth` / `panelHeight`（面板尺寸）、`contentHeight`（document view 的完整高度，滚得到第 4 排以后）、`shouldAnimate(from:to:)`。
 - `PanelController` 的展示层账本：`query`（与搜索框显示一致）、`selection`（循环取模、身份跟随）、`phase`（纯状态机镜像，用于喂 lingering 的 `reduce`）。

@@ -88,14 +88,19 @@ final class PanelWindow: NSPanel {
   }
 }
 
-/// 面板内容：搜索框 + 卡片网格 + 空态提示。手动布局（从上到下三块，
+/// 面板内容：搜索行 + 卡片网格 + 空态提示。手动布局（从上到下三块，
 /// 用 constraints 是杀鸡用牛刀）。
 final class PanelContentView: NSView {
   let searchBox = NSView()
+  let searchIcon = NSImageView()
   let searchLabel = NSTextField(labelWithString: "")
   let scrollView = NSScrollView()
   let gridView = CardGridView()
   let emptyLabel = NSTextField(labelWithString: "没有其他窗口")
+
+  /// 空查询时的占位提示。键盘路径上查询只经 `setSearchText` 更新，
+  /// 这里就是它的初始状态。
+  static let searchPlaceholder = "输入以过滤"
 
   override var isFlipped: Bool { true }
 
@@ -103,16 +108,26 @@ final class PanelContentView: NSView {
   /// panelHeight）也是它算的，内容视图再自带一组 padding / headerHeight
   /// 就会把文档视图摆偏（同一份常量只能有一个来源）。
   private static let metrics = GridLayout(count: 0)
+  private static let searchIconSide: CGFloat = 14
+  private static let searchLeadingInset: CGFloat = 10
+  /// 放大镜与查询文本之间的间隙。
+  private static let searchIconGap: CGFloat = 6
 
   init() {
     super.init(frame: .zero)
 
+    // 无框搜索行：半透明浅色 pill，没有硬边 —— 底下的玻璃面继续活着，
+    // 不用 controlBackgroundColor 那种实心方块（用户实测：黑框很突兀）。
     searchBox.wantsLayer = true
     searchBox.layer?.cornerRadius = 8
-    searchBox.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+    searchBox.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
+    searchIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
+    searchIcon.contentTintColor = .secondaryLabelColor
+    searchIcon.imageScaling = .scaleProportionallyUpOrDown
     searchLabel.font = .systemFont(ofSize: 15)
-    searchLabel.textColor = .labelColor
     searchLabel.lineBreakMode = .byTruncatingTail
+    setSearchText("")
+    searchBox.addSubview(searchIcon)
     searchBox.addSubview(searchLabel)
 
     scrollView.drawsBackground = false
@@ -132,21 +147,34 @@ final class PanelContentView: NSView {
 
   required init?(coder: NSCoder) { fatalError("面板只从代码建") }
 
+  /// 空查询显示占位提示（secondaryLabelColor），有查询显示查询文本
+  /// （labelColor）。文本与纯状态机的 query 永远一致（design.md）。
+  func setSearchText(_ text: String) {
+    let isEmpty = text.isEmpty
+    searchLabel.stringValue = isEmpty ? Self.searchPlaceholder : text
+    searchLabel.textColor = isEmpty ? .secondaryLabelColor : .labelColor
+  }
+
   override func layout() {
     super.layout()
     let padding = CGFloat(Self.metrics.padding)
     let headerHeight = CGFloat(Self.metrics.headerHeight)
-    // headerHeight = 搜索框 + 它下方的间隙；文档视图从 padding + headerHeight
+    // headerHeight = 搜索行 + 它下方的间隙；文档视图从 padding + headerHeight
     // 起，面板高度公式（panelHeight）才对得上。
     let searchHeight = headerHeight - padding
     let inner = bounds.width - padding * 2
     searchBox.frame = NSRect(x: padding, y: padding, width: inner, height: searchHeight)
-    searchLabel.frame = searchBox.bounds.insetBy(dx: 8, dy: 0)
+    searchIcon.frame = NSRect(
+      x: Self.searchLeadingInset,
+      y: (searchHeight - Self.searchIconSide) / 2,
+      width: Self.searchIconSide,
+      height: Self.searchIconSide)
     searchLabel.sizeToFit()
+    let textX = Self.searchLeadingInset + Self.searchIconSide + Self.searchIconGap
     searchLabel.frame = NSRect(
-      x: 8,
+      x: textX,
       y: (searchHeight - searchLabel.frame.height) / 2,
-      width: searchBox.bounds.width - 16,
+      width: searchBox.bounds.width - textX - Self.searchLeadingInset,
       height: searchLabel.frame.height
     )
 

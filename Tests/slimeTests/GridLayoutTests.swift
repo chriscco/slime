@@ -13,6 +13,9 @@ import Testing
   // 负间隙的回归：count == 0 时 (columns - 1) 是 -1，少写一个 max(0,…)
   // 面板就会比空态文字还窄（12 而不是 24）。
   #expect(l.panelWidth == 24)
+  // 没有卡片时没有网格高度：面板只剩 padding 2×12 + headerHeight 46。
+  #expect(l.panelHeight == 70)
+  #expect(l.contentHeight == 0)
 }
 
 @Test func upToFiveCardsStayInOneRow() {
@@ -48,7 +51,7 @@ import Testing
   #expect(l.contentHeight == 4 * 92 + 3 * 12)
 }
 
-@Test func singleResultShrinksThePanelToTwoColumns() {
+@Test func singleResultShrinksThePanelToOneColumn() {
   // Review Focus 3：搜索缩到 1 张 → 不能留 4 个空槽位。
   let one = GridLayout(count: 1)
   let five = GridLayout(count: 5)

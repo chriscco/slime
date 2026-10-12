@@ -87,6 +87,18 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   }
 }
 
+// 搜索行：空查询显示占位提示（次要色、不抢视觉），有查询显示查询文本（主色）。
+// 无框 pill / 放大镜的观感走人工验收，这里只钉住文本语义。
+@Test @MainActor func searchRowShowsPlaceholderOnlyWhenTheQueryIsEmpty() {
+  let content = PanelContentView()
+  #expect(content.searchLabel.stringValue == PanelContentView.searchPlaceholder)
+  #expect(content.searchLabel.textColor == .secondaryLabelColor)
+
+  content.setSearchText("chr")
+  #expect(content.searchLabel.stringValue == "chr")
+  #expect(content.searchLabel.textColor == .labelColor)
+}
+
 // 原样保留 —— 这个测试跟列表还是网格无关，改成网格时不要顺手删掉。
 @Test @MainActor func emptyPlaceholderIsHiddenOnlyWhenThereAreRows() {
   let content = PanelContentView()

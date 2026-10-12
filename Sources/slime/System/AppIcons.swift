@@ -37,7 +37,7 @@ enum AppIcons {
     return image
   }
 
-  /// bundle id 优先（同一 app 的多个窗口共用一张图标）；拿不到就退回可执行路径。
+  /// bundle id 优先（同一 app 的多个窗口共用一张图标）；拿不到就退回 bundle 路径。
   private static func cacheKey(for pid: pid_t) -> String? {
     guard let app = NSRunningApplication(processIdentifier: pid) else { return nil }
     return app.bundleIdentifier ?? app.bundleURL?.path

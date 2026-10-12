@@ -36,6 +36,14 @@ import Testing
   #expect(command == .openSettings)
 }
 
+@Test func bareCommaStillTypesAComma() throws {
+  // ⌘, 是开设置；**裸 , 必须还是往搜索框打逗号** —— 这条和上一条配对，
+  // 防止未来把 43 无脑映射成 .openSettings（spec §11）。
+  let comma = try #require(
+    KeyTable.event(keyCode: 43, shift: false, commandOrOption: false, character: ","))
+  #expect(comma == .char(","))
+}
+
 @Test func bareCommaIsStillTypedIntoTheQuery() throws {
   let bare = try #require(
     KeyTable.event(keyCode: 43, shift: false, commandOrOption: false, character: ","))

@@ -44,7 +44,7 @@ struct WindowEnumeration: Sendable {
 /// 的第二个窗口只要不在屏上就会消失。known 表记住「见过一次的窗口」：
 /// 用户访问过的 Space 里的窗口留下记录，之后离屏也仍然进列表（标题留用）。
 /// 从没访问过的其他 Space 窗口进不来 —— 公开 API 的天花板到此为止，
-/// alt-tab 为补这块改用了私有 WindowServer API（spec §3 非目标）。
+/// 同类工具为补这块改用了私有 WindowServer API（spec §3 非目标）。
 enum WindowEnumerator {
   /// 枚举一次。`known` 是上一次的「见过」表（跨次持有，见上）。
   static func enumerate(known previous: [UInt32: KnownWindow]) -> WindowEnumeration {
@@ -186,7 +186,7 @@ enum AXWindows {
     var entries = readWindows(app)
     // 补上主窗口：`kAXWindows` 只给当前 Space 的窗口，而 `kAXMainWindow`
     // 不受 Space 过滤 —— 其他 Space 上每个 app 的前台窗口靠它进列表。
-    // 这是公开 API 能给到的最全范围（alt-tab 为剩下的部分改用私有 API）。
+    // 这是公开 API 能给到的最全范围（同类工具为剩下的部分改用私有 API）。
     if let main = entry(of: app, kAXMainWindowAttribute as CFString) {
       if !entries.contains(where: { Self.isSameFrame($0.frame, main.frame) }) {
         entries.append(main)

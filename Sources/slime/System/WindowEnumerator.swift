@@ -2,30 +2,55 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
+/// 见过的窗口：能证明它是真窗口（在屏上或 AX 里匹配上过），也留下最后的
+/// 标题/最小化状态（离屏时 AX 读不到，靠这里留用）。
+struct KnownWindow: Sendable, Equatable {
+  var title: String
+  var minimized: Bool
+}
+
+/// 纯过滤的输入形状：一个候选窗口的系统信息。
+struct WindowCandidate: Sendable {
+  let windowID: UInt32
+  let pid: pid_t
+  let appName: String
+  let onscreen: Bool
+  /// 这一轮在 AX 里匹配到的信息（标题/最小化），没匹配上就是 nil。
+  let matched: KnownWindow?
+}
+
+/// 一次枚举的产物 + 更新后的「见过」表（调用方跨次持有并传回来）。
+struct WindowEnumeration: Sendable {
+  var windows: [Window] = []
+  var known: [UInt32: KnownWindow] = [:]
+}
+
 /// 窗口枚举：`CGWindowList` 定「有哪些窗口」，AX 取标题和最小化状态
 /// （spec §5 / §7）。必须在后台线程跑 —— 一次枚举是成串的跨进程同步 IPC，
 /// 跑主线程 = 按下快捷键就转圈（红线 4）。
+///
+/// 过滤规则：
+/// - `layer == 0`、alpha > 0、排除桌面元素、排除本进程 —— 基础可见性；
+/// - **不按窗口尺寸过滤**（红线 7）：台前调度搁置的窗口，CG 报的是左侧
+///   条带里的小方框，按尺寸会把它们全部丢掉；
+/// - app 必须是 `activationPolicy == .regular` —— 菜单栏 app 和系统服务
+///   不是切换目标；
+/// - 窗口必须**在屏上**、**有 AX 对应物**、或**在 known 表里**。系统会给
+///   每个 app 生一批 layer 0、alpha 1 的幽灵窗口（菜单栏条、缓存窗等），
+///   它们从不在屏上、从不在 AX 里 —— 永远进不了 known 表（issue #21）。
+///
+/// `known` 表解的是另一个问题（issue #23）：`kAXWindows` 只暴露**当前
+/// Space** 的窗口，公开 API 里免空间过滤的只有主窗口/焦点窗口 —— 一个 app
+/// 的第二个窗口只要不在屏上就会消失。known 表记住「见过一次的窗口」：
+/// 用户访问过的 Space 里的窗口留下记录，之后离屏也仍然进列表（标题留用）。
+/// 从没访问过的其他 Space 窗口进不来 —— 公开 API 的天花板到此为止，
+/// alt-tab 为补这块改用了私有 WindowServer API（spec §3 非目标）。
 enum WindowEnumerator {
-  /// 所有可切换到的**用户窗口**，全局 front-to-back 顺序（第一个是当前窗口）。
-  ///
-  /// 过滤规则：
-  /// - `layer == 0`、alpha > 0、排除桌面元素、排除本进程 —— 基础可见性；
-  /// - **不按窗口尺寸过滤**（红线 7）：台前调度搁置的窗口，CG 报的是左侧
-  ///   条带里的小方框，按尺寸会把它们全部丢掉；
-  /// - app 必须是 `activationPolicy == .regular` —— 菜单栏 app 和系统服务
-  ///   不是切换目标；
-  /// - 窗口必须**在屏上**或**有 AX 对应物**。系统会给每个 app 生一批
-  ///   layer 0、alpha 1 的幽灵窗口（菜单栏条、缓存窗等），它们既不在屏上、
-  ///   也不在 `kAXWindows` 里 —— 不滤掉的话，面板会被同一个 app 的十几行
-  ///   空标题刷屏，没有窗口的 app 也会出现（issue #21）。
-  ///
-  /// 已知限制：`kAXWindows` 只暴露**当前 Space** 的窗口，所以其他 Space 上
-  /// 的窗口只有「在屏上」时才进得来 —— 公开 API 就到这（alt-tab 为此改用
-  /// 了私有 WindowServer API，spec §3 把那条路列为非目标）。
-  static func enumerate() -> [Window] {
+  /// 枚举一次。`known` 是上一次的「见过」表（跨次持有，见上）。
+  static func enumerate(known previous: [UInt32: KnownWindow]) -> WindowEnumeration {
     let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
     guard let rawList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
-    else { return [] }
+    else { return WindowEnumeration() }
 
     let ownPid = getpid()
     var regularApp: [pid_t: Bool] = [:]
@@ -81,19 +106,53 @@ enum WindowEnumerator {
       }
     }
 
-    return raw.compactMap { window -> Window? in
-      let ax = axInfo[window.windowID]
-      // 幽灵过滤：不在屏上、又没有 AX 对应物的，不是用户开的窗。
-      guard window.onscreen || ax != nil else { return nil }
-      return Window(
-        pid: window.pid,
-        windowID: window.windowID,
-        appName: window.appName,
-        // 拿不到标题就留空 —— label 退化成 app 名，不编造（红线 6）。
-        title: ax?.title ?? "",
-        isMinimized: ax?.minimized ?? false
+    return select(
+      raw.map { window in
+        WindowCandidate(
+          windowID: window.windowID,
+          pid: window.pid,
+          appName: window.appName,
+          onscreen: window.onscreen,
+          matched: axInfo[window.windowID].map {
+            KnownWindow(title: $0.title, minimized: $0.minimized)
+          }
+        )
+      },
+      known: previous
+    )
+  }
+
+  /// 纯函数：过滤 + known 表更新（System 层唯一能单测的部分）。
+  ///
+  /// - 幽灵过滤：不在屏上、AX 里没有、也从没见过 —— 不是用户开的窗。
+  /// - known 表：通过过滤的窗口都写回表里 —— 之后离屏也还在（issue #23），
+  ///   标题留用（离屏时 AX 读不到）；表里只留这一轮出现的 id（窗口消失即
+  ///   自然修剪，防 id 复用）。
+  /// - 这一轮亲眼匹配到的信息优先于旧记忆。
+  static func select(
+    _ candidates: [WindowCandidate], known: [UInt32: KnownWindow]
+  ) -> WindowEnumeration {
+    var result = WindowEnumeration()
+    for candidate in candidates {
+      let remembered = known[candidate.windowID]
+      // 幽灵过滤：三种证据都没有，就不是用户开的窗。
+      guard candidate.onscreen || candidate.matched != nil || remembered != nil else { continue }
+
+      let info =
+        candidate.matched ?? remembered ?? KnownWindow(title: "", minimized: false)
+      result.known[candidate.windowID] = info
+      result.windows.append(
+        Window(
+          pid: candidate.pid,
+          windowID: candidate.windowID,
+          appName: candidate.appName,
+          // 拿不到标题就留空 —— label 退化成 app 名，不编造（红线 6）。
+          title: info.title,
+          isMinimized: info.minimized
+        )
       )
     }
+    return result
   }
 
   private static func bounds(_ value: Any?) -> CGRect? {

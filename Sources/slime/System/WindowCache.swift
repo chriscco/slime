@@ -27,6 +27,10 @@ final class WindowCache {
   private var observing = false
   private let queue = DispatchQueue(label: "slime.enumerate", qos: .userInitiated)
 
+  /// 「见过一次是真窗口」的表（枚举器产出、跨次传回）—— 其他 Space 的窗口
+  /// 靠它留在列表里。见 WindowEnumerator 的文档。
+  private var known: [UInt32: KnownWindow] = [:]
+
   /// 快照更新后的回调 —— 面板还开着时静默刷新用。
   var onChange: (([Window]) -> Void)?
 
@@ -43,13 +47,17 @@ final class WindowCache {
     generation += 1
     let gen = generation
     let mru = mruPids
+    let previous = known
     queue.async { [weak self] in
-      let windows = WindowEnumerator.enumerate()
+      let result = WindowEnumerator.enumerate(known: previous)
       // front-to-back 的第一个就是当前窗口（本进程的窗口不在枚举结果里）。
-      let front = windows.first?.windowID
-      let sorted = Self.sort(windows, byMRU: mru)
+      let front = result.windows.first?.windowID
+      let sorted = Self.sort(result.windows, byMRU: mru)
+      let updatedKnown = result.known
       DispatchQueue.main.async {
-        MainActor.assumeIsolated { self?.apply(sorted, frontWindowID: front, generation: gen) }
+        MainActor.assumeIsolated {
+          self?.apply(sorted, frontWindowID: front, known: updatedKnown, generation: gen)
+        }
       }
     }
   }
@@ -65,10 +73,13 @@ final class WindowCache {
     onChange?(snapshot)
   }
 
-  private func apply(_ windows: [Window], frontWindowID: UInt32?, generation: Int) {
+  private func apply(
+    _ windows: [Window], frontWindowID: UInt32?, known: [UInt32: KnownWindow], generation: Int
+  ) {
     guard generation == self.generation else { return }
     all = windows
     self.frontWindowID = frontWindowID
+    self.known = known
     onChange?(snapshot)
   }
 

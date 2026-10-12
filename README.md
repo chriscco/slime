@@ -1,7 +1,7 @@
 # slime
 
-A macOS window switcher in the spirit of [alt-tab-macos](https://github.com/lwouis/alt-tab-macos),
-plus two things it doesn't have: **type-to-search** and **two trigger gestures**.
+A macOS window switcher with two things the system's own switcher doesn't do:
+**type-to-search** and **two trigger gestures**.
 
 **[中文说明 →](README.zh-CN.md)**
 

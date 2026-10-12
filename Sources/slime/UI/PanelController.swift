@@ -27,7 +27,13 @@ final class PanelController {
   private var phase: State = .idle
 
   /// 空态只有一行文字，纯网格宽度（24pt）比它还窄 —— 收一个下限。
+  /// 只在空态生效：有结果时宽度必须跟着卡数收窄（spec §2 第 3 条）。
   private static let emptyStateMinWidth: CGFloat = 180
+
+  /// 空态文字在内容坐标系里 y ≈ 60（padding + 搜索框 + padding + 6）、
+  /// 14pt 字约 17 高，加回 10 的下边距要 87 —— 纯网格高度（70）会把文字
+  /// 下缘裁掉（content 层 masksToBounds）。下限取 88 留一点余量。
+  private static let emptyStateMinHeight: CGFloat = 88
 
   init() {
     panel.onKey = { [weak self] event in self?.key(event) }
@@ -117,14 +123,36 @@ final class PanelController {
   /// 面板当前布局。rerank 之后重建，`resizeAndPosition` 和 moveSelection 都读它。
   private var gridLayout = GridLayout(count: 0)
 
-  private var columnsPerRow: Int { max(1, gridLayout.columns) }
+  /// 按轴算新的选中。纯计算 —— internal 而不是 private：PanelLayoutTests 直接
+  /// 验算，免去驱动真面板发按键。
+  ///
+  /// 纵向按「排」循环：同一列、排号取模 —— 首排 ↑ 绕到末排（GridLayout 的
+  /// shouldAnimate 注释也是这个语义），末排没有这一列时收到最后一个格子。
+  /// 横向（和只有一排时的纵向）走普通索引循环。结果恒在 `0..<count`，不可能
+  /// 为负 —— 负索引的高亮 frame 落在文档视图外被裁掉，整条高亮会消失。
+  static func movedSelection(
+    from selection: Int, axis: Axis, step: Int, layout: GridLayout
+  ) -> Int {
+    let count = layout.count
+    guard count > 0 else { return 0 }
+    let current = min(max(selection, 0), count - 1)
 
-  /// 网格里 ↑↓ 走一排 = `columnsPerRow` 格（spec §6）。Tab / ←→ 恒为一格。
+    if axis == .horizontal {
+      return ((current + step) % count + count) % count
+    }
+
+    let columns = max(1, layout.columns)
+    let rows = max(1, layout.rows)
+    let row = current / columns
+    let column = current % columns
+    let targetRow = ((row + step) % rows + rows) % rows
+    return min(targetRow * columns + column, count - 1)
+  }
+
+  /// 网格里 ↑↓ 走一排 = `GridLayout.columns` 格（spec §6）。Tab / ←→ 恒为一格。
   private func moveSelection(axis: Axis, step: Int) {
     guard !rows.isEmpty else { return }
-    let delta = step * (axis == .vertical ? columnsPerRow : 1)
-    // 首尾相接：连续 Tab 循环（spec §2 第 7 条）。
-    selection = (selection + delta + rows.count) % rows.count
+    selection = Self.movedSelection(from: selection, axis: axis, step: step, layout: gridLayout)
     panel.content.gridView.setSelection(selection, animated: true)
     panel.content.gridView.scrollSelectionToVisible()
   }
@@ -168,10 +196,13 @@ final class PanelController {
   }
 
   private func resizeAndPosition() {
-    // 空态的面板宽度不能小于空态文字（纯网格宽度只有 24pt）。
-    let width = max(gridLayout.panelWidth, Self.emptyStateMinWidth)
-    panel.setContentSize(
-      NSSize(width: width, height: gridLayout.panelHeight))
+    // 空态（0 张）纯网格是 24 × 70，比空态文字还窄/矮 —— 宽高都收下限；
+    // 有结果时尺寸完全跟着卡数走（宽度收窄、高度最多 3 排）。
+    let width =
+      rows.isEmpty ? max(gridLayout.panelWidth, Self.emptyStateMinWidth) : gridLayout.panelWidth
+    let height =
+      rows.isEmpty ? max(gridLayout.panelHeight, Self.emptyStateMinHeight) : gridLayout.panelHeight
+    panel.setContentSize(NSSize(width: width, height: height))
 
     // 出现在鼠标所在屏幕的中间（多屏时不跑到别的屏去）。
     let mouse = NSEvent.mouseLocation

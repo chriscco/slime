@@ -21,7 +21,7 @@
 
 **排版**：`reloadRows` 重建 `GridLayout`（列数/行数随结果）→ `CardGridView` 排卡片；`resizeAndPosition` 用 `gridLayout.panelWidth` / `panelHeight` 定窗口大小（空态宽度收下限，不窄于空态文字）。
 
-**高亮**：`moveSelection(axis:step:)` 循环取模 —— ↑↓ 走一排 = `GridLayout.columns` 格，Tab / ←→ 恒为一格；跨行超过一排时直接跳（不斜穿面板，spec §10），否则 `HighlightView` 平滑滑动到目标卡。
+**高亮**：`moveSelection(axis:step:)` —— ↑↓ 按排循环（首排 ↑ 绕到末排同一列，末排缺列时收到最后一个格子）、Tab / ←→ 循环取模恒为一格；跨行超过一排时直接跳（不斜穿面板，spec §10），否则 `HighlightView` 平滑滑动到目标卡。
 
 **键入**：`appendQuery` / `deleteQueryChar` 更新 `query` 与搜索框文本 → 重新 rank → 选中归零（纯状态表语义）。
 

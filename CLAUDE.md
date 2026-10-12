@@ -133,6 +133,7 @@ chore(scripts): probe the toolchain in scripts/test
 | 文档 | 何时必须写 | 位置 |
 |---|---|---|
 | spec | **较大需求**：跨多个模块 / 跨多次会话 / 含重要取舍 —— 三条任一成立 | `docs/specs/YYYY-MM-DD-<kebab-描述>-spec.md` |
+| plan | spec 要拆成**有先后依赖的任务**、一次会话做不完时（plan 描述「怎么做」，spec 描述「做什么」） | `docs/plans/YYYY-MM-DD-<kebab-描述>.md` |
 | design | 模块代码 > 150 行 **或** 含正确性假设 | `docs/modules/<模块>/design.md` |
 | decision | **每做一个值得回溯的取舍就追加一条**，只追加不改写历史 | `docs/modules/<模块>/decision.md` |
 | handoff | 会话结束 / 交接时更新：现状、下一步、坑 | `docs/modules/<模块>/handoff.md` |

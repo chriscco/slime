@@ -284,3 +284,21 @@ private func expect(
   #expect(fresh == .holding(.cmd, query: "", selection: 0))
   #expect(effects == [.swallow, .showPanel(.cmd)])
 }
+
+// MARK: - ⌘,（spec §9）
+
+@Test func commaWhileThePanelIsUpOpensSettings() {
+  // 面板开着：吃掉逗号、开设置、会话结束回 idle（面板由 Effect 的执行者藏起来）。
+  expect(
+    from: .holding(.cmd, query: "sl", selection: 1), on: .openSettings,
+    .idle, [.swallow, .openSettings])
+  expect(
+    from: .lingering(query: "sl", selection: 1), on: .openSettings,
+    .idle, [.swallow, .openSettings])
+}
+
+@Test func commaWithoutThePanelPassesThrough() {
+  // 面板还没开（armed）：⌘, 是别人的快捷键，原样放行。
+  expect(from: .armed(.cmd), on: .openSettings, .armed(.cmd), [.passThrough])
+  expect(from: .idle, on: .openSettings, .idle, [.passThrough])
+}

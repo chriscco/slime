@@ -27,3 +27,17 @@ import Testing
     KeyTable.event(keyCode: 125, shift: false, commandOrOption: true, character: "\u{F701}"))
   #expect(down == .arrow(axis: .vertical, step: 1))
 }
+
+// spec §9：`,` 是 keyCode 43。不加这条分支它就掉进 default → `.char(",")`，
+// 把逗号塞进搜索框。裸 `,` 必须仍然是字符 —— 搜索窗口标题时打逗号是正常的。
+@Test func commandCommaOpensSettingsInsteadOfTypingAComma() throws {
+  let command = try #require(
+    KeyTable.event(keyCode: 43, shift: false, commandOrOption: true, character: ","))
+  #expect(command == .openSettings)
+}
+
+@Test func bareCommaIsStillTypedIntoTheQuery() throws {
+  let bare = try #require(
+    KeyTable.event(keyCode: 43, shift: false, commandOrOption: false, character: ","))
+  #expect(bare == .char(","))
+}

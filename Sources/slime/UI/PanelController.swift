@@ -14,6 +14,8 @@ final class PanelController {
   var onActivate: ((Window) -> Void)?
   /// showPanel 时回调 —— AppDelegate 触发后台重枚举（spec §7 数据流）。
   var onRefresh: (() -> Void)?
+  /// 面板里按 ⌘, 开设置 —— AppDelegate 负责把设置窗口叫到前面。
+  var onOpenSettings: (() -> Void)?
 
   private let panel = PanelWindow()
   /// 玻璃参数的来源。只在 show() 里读一次（spec §8）。
@@ -89,6 +91,11 @@ final class PanelController {
         activateSelection()
       case .cancel:
         break  // 不切窗口；hidePanel 已负责藏起来，列表下次打开自然重建
+      case .openSettings:
+        // 显式藏一次：设置窗口 makeKeyAndOrderFront 后面板会 resignKey 自动
+        // 藏起来（0.0.2 §8 的既有行为），但那是副作用不是承诺。
+        hide()
+        onOpenSettings?()
       }
     }
   }

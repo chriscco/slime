@@ -39,7 +39,7 @@ KISS/YAGNI 的代价要显式写出来：哪个角被砍了、上限在哪、什
 - [ ] 没有直接提交到 main
 - [ ] 行为变更遵循 red → green，并通过公开接口测试；纯文档/静态配置写“不适用”
 - [ ] `scripts/test` 本地通过
-- [ ] 已按交付完整度选对关联写法：`Closes #N`（做完了）或 `Refs #N`（只做一部分）
+- [ ] 已按新规范选对关联写法：合并的 PR 必须是交付完成、用 `Closes #N`；部分完成用 `Refs #N` 不合并
 - [ ] 触及 CLAUDE.md 第四条正确性红线的话，已逐条核对并在「为什么这么改」里点名
 - [ ] `Core/` 没有新增 AppKit / CoreGraphics / ApplicationServices 的 import
 - [ ] 达到文档阈值的话，spec / design / decision 已更新（见 CLAUDE.md 第三条）

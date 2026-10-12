@@ -1,51 +1,52 @@
 ---
-name: 任务
-about: 定义一个有边界、可验收的改动
+name: Task
+about: Define a bounded, verifiable change
 title: ""
 labels: ""
 assignees: ""
 ---
 
-## 目标
+## Goal
 
-<!-- 一句话写清完成后会发生什么。 -->
+<!-- One sentence on what will happen once this is done. -->
 
-## 为什么
+## Why
 
-<!-- 问题、证据或根因；不要只写期望方案。 -->
+<!-- The problem, evidence, or root cause; don't just write the proposed solution. -->
 
-## 范围
+## Scope
 
-做：
+Do:
 
-- <!-- 要做的交付物 -->
+- <!-- deliverables -->
 
-不做：
+Not doing:
 
-- <!-- 明确排除项 -->
+- <!-- explicit exclusions -->
 
-## 验收标准
+## Acceptance criteria
 
 <!--
-每条都应能由测试、命令或明确的观察结果判定。
-窗口切换器的验收项要写清「在什么状态下按了什么」，例如：
-「按住 ⌘、按一次 Tab、松开 ⌘ 之后，前台窗口变成了高亮项」。
-不要写「切换体验流畅」这种不可判定的。
+Every item must be decidable by a test, a command, or a concrete observation.
+For the window switcher, spell out what is pressed in what state, e.g.
+"Hold ⌘, tap Tab once, release ⌘ — the frontmost window is now the highlighted one."
+Don't write undecidable things like "switching feels smooth".
 -->
 
-- [ ] <!-- 可执行的验收项 -->
+- [ ] <!-- executable acceptance item -->
 
-## 测试 seam
+## Test seam
 
 <!--
-从哪个公开接口观察行为。`Trigger` 和 `Search` 走 `Tests/slimeTests/`；
-涉及真机权限和 WindowServer 的（枚举、AX、面板、激活）写「人工验收，见 issue 验收标准」。
-纯文档任务写「不适用」。
+Which public interface do we observe the behavior through? `Trigger` and `Search` go through
+`Tests/slimeTests/`; anything involving real permissions or WindowServer (enumeration, AX, panel,
+activation) writes "manual acceptance, see the issue's acceptance criteria". Pure documentation
+tasks write "N/A".
 -->
 
-## 约束与关联
+## Constraints & links
 
 <!--
-相关 spec、issue，或必须保留的兼容性。
-触及 CLAUDE.md 第四条任一红线的话，在这里点名是哪一条。没有就写「无」。
+Related specs, issues, or compatibility that must be preserved.
+If this touches any red line in CLAUDE.md section 4, name which one here. If none, write "None".
 -->

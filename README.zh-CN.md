@@ -1,7 +1,6 @@
 # slime
 
-macOS 窗口切换器，思路参考 [alt-tab-macos](https://github.com/lwouis/alt-tab-macos)，
-但多了两样它没有的东西：**打字即时搜索**和**双触发手势**。
+macOS 窗口切换器。比系统自带的切换器多两样东西：**打字即时搜索**和**双触发手势**。
 
 **[English →](README.md)**
 

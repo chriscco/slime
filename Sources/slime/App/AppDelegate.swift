@@ -43,7 +43,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       cache?.noteActivated(window)
     }
     panel.onRefresh = { [weak cache] in cache?.refresh() }
-    cache.onChange = { [weak panel] windows in panel?.setWindows(windows) }
+    // 图标预热挂在这里：onChange 在 MainActor.assumeIsolated 里触发，天然在主线程。
+    cache.onChange = { [weak panel] windows in
+      AppIcons.warm(windows)
+      panel?.setWindows(windows)
+    }
 
     self.cache = cache
     self.panel = panel

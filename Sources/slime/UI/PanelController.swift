@@ -1,6 +1,6 @@
 import AppKit
 
-/// 面板控制器：搜索框、列表、高亮、显示/隐藏，以及 lingering 下的键盘
+/// 面板控制器：搜索框、卡片网格、高亮、显示/隐藏，以及 lingering 下的键盘
 /// （NSEvent → Event → **同一个** reduce，spec §6 两个事件源一个状态机）。
 ///
 /// 展示层的两个账本，纯状态机不知道：
@@ -26,9 +26,8 @@ final class PanelController {
   /// 纯状态机的镜像：phase 与 query 与它同步；selection 只用于喂 reduce。
   private var phase: State = .idle
 
-  private static let width: CGFloat = 640
-  private static let maxVisibleRows = 12
-  private static let rowHeight = WindowListDocumentView.rowHeight
+  /// 空态只有一行文字，纯网格宽度（24pt）比它还窄 —— 收一个下限。
+  private static let emptyStateMinWidth: CGFloat = 180
 
   init() {
     panel.onKey = { [weak self] event in self?.key(event) }
@@ -115,8 +114,10 @@ final class PanelController {
 
   // MARK: - 列表
 
-  /// 竖向列表下「一排」就是一格。Task 5 换成卡片网格后接 `GridLayout.columns`。
-  private var columnsPerRow: Int { 1 }
+  /// 面板当前布局。rerank 之后重建，`resizeAndPosition` 和 moveSelection 都读它。
+  private var gridLayout = GridLayout(count: 0)
+
+  private var columnsPerRow: Int { max(1, gridLayout.columns) }
 
   /// 网格里 ↑↓ 走一排 = `columnsPerRow` 格（spec §6）。Tab / ←→ 恒为一格。
   private func moveSelection(axis: Axis, step: Int) {
@@ -124,8 +125,8 @@ final class PanelController {
     let delta = step * (axis == .vertical ? columnsPerRow : 1)
     // 首尾相接：连续 Tab 循环（spec §2 第 7 条）。
     selection = (selection + delta + rows.count) % rows.count
-    panel.content.listView.setSelection(selection, animated: true)
-    panel.content.listView.scrollSelectionToVisible()
+    panel.content.gridView.setSelection(selection, animated: true)
+    panel.content.gridView.scrollSelectionToVisible()
   }
 
   private func append(_ character: Character) {
@@ -158,19 +159,19 @@ final class PanelController {
 
   private func reloadRows() {
     let content = panel.content
-    content.listView.rows = rows
-    content.listView.setSelection(selection, animated: false)
-    content.listView.scrollSelectionToVisible()
+    content.gridView.rows = rows
+    gridLayout = GridLayout(count: rows.count)
+    content.gridView.setSelection(selection, animated: false)
+    content.gridView.scrollSelectionToVisible()
     content.emptyLabel.isHidden = !rows.isEmpty
     resizeAndPosition()
   }
 
   private func resizeAndPosition() {
-    let visibleRows = min(max(rows.count, 1), Self.maxVisibleRows)
-    let height =
-      PanelContentView.padding * 2 + PanelContentView.searchHeight
-      + CGFloat(visibleRows) * Self.rowHeight
-    panel.setContentSize(NSSize(width: Self.width, height: height))
+    // 空态的面板宽度不能小于空态文字（纯网格宽度只有 24pt）。
+    let width = max(gridLayout.panelWidth, Self.emptyStateMinWidth)
+    panel.setContentSize(
+      NSSize(width: width, height: gridLayout.panelHeight))
 
     // 出现在鼠标所在屏幕的中间（多屏时不跑到别的屏去）。
     let mouse = NSEvent.mouseLocation

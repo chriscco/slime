@@ -3,26 +3,47 @@ import Testing
 
 @testable import slime
 
-// 布局回归（issue #15）：document view 的宽度必须来自 scroll view ——
-// 宽度是 0 时行 label 的 frame 宽度为负，文字画不出来，面板看起来是空白的。
-// 这是这一层唯一能自动化的部分：能自动化的部分就自动化，GUI 观感留给人工验收。
-@Test @MainActor func listRowsGetWidthFromScrollView() {
+// 布局回归。0.0.1 的同类测试（issue #15）抓的是「document view 宽度为 0 →
+// 行的 frame 宽度为负 → 面板看起来是空白的」。网格版换成卡片，
+// 但那条契约不变：document view 的宽度必须来自 scroll view。
+// 能自动化的部分就自动化，GUI 观感留给人工验收。
+
+private func window(_ app: String, _ title: String, id: UInt32) -> Window {
+  Window(pid: 1, windowID: id, appName: app, title: title, isMinimized: false)
+}
+
+@Test @MainActor func gridCardsAreLaidOutInReadingOrder() {
   let content = PanelContentView()
-  content.frame = NSRect(x: 0, y: 0, width: 640, height: 300)
-  content.listView.rows = [
-    Window(pid: 1, windowID: 1, appName: "Chrome", title: "GitHub", isMinimized: false),
-    Window(pid: 1, windowID: 2, appName: "Terminal", title: "zsh", isMinimized: false),
+  content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
+  content.gridView.rows = [
+    window("Chrome", "GitHub", id: 1),
+    window("Chrome", "Claude", id: 2),
+    window("iTerm2", "slime", id: 3),
   ]
   content.layoutSubtreeIfNeeded()
 
-  #expect(content.listView.frame.width > 0)
-  #expect(content.listView.frame.width == content.scrollView.contentSize.width)
+  #expect(content.gridView.layout.columns == 3)
+  #expect(content.gridView.layout.rows == 1)
 
-  let labels = content.listView.subviews.compactMap { $0 as? NSTextField }
-  #expect(labels.count == 2)
-  #expect(labels.allSatisfy { $0.frame.width > 0 })
+  let cards = content.gridView.subviews.compactMap { $0 as? CardView }
+  #expect(cards.count == 3)
+  // 阅读顺序：x 递增，y 相同。
+  #expect(cards[0].frame.minX < cards[1].frame.minX)
+  #expect(cards[1].frame.minX < cards[2].frame.minX)
+  #expect(cards[0].frame.minY == cards[1].frame.minY)
 }
 
+@Test @MainActor func gridColumnsGetWidthFromScrollView() {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
+  content.gridView.rows = [window("Chrome", "GitHub", id: 1)]
+  content.layoutSubtreeIfNeeded()
+
+  #expect(content.gridView.frame.width > 0)
+  #expect(content.gridView.frame.width == content.scrollView.contentSize.width)
+}
+
+// 原样保留 —— 这个测试跟列表还是网格无关，改成网格时不要顺手删掉。
 @Test @MainActor func emptyPlaceholderIsHiddenOnlyWhenThereAreRows() {
   let content = PanelContentView()
   // 面板控制器负责 emptyLabel 的显隐；这里只钉住默认状态是「隐藏」——

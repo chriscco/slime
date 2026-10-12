@@ -70,13 +70,13 @@ final class PanelWindow: NSPanel {
   }
 }
 
-/// 面板内容：搜索框 + 竖向列表 + 空态提示。手动布局（从上到下三块，
+/// 面板内容：搜索框 + 卡片网格 + 空态提示。手动布局（从上到下三块，
 /// 用 constraints 是杀鸡用牛刀）。
 final class PanelContentView: NSView {
   let searchBox = NSView()
   let searchLabel = NSTextField(labelWithString: "")
   let scrollView = NSScrollView()
-  let listView = WindowListDocumentView()
+  let gridView = CardGridView()
   let emptyLabel = NSTextField(labelWithString: "没有其他窗口")
 
   override var isFlipped: Bool { true }
@@ -98,7 +98,7 @@ final class PanelContentView: NSView {
     scrollView.drawsBackground = false
     scrollView.hasVerticalScroller = true
     scrollView.autohidesScrollers = true
-    scrollView.documentView = listView
+    scrollView.documentView = gridView
     scrollView.borderType = .noBorder
 
     emptyLabel.font = .systemFont(ofSize: 14)
@@ -130,120 +130,9 @@ final class PanelContentView: NSView {
     scrollView.frame = NSRect(
       x: Self.padding, y: listTop, width: inner, height: bounds.height - listTop - Self.padding)
     // document view 不会自己撑开：宽度必须从 scroll view 传下去。
-    listView.setContentWidth(scrollView.contentSize.width)
+    gridView.setContentWidth(scrollView.contentSize.width)
     emptyLabel.sizeToFit()
     emptyLabel.frame = NSRect(
       x: Self.padding + 8, y: listTop + 6, width: inner - 16, height: emptyLabel.frame.height)
   }
-}
-
-/// 竖向列表：手动布局的行 + 平滑滑动的高亮条。
-///
-/// 不用 NSTableView：这里不要列、不要复用、不要它自带的选中样式，
-/// 手动布局反而更可控 —— 高亮就是 document view 里的一个普通子视图，
-/// 跟着滚动走，不需要和表格内部的坐标系跨层。
-final class WindowListDocumentView: NSView {
-  static let rowHeight: CGFloat = 26
-
-  /// 渲染的行。由 PanelController 推过来（rank 结果）。
-  var rows: [Window] = [] {
-    didSet { rebuild() }
-  }
-
-  private(set) var selection = 0
-  private let highlight = HighlightView()
-  private var labels: [NSTextField] = []
-
-  override var isFlipped: Bool { true }
-
-  init() {
-    super.init(frame: .zero)
-    addSubview(highlight, positioned: .below, relativeTo: nil)
-  }
-
-  required init?(coder: NSCoder) { fatalError("列表只从代码建") }
-
-  /// document view 的宽度跟着 scroll view 的内容宽度走（高度由行数决定）。
-  /// 宽度变化经 resizeSubviews 传导到每一行 —— 没有这一步，document view
-  /// 宽度是 0，行的 frame 宽度为负，文字画不出来（面板看起来是空白的）。
-  func setContentWidth(_ width: CGFloat) {
-    guard frame.width != width else { return }
-    frame.size.width = width
-  }
-
-  /// 选中移动。`animated` 只给键盘移动用 —— 刷新重建时不闪。
-  func setSelection(_ index: Int, animated: Bool) {
-    selection = index
-    highlight.isHidden = rows.isEmpty
-    guard !rows.isEmpty else { return }
-    let rect = rowRect(index)
-    if animated {
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.09
-        highlight.animator().frame = rect
-      }
-    } else {
-      highlight.frame = rect
-    }
-  }
-
-  /// 把选中行滚进可见范围（循环到列表两端时）。
-  func scrollSelectionToVisible() {
-    guard !rows.isEmpty else { return }
-    scrollToVisible(rowRect(selection))
-  }
-
-  private func rowRect(_ index: Int) -> NSRect {
-    NSRect(x: 0, y: CGFloat(index) * Self.rowHeight, width: bounds.width, height: Self.rowHeight)
-  }
-
-  private func rebuild() {
-    labels.forEach { $0.removeFromSuperview() }
-    labels = rows.map { window in
-      let label = NSTextField(labelWithString: window.label)
-      label.font = .systemFont(ofSize: 14)
-      label.textColor = .labelColor
-      label.lineBreakMode = .byTruncatingMiddle
-      label.drawsBackground = false
-      label.isBordered = false
-      addSubview(label)
-      return label
-    }
-    frame.size = NSSize(
-      width: bounds.width, height: CGFloat(rows.count) * Self.rowHeight)
-    for (index, label) in labels.enumerated() {
-      let rect = rowRect(index).insetBy(dx: 10, dy: 0)
-      label.sizeToFit()
-      label.frame = NSRect(
-        x: rect.minX,
-        y: rect.minY + (Self.rowHeight - label.frame.height) / 2,
-        width: rect.width,
-        height: label.frame.height
-      )
-    }
-  }
-
-  override func resizeSubviews(withOldSize oldSize: NSSize) {
-    super.resizeSubviews(withOldSize: oldSize)
-    // 宽度变化（面板尺寸调整）时行要跟着撑满。
-    for (index, label) in labels.enumerated() {
-      let rect = rowRect(index).insetBy(dx: 10, dy: 0)
-      label.frame.size.width = rect.width
-    }
-    highlight.frame.size.width = bounds.width
-  }
-}
-
-/// 高亮条：圆角、系统强调色。动画由外部用 animator() 驱动。
-final class HighlightView: NSView {
-  init() {
-    super.init(frame: .zero)
-    wantsLayer = true
-    layer?.cornerRadius = 6
-    // 半透明：行文字保持 labelColor 不换色，对比度也够。深浅手动验收时再调。
-    layer?.backgroundColor = NSColor.selectedContentBackgroundColor.withAlphaComponent(0.35)
-      .cgColor
-  }
-
-  required init?(coder: NSCoder) { fatalError("高亮条只从代码建") }
 }

@@ -8,8 +8,18 @@ import AppKit
 /// 见 docs/modules/panel/decision.md。）
 final class CardGridView: NSView {
   /// 渲染的卡片。由 PanelController 推过来（rank 结果）。
+  ///
+  /// 刷新按身份收敛（issue #35 的闪烁根因）：windowID 序列一致 → 不重建、
+  /// 不动 layout / selection，只就地刷新内容；不一致 → 复用存活窗口的
+  /// `CardView`、按新顺序重排，只对新增/消失的做增删。
   var rows: [Window] = [] {
-    didSet { rebuild() }
+    didSet {
+      if rows.map(\.windowID) == oldValue.map(\.windowID) {
+        for (window, card) in zip(rows, cards) { card.update(window: window) }
+        return
+      }
+      rebuild(using: oldValue)
+    }
   }
 
   private(set) var layout = GridLayout(count: 0)
@@ -74,10 +84,30 @@ final class CardGridView: NSView {
     )
   }
 
-  private func rebuild() {
-    cards.forEach { $0.removeFromSuperview() }
-    cards = rows.map { CardView(window: $0) }
-    cards.forEach(addSubview)
+  /// 行集变了：按 windowID 把上一轮的卡片收进池子，存活的就地更新后按新顺序
+  /// 重排；池子里剩下的（消失的窗口）才移除、没命中的才新建。windowID 是
+  /// 窗口的身份（design.md），假设唯一。
+  private func rebuild(using previous: [Window]) {
+    var pool: [UInt32: CardView] = [:]
+    for (window, card) in zip(previous, cards) {
+      pool[window.windowID] = card
+    }
+
+    var next: [CardView] = []
+    next.reserveCapacity(rows.count)
+    for window in rows {
+      if let card = pool.removeValue(forKey: window.windowID) {
+        card.update(window: window)
+        next.append(card)
+      } else {
+        let card = CardView(window: window)
+        addSubview(card)
+        next.append(card)
+      }
+    }
+    for card in pool.values { card.removeFromSuperview() }
+
+    cards = next
     layout = GridLayout(count: rows.count)
     applyLayout()
   }
@@ -119,9 +149,8 @@ final class CardView: NSView {
 
   init(window: Window) {
     super.init(frame: .zero)
-    icon.image = AppIcons.icon(for: window)
+    // 静态配置只做一次；图标与标题走 update（刷新复用路径也走它）。
     icon.imageScaling = .scaleProportionallyUpOrDown
-    label.stringValue = window.title.isEmpty ? window.appName : window.title
     label.font = .systemFont(ofSize: 12)
     label.textColor = .labelColor
     label.alignment = .center
@@ -130,9 +159,16 @@ final class CardView: NSView {
     label.isBordered = false
     addSubview(icon)
     addSubview(label)
+    update(window: window)
   }
 
   required init?(coder: NSCoder) { fatalError("卡片只从代码建") }
+
+  /// 就地更新：图标 + 标题（标题为空时退回 app 名）。刷新复用时不重建。
+  func update(window: Window) {
+    icon.image = AppIcons.icon(for: window)
+    label.stringValue = window.title.isEmpty ? window.appName : window.title
+  }
 
   override func layout() {
     super.layout()

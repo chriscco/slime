@@ -99,6 +99,71 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(content.searchLabel.textColor == .labelColor)
 }
 
+// issue #35：刷新时按身份复用卡片。唤出面板「图标闪一下」的根因就是
+// rows 每次赋值都全量重建（所有 CardView 拆掉重造）。
+@Test @MainActor func sameWindowIDsKeepTheSameCardViews() {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
+  content.gridView.rows = [
+    window("Chrome", "GitHub", id: 1),
+    window("iTerm2", "slime", id: 2),
+  ]
+  let first = cardSubviews(of: content.gridView)
+  #expect(first.count == 2)
+
+  // 同 ID 序列（只有标题变了）再赋值：不重建，只就地更新内容。
+  content.gridView.rows = [
+    window("Chrome", "GitHub — slime PR", id: 1),
+    window("iTerm2", "slime", id: 2),
+  ]
+  let second = cardSubviews(of: content.gridView)
+  #expect(second.count == 2)
+  #expect(second[0] === first[0])
+  #expect(second[1] === first[1])
+  #expect(label(of: second[0]) == "GitHub — slime PR")
+}
+
+// 行集变了（顺序变化 + 消失 + 新增）：存活的 CardView 复用到新位置，
+// 只对新增/消失的做增删 —— 刷新不再是「全部拆掉重造」。
+@Test @MainActor func reorderedRowsReuseSurvivingCards() throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
+  content.gridView.rows = [
+    window("Chrome", "A", id: 1),
+    window("iTerm2", "B", id: 2),
+    window("Safari", "C", id: 3),
+  ]
+  let before = cardSubviews(of: content.gridView)
+
+  content.gridView.rows = [
+    window("Safari", "C", id: 3),
+    window("Chrome", "A2", id: 1),
+    window("Finder", "D", id: 4),
+  ]
+  let after = cardSubviews(of: content.gridView)
+  #expect(after.count == 3)
+  // C 和 A 的实例被复用，不是全部重造。
+  #expect(after.contains { $0 === before[2] })
+  #expect(after.contains { $0 === before[0] })
+  // B 已经离场。
+  #expect(before[1].superview == nil)
+  // 顺序与数据一致：C 在第 0 列、A 第二、新造的 D 第三（frame 按网格索引排）。
+  let newCard = try #require(after.first { card in before.allSatisfy { $0 !== card } })
+  #expect(before[2].frame.minX == 0)
+  #expect(before[2].frame.minX < before[0].frame.minX)
+  #expect(before[0].frame.minX < newCard.frame.minX)
+  // 复用的实例就地更新了内容。
+  #expect(label(of: before[0]) == "A2")
+}
+
+private func cardSubviews(of grid: CardGridView) -> [CardView] {
+  grid.subviews.compactMap { $0 as? CardView }
+}
+
+private func label(of card: CardView) -> String? {
+  card.subviews.compactMap { $0 as? NSTextField }.first?.stringValue
+}
+
 // 原样保留 —— 这个测试跟列表还是网格无关，改成网格时不要顺手删掉。
 @Test @MainActor func emptyPlaceholderIsHiddenOnlyWhenThereAreRows() {
   let content = PanelContentView()

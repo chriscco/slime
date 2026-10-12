@@ -10,8 +10,8 @@
 
 - `PanelWindow: NSPanel`：`.nonactivatingPanel + .borderless`，覆写 `canBecomeKey`（无边框窗口默认拒绝 key 状态），`level = .floating`，`collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]`。
 - `PanelContentView`：搜索行 + `NSScrollView` + 空态标签；手动 `layout()`，document view 的宽度经 `gridView.setContentWidth(scrollView.contentSize.width)` 传下去。搜索行是无框的「放大镜 + 文本」pill（白 8%、圆角 8、无硬边），空查询显示占位「输入以过滤」（`setSearchText`，次要色），有查询显示查询（主色）。
-- `CardGridView`（document view）：手动排卡片；`HighlightView`（强调色 2pt 轮廓 + 8% 同色填充、圆角 12，贴合卡片尺寸）是它 `positioned: .below` 的普通子视图，跟着滚动走；选中的动画由 `setSelection(_:animated:)` 用 `animator()` 驱动。
-- `CardView`：单张卡片 —— app 图标在上（`AppIcons.icon(for:)`，`isFlipped`），窗口标题在下；标题为空时退回 app 名。
+- `CardGridView`（document view）：手动排卡片；`HighlightView`（强调色 2pt 轮廓 + 8% 同色填充、圆角 12，贴合卡片尺寸）是它 `positioned: .below` 的普通子视图，跟着滚动走；选中的动画由 `setSelection(_:animated:)` 用 `animator()` 驱动。`rows` 赋值按身份收敛：windowID 序列一致不重建，变了复用存活 `CardView`、只增删新增 / 消失的。
+- `CardView`：单张卡片 —— app 图标在上（`AppIcons.icon(for:)`，`isFlipped`），窗口标题在下；标题为空时退回 app 名。静态配置在 `init`，图标 / 标题经 `update(window:)` 就地刷新（刷新复用不重造）。
 - `GridLayout`（`Core/`，纯数学）：列数（最多 5）、行数、可见排数（最多 3）、`origin(of:)`、`panelWidth` / `panelHeight`（面板尺寸）、`contentHeight`（document view 的完整高度，滚得到第 4 排以后）、`shouldAnimate(from:to:)`。
 - `PanelController` 的展示层账本：`query`（与搜索框显示一致）、`selection`（循环取模、身份跟随）、`phase`（纯状态机镜像，用于喂 lingering 的 `reduce`）。
 
@@ -25,7 +25,7 @@
 
 **键入**：`appendQuery` / `deleteQueryChar` 更新 `query` 与搜索框文本 → 重新 rank → 选中归零（纯状态表语义）。
 
-**刷新**（`setWindows`，面板还开着时）：重新 rank，选中按身份修回 —— 还在就跟随它的新位置；消失了回第 0 行；没有了就空态。
+**刷新**（`setWindows`，面板还开着时）：重新 rank，选中按身份修回 —— 还在就跟随它的新位置；消失了回第 0 行；没有了就空态。渲染按身份收敛：windowID 序列不变时视图纹丝不动，变了才复用重排（消除唤出面板时全量重建的闪烁，issue #35）。
 
 **lingering 键盘**：`PanelWindow.keyDown` 用 `KeyTable`（与 EventTap 共用）翻译成 `Event` → `reduce(phase, event)` → 执行 Effect；未翻译的键交给 `super`。
 

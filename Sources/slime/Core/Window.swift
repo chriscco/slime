@@ -3,8 +3,9 @@
 // 能在没有辅助功能权限、没有 CGEventTap、没有真人的情况下被单测穷举
 // （CLAUDE.md 第六条）。
 //
-// shortcut: Core/ 没有分层守卫测试（拦「谁 import 了 AppKit」的那种），
-// 纯逻辑层超过 3 个文件时补一个 —— 现在正好 3 个（Window / Search / Trigger）。
+// shortcut: Core/ 的分层守卫测试已补（Tests/slimeTests/LayeringTests.swift，
+// 拦「谁 import 了 AppKit / CoreGraphics / ApplicationServices」）——
+// 纯逻辑层现在 4 个文件（Window / Search / Trigger / GridLayout）。
 
 import Foundation
 

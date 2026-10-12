@@ -38,6 +38,9 @@ final class PanelWindow: NSPanel {
     // z-order 不保证（spec §7）。
     contentView = glass
     glass.contentView = content
+    // 头文件只保证 contentView 被放进玻璃、不保证自动撑满 —— 尺寸传导
+    // 无论如何都要成立；原生行为若已自动撑满，这行也无副作用。
+    content.autoresizingMask = [.width, .height]
     // 内容层留着裁边：空态文字不越出面板边界。
     content.wantsLayer = true
     content.layer?.masksToBounds = true

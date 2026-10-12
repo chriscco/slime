@@ -211,7 +211,7 @@ AXObserver 增量更新。理由见 spec §4 / §6 / §7。
 ```
 Sources/slime/
   App/        main.swift, AppDelegate.swift, Permission.swift
-  Core/       Window.swift, Search.swift, Trigger.swift
+  Core/       Window.swift, Search.swift, Trigger.swift, GridLayout.swift
   System/     EventTap.swift, WindowEnumerator.swift, WindowCache.swift, WindowActivator.swift
   UI/         PanelWindow.swift, PanelController.swift
 Tests/slimeTests/
@@ -247,6 +247,6 @@ func reduce(_ state: State, _ event: Event) -> (State, [Effect])
 |---|---|
 | `docs/modules/<模块>/` | 该模块代码超过 150 行，或有正确性假设时 |
 | `Sources/slime/System/` 下新增文件 | 真的出现了新的系统边界时 |
-| 分层守卫测试 | `Core/` 超过 3 个文件时（现在 3 个，到第 4 个就补） |
+| 分层守卫测试 | `Core/` 到第 4 个文件时补 —— **已补**：`Tests/slimeTests/LayeringTests.swift` 拦 Core/ 里 import AppKit / CoreGraphics / ApplicationServices |
 
 **12 个源文件够了。** 加文件之前先问：能不能并进已有的那个？

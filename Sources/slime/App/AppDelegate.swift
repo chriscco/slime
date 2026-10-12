@@ -6,6 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var cache: WindowCache?
   private var panel: PanelController?
   private var eventTap: EventTap?
+  private var statusItem: NSStatusItem?
+  private let settingsWindow = SettingsWindowController()
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     guard Permission.isAccessibilityTrusted else {
@@ -53,7 +55,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     self.panel = panel
     self.eventTap = tap
 
+    installStatusItem()
     cache.start()  // 首次枚举 + 订阅 didActivateApplication（维护 MRU）
+  }
+
+  // MARK: - 菜单栏
+
+  /// 菜单栏图标（spec §8）。app 是 .accessory，没有 Dock 图标也没有菜单栏项 ——
+  /// 不加这个，设置页做出来打不开。
+  private func installStatusItem() {
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    item.button?.image = NSImage(
+      systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "slime")
+
+    let menu = NSMenu()
+    let settings = NSMenuItem(
+      title: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+    settings.target = self
+    menu.addItem(settings)
+    menu.addItem(.separator())
+    let quit = NSMenuItem(title: "退出 slime", action: #selector(quit), keyEquivalent: "q")
+    quit.target = self
+    menu.addItem(quit)
+    item.menu = menu
+
+    statusItem = item
+  }
+
+  @objc private func openSettings() {
+    settingsWindow.show()
+  }
+
+  @objc private func quit() {
+    NSApp.terminate(nil)
   }
 
   // MARK: - 权限

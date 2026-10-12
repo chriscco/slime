@@ -1,34 +1,29 @@
 # App · 交接
 
 - **更新于**：2026-10-12
-- **状态**：0.0.1 主链路代码完成；首次真机运行暴露的两个 bug 已修复并验证，**其余人工验收项待过**（spec §11）
+- **状态**：0.0.2「卡片网格 / 液态玻璃 / 设置页」已完成 —— 代码与文档落地，`scripts/test` 72 个用例全绿；spec §12 的十三条人工验收待用户过（菜单栏、玻璃观感、手感在机器上验证不了）
 
 ## 现在到哪了
 
-12 个源文件 + 2 个测试文件全部落地（`swift build` 无 warning，`scripts/test` 40 个用例全绿，CI `test` 绿）。
+- 0.0.2 三件交付物全部落地：
+  - **卡片网格**：`Core/GridLayout`（纯函数）+ `CardGridView` / `CardView`；方向键带轴语义（← → 一格，↑ ↓ 按排循环）。
+  - **液态玻璃**：`NSGlassEffectView` 包住面板内容；样式 / 色调 / 圆角由 `System/Settings` 驱动，面板在 `show()` 时读一次（spec §8）。
+  - **菜单栏入口 + 设置页**：`NSStatusItem`（「设置…」/「退出 slime」）+ `SettingsWindowController`。
+- 17 个源文件、9 个测试文件；测试从 0.0.1 的 40 个涨到 72 个。
+- 0.0.1 的主链路行为没动过（只有方向键的旧 bug 按 spec §6 修掉）；
+  它的 10 条人工验收是 spec §12 的第 12 条。
 
-真机首跑修掉两个：
-- `scripts/build-app` 在多字节字符前直接展开变量，`set -u` 下崩（#14）；
-- 列表 document view 宽度从未被设置 → 行画不出来、面板全白（#15）。修复后按窗口截图的像素分析实测：面板渲染出 12 行文本（对比度带 ≈ 12）。
+## 手动验收（用户，机器上做不了）
 
-四个纯逻辑层之外的其余真机行为（两种手势的手感、台前调度、安全输入、无响应 app）仍未在真机上跑过 —— 这是下一步的全部内容。
+`scripts/build-app && open build/slime.app`，逐条对照
+`docs/specs/2026-10-12-slime-0.0.2-spec.md` §12 的十三条。重点盯：
 
-## 怎么跑起来（手动验收前）
+- 玻璃观感（borderless + 透明窗口上有没有东西可折射）；
+- 菜单栏图标能开设置、能退出；改样式 / 色调 / 圆角后**重新唤出面板**生效；
+- 移动动画平滑、绕回时不斜穿面板；第一次 ⌘+Tab 图标就是全的；
+- 设置窗口是 key 时按 ⌘+Tab，面板照常弹出；面板隐藏后焦点回不回设置窗口。
 
-```sh
-scripts/setup-signing    # 一次性：自签证书（本机已建过，幂等）
-scripts/build-app        # 组 build/slime.app 并用证书签名
-open build/slime.app
-killall slime            # 没有 Dock 图标 / 菜单栏项，退出靠这个
-```
-
-- 首次用证书签名时系统会弹一次钥匙串授权，选「始终允许」——之后 rebuild 不再弹。
-- 首次启动会引导辅助功能权限；授权后 app 会提示「已授权，请重启 slime」并退出，
-  重新 `open build/slime.app` 才生效（授权只对新进程生效）。
-
-## 人工验收清单
-
-对照 spec §11，逐条在真机上验：
+0.0.1 的 10 条原文（§12 第 12 条，重跑时对照）：
 
 - [ ] 启动后 Dock 没有图标；⌘+Tab 的系统列表里没有 slime
 - [ ] 按住 ⌘，连按 Tab 循环，松开 ⌘ 切到高亮窗口
@@ -44,13 +39,30 @@ killall slime            # 没有 Dock 图标 / 菜单栏项，退出靠这个
 - [ ] 打开密码输入框（安全输入）时，⌘+Tab 走系统原生行为，不崩
 - [ ] 挂一个无响应的 app（死循环的 Electron），切换器仍然可用
 
+## 怎么跑起来（手动验收前）
+
+```sh
+scripts/setup-signing    # 一次性：自签证书（本机已建过，幂等）
+scripts/build-app        # 组 build/slime.app 并用证书签名
+open build/slime.app
+```
+
+- 退出 / 打开设置走**菜单栏图标**（0.0.2 起）；`killall slime` 仍然可用。
+- 首次用证书签名时系统会弹一次钥匙串授权，选「始终允许」——之后 rebuild 不再弹。
+- 首次启动会引导辅助功能权限；授权后 app 会提示「已授权，请重启 slime」并退出，
+  重新 `open build/slime.app` 才生效（授权只对新进程生效）。
+- 改了玻璃参数要**重新唤出面板**才生效（面板在 `show()` 时读设置，spec §8）。
+
 ## 坑
 
 - **看不到 GUI 时怎么验证面板**（本机可能没有辅助功能/屏幕录制授权，模型也可能看不了图）：
-  用 CGWindowList 找到 slime 的窗口（layer 3、宽 640）→
+  用 CGWindowList 找到 slime 的窗口（layer 3、宽 632 以内）→
   `screencapture -l <windowID> -x /tmp/panel.png` 按窗口截图 →
-  把像素降采样成 ASCII/统计「明暗对比带」，带数 ≈ 行数就说明文字画出来了。
+  把像素降采样成 ASCII/统计「明暗对比带」，带数与卡片行数对上就说明画出来了。
   深色模式下别用「暗像素=文字」判定（背景才是暗的），要用对比度。
+- **玻璃层级**：面板内容必须挂在 `glass.contentView` 里（spec §7 的 z-order 约束），
+  改展示层时别把搜索框 / 网格挪成玻璃的兄弟节点；`contentView` 不保证自动撑满，
+  `PanelWindow.init` 已用 `autoresizingMask = [.width, .height]` 兜底。
 - **shell 里多字节紧跟变量展开**：`echo "$APP（自签证书）"` 的全角括号字节会被当变量名的一部分，
   `set -u` 直接报 `APP…: unbound variable` —— 多字节前后一律写 `${APP}`（#14）。
 - **重启忘了**：改了辅助功能权限行为没变 → 先想「授权后要重启」（CLAUDE.md 第五条）。
@@ -62,9 +74,9 @@ killall slime            # 没有 Dock 图标 / 菜单栏项，退出靠这个
 - **tap 层级**：先按 `kCGSessionEventTap` 装机；如果 ⌘+Tab 还是系统原生的（面板不出现），
   改 `EventTap.install()` 的 `.cgSessionEventTap` → `.cghidEventTap`。
 
-## 未决问题
+## 未决问题 / 下一步（0.0.3 候选）
 
-- 真机上 tap 应放 session 还是 HID 层（spec §12）；AX 取标题的真实耗时；自签证书能否让
-  TCC 认住权限（本机验证第一项时就知道了）。
+- **缩略图**：先跑**台前调度 spike**（搁置窗口被 CG 抓成斜方框，能不能拿到真截图决定这条路怎么走），
+  再排 0.0.1 spec §15 的其余候选：窗口级 MRU → 横向图标条 → 可配置快捷键。
 - 台前调度里的窗口要不要按标题做二次匹配（现在的降级是「只有 app 名」）。
-- 0.0.1 之后：缩略图（含台前调度 spike）→ 窗口级 MRU → 横向图标条 → 可配置快捷键（spec §15）。
+- 真机上 tap 应放 session 还是 HID 层（spec §12）；自签证书能否让 TCC 认住权限。

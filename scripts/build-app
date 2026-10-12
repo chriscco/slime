@@ -5,6 +5,9 @@
 #
 # 为什么 LSUIElement=true：无 Dock 图标、不出现在系统 ⌘Tab 列表里（spec §2 第 1 条）。
 #
+# 为什么 LSMinimumSystemVersion=26.0：跟 Package.swift 的平台底线一致 —— 声明低了
+# 会让 LaunchServices 在 14/15 上放行启动，然后运行期撞 NSGlassEffectView（spec §4）。
+#
 # 签名（CLAUDE.md 第五条，不是可选项）：辅助功能权限认的是代码签名的
 # designated requirement。优先用自签证书签 —— scripts/setup-signing 建过一次，
 # 证书身份不变，rebuild 就不会掉权限；没有证书就退回 ad-hoc，
@@ -44,7 +47,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.0.1</string>
   <key>CFBundleVersion</key><string>1</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSUIElement</key><true/>
 </dict>
 </plist>

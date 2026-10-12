@@ -33,9 +33,9 @@ macOS 窗口切换器。两个核心特性：**打字即时搜索**和**双触�
   本地提交前运行 `scripts/test`（本机补 Testing 路径的 workaround 在脚本里）
 - 故意砍掉的角标 `shortcut:` 注释，写明上限和升级路径
 
-**这个项目里 KISS 有牙齿的地方**：`Core/` 那两个纯逻辑文件（`Trigger`、`Search`）
-是唯一能单测的东西。任何把系统 API 拉进 `Core/` 的改动，都会让这个项目变成
-「只能靠手点来验证」—— 那等于放弃测试。
+**这个项目里 KISS 有牙齿的地方**：`Core/` 的那几个纯逻辑文件（`Window`、`Search`、
+`Trigger`、`GridLayout`）是唯一能单测的东西。任何把系统 API 拉进 `Core/` 的改动，
+都会让这个项目变成「只能靠手点来验证」—— 那等于放弃测试。
 
 ---
 
@@ -136,6 +136,7 @@ chore(scripts): probe the toolchain in scripts/test
 | 文档 | 何时必须写 | 位置 |
 |---|---|---|
 | spec | **较大需求**：跨多个模块 / 跨多次会话 / 含重要取舍 —— 三条任一成立 | `docs/specs/YYYY-MM-DD-<kebab-描述>-spec.md` |
+| plan | spec 要拆成**有先后依赖的任务**、一次会话做不完时（plan 描述「怎么做」，spec 描述「做什么」） | `docs/plans/YYYY-MM-DD-<kebab-描述>.md` |
 | design | 模块代码 > 150 行 **或** 含正确性假设 | `docs/modules/<模块>/design.md` |
 | decision | **每做一个值得回溯的取舍就追加一条**，只追加不改写历史 | `docs/modules/<模块>/decision.md` |
 | handoff | 会话结束 / 交接时更新：现状、下一步、坑 | `docs/modules/<模块>/handoff.md` |
@@ -213,9 +214,10 @@ AXObserver 增量更新。理由见 spec §4 / §6 / §7。
 ```
 Sources/slime/
   App/        main.swift, AppDelegate.swift, Permission.swift
-  Core/       Window.swift, Search.swift, Trigger.swift
-  System/     EventTap.swift, WindowEnumerator.swift, WindowCache.swift, WindowActivator.swift
-  UI/         PanelWindow.swift, PanelController.swift
+  Core/       Window.swift, Search.swift, Trigger.swift, GridLayout.swift
+  System/     EventTap.swift, WindowEnumerator.swift, WindowCache.swift, WindowActivator.swift,
+              AppIcons.swift, Settings.swift
+  UI/         PanelWindow.swift, PanelController.swift, CardGridView.swift, SettingsWindow.swift
 Tests/slimeTests/
 docs/         specs / modules / templates
 scripts/      build-app, test, hooks/
@@ -249,6 +251,6 @@ func reduce(_ state: State, _ event: Event) -> (State, [Effect])
 |---|---|
 | `docs/modules/<模块>/` | 该模块代码超过 150 行，或有正确性假设时 |
 | `Sources/slime/System/` 下新增文件 | 真的出现了新的系统边界时 |
-| 分层守卫测试 | `Core/` 超过 3 个文件时（现在 3 个，到第 4 个就补） |
+| 分层守卫测试 | `Core/` 到第 4 个文件时补 —— **已补**：`Tests/slimeTests/LayeringTests.swift` 拦 Core/ 里 import AppKit / CoreGraphics / ApplicationServices |
 
-**12 个源文件够了。** 加文件之前先问：能不能并进已有的那个？
+**源文件保持精简（0.0.2 时 17 个）。** 加文件之前先问：能不能并进已有的那个？

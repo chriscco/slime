@@ -11,8 +11,8 @@
 - `Modifier`：`.cmd` / `.opt`。
 - `State`：`idle` / `armed(m)` / `holding(m, query, selection)` / `lingering(query, selection)`。
   - `selection` 是**无界计数**：纯状态机不知道列表长度，`sel+1` 不做钳位。真正的显示选中由 PanelController 维护（循环取模、刷新后钳位、选中项消失回 0）。
-- `Event`：修饰键上下、`tab(shift:)`、`char` / `backspace` / `arrow(±1)` / `focusSearch` / `enter` / `escape`。
-- `Effect`：`passThrough` / `swallow`（事件级）+ `showPanel` / `hidePanel` / `moveSelection` / `appendQuery` / `deleteQueryChar` / `focusSearchField` / `activate` / `cancel`（UI 级）。
+- `Event`：修饰键上下、`tab(shift:)`、`char` / `backspace` / `arrow(axis:step:)` / `focusSearch` / `enter` / `escape`。`Axis` 是 `.horizontal` / `.vertical`。
+- `Effect`：`passThrough` / `swallow`（事件级）+ `showPanel` / `hidePanel` / `moveSelection(axis:step:)` / `appendQuery` / `deleteQueryChar` / `focusSearchField` / `activate` / `cancel`（UI 级）。
 
 ## 流程
 
@@ -30,10 +30,23 @@
 ## 接口
 
 ```swift
+public enum Axis: Equatable, Sendable {
+  case horizontal, vertical
+}
+
+public enum Event {
+  /// step: -1 前一格 / +1 后一格。垂直方向由面板层乘以列数。
+  case arrow(axis: Axis, step: Int)
+}
+
+public enum Effect {
+  case moveSelection(axis: Axis, step: Int)
+}
+
 public func reduce(_ state: State, _ event: Event) -> (State, [Effect])
 ```
 
-纯函数、无副作用。两个事件源（EventTap 与 PanelController）翻译成同一个 `Event` 调它。
+`arrow` / `moveSelection` 带轴不带列数：状态机只知道「用户在哪个方向走了一步」，「走一步等于几格」是布局知识 —— 卡片网格里 ↑↓ 走一排（= 列数格）、Tab / ←→ 走一格，换算由 `PanelController` 做（`delta = step * (axis == .vertical ? columns : 1)`，见 decision.md）。纯函数、无副作用。两个事件源（EventTap 与 PanelController）翻译成同一个 `Event` 调它。
 
 ## 正确性假设
 

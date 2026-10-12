@@ -235,9 +235,13 @@ enum KeyTable {
     case 53:
       return .escape
     case 126:
-      return .arrow(-1)  // ↑
+      return .arrow(axis: .vertical, step: -1)  // ↑
     case 125:
-      return .arrow(1)  // ↓
+      return .arrow(axis: .vertical, step: 1)  // ↓
+    case 123:
+      return .arrow(axis: .horizontal, step: -1)  // ←
+    case 124:
+      return .arrow(axis: .horizontal, step: 1)  // →
     case 3 where commandOrOption:
       return .focusSearch  // ⌘F / ⌥F（spec §2 第 6 条：两种模式都要）
     default:

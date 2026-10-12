@@ -69,7 +69,7 @@ private func expect(
   expect(from: .armed(.cmd), on: .modifierUp(.opt), .armed(.cmd), [.passThrough])
   expect(from: .armed(.cmd), on: .enter, .armed(.cmd), [.passThrough])
   expect(from: .armed(.cmd), on: .backspace, .armed(.cmd), [.passThrough])
-  expect(from: .armed(.cmd), on: .arrow(-1), .armed(.cmd), [.passThrough])
+  expect(from: .armed(.cmd), on: .arrow(axis: .vertical, step: -1), .armed(.cmd), [.passThrough])
   expect(from: .armed(.cmd), on: .focusSearch, .armed(.cmd), [.passThrough])
 }
 
@@ -78,10 +78,10 @@ private func expect(
 @Test func holdingTabCyclesForwardAndBackward() {
   expect(
     from: .holding(.cmd, query: "", selection: 0), on: .tab(shift: false),
-    .holding(.cmd, query: "", selection: 1), [.swallow, .moveSelection(1)])
+    .holding(.cmd, query: "", selection: 1), [.swallow, .moveSelection(axis: .horizontal, step: 1)])
   expect(
     from: .holding(.cmd, query: "", selection: 1), on: .tab(shift: true),
-    .holding(.cmd, query: "", selection: 0), [.swallow, .moveSelection(-1)])
+    .holding(.cmd, query: "", selection: 0), [.swallow, .moveSelection(axis: .horizontal, step: -1)])
 }
 
 @Test func holdingRepeatedTabsKeepAdvancing() {
@@ -89,7 +89,7 @@ private func expect(
   for expected in 1...5 {
     let (next, effects) = reduce(state, .tab(shift: false))
     #expect(next == .holding(.cmd, query: "", selection: expected))
-    #expect(effects == [.swallow, .moveSelection(1)])
+    #expect(effects == [.swallow, .moveSelection(axis: .horizontal, step: 1)])
     state = next
   }
 }
@@ -114,11 +114,11 @@ private func expect(
 
 @Test func holdingArrowsMoveSelection() {
   expect(
-    from: .holding(.cmd, query: "q", selection: 2), on: .arrow(-1),
-    .holding(.cmd, query: "q", selection: 1), [.swallow, .moveSelection(-1)])
+    from: .holding(.cmd, query: "q", selection: 2), on: .arrow(axis: .vertical, step: -1),
+    .holding(.cmd, query: "q", selection: 1), [.swallow, .moveSelection(axis: .vertical, step: -1)])
   expect(
-    from: .holding(.cmd, query: "q", selection: 2), on: .arrow(1),
-    .holding(.cmd, query: "q", selection: 3), [.swallow, .moveSelection(1)])
+    from: .holding(.cmd, query: "q", selection: 2), on: .arrow(axis: .vertical, step: 1),
+    .holding(.cmd, query: "q", selection: 3), [.swallow, .moveSelection(axis: .vertical, step: 1)])
 }
 
 @Test func holdingCmdFocusSearchLingersSoModifierCanBeReleased() {
@@ -199,7 +199,14 @@ private func expect(
 @Test func lingeringTabMovesSelection() {
   expect(
     from: .lingering(query: "", selection: 0), on: .tab(shift: false),
-    .lingering(query: "", selection: 1), [.swallow, .moveSelection(1)])
+    .lingering(query: "", selection: 1), [.swallow, .moveSelection(axis: .horizontal, step: 1)])
+}
+
+@Test func tabMovesHorizontally() {
+  expect(
+    from: .holding(.cmd, query: "", selection: 0), on: .tab(shift: false),
+    .holding(.cmd, query: "", selection: 1),
+    [.swallow, .moveSelection(axis: .horizontal, step: 1)])
 }
 
 @Test func lingeringEnterActivates() {

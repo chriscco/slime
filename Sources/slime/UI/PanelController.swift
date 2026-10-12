@@ -193,12 +193,22 @@ final class PanelController {
 
   private func reloadRows() {
     let content = panel.content
-    content.gridView.rows = rows
+
+    // 首帧尺寸（连拍里「出现后尺寸再跳」的残留，issue #35）：先定面板尺寸、
+    // 让窗口 / 玻璃的布局落地，再把文档宽度传导进 gridView —— rows 赋值
+    // （rebuild）拿到的 contentWidth 必须是最终值。旧顺序是赋值在前、
+    // resizeAndPosition 在后：文档宽度第一帧落在 gridWidth，下一帧才被
+    // setContentWidth 改成最终值。
     gridLayout = GridLayout(count: rows.count)
+    resizeAndPosition()
+    // 玻璃是窗口的 contentView、内容挂在玻璃上：不跑一遍窗口布局，内容的
+    // bounds 可能还是旧尺寸（NSGlassEffectView 不保证自动撑满，design.md）。
+    panel.layoutIfNeeded()
+    content.render(rows: rows)
+
     content.gridView.setSelection(selection, animated: false)
     content.gridView.scrollSelectionToVisible()
     content.emptyLabel.isHidden = !rows.isEmpty
-    resizeAndPosition()
   }
 
   private func resizeAndPosition() {

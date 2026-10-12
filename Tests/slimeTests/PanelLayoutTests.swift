@@ -43,6 +43,27 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(content.gridView.frame.width == content.scrollView.contentSize.width)
 }
 
+// 首帧尺寸（连拍里「出现后尺寸再跳」的残留，issue #35）：文档宽度必须在
+// rows 赋值之前定稿。先模拟 resizeAndPosition 改了面板尺寸，再走生产顺序
+// render —— 赋值完宽度即最终值，之后两遍布局都不再二次变化。
+@Test @MainActor func documentWidthIsSettledBeforeRowsAreRendered() {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 400, height: 320)
+  content.layoutSubtreeIfNeeded()  // 旧的（小面板）布局先落地
+
+  content.frame = NSRect(x: 0, y: 0, width: 632, height: 320)  // resizeAndPosition
+  content.render(rows: (1...6).map { window("Chrome", "W\($0)", id: UInt32($0)) })
+
+  // 赋值后即为最终宽度：与 scroll view 的 contentSize 一致，且两遍布局后不变。
+  let settled = content.gridView.frame.width
+  #expect(settled == content.scrollView.contentSize.width)
+  content.layoutSubtreeIfNeeded()
+  #expect(content.gridView.frame.width == settled)
+  content.layoutSubtreeIfNeeded()
+  #expect(content.gridView.frame.width == settled)
+  #expect(content.gridView.frame.width == content.scrollView.contentSize.width)
+}
+
 @Test @MainActor func sixthCardWrapsToTheSecondRowAtTheLeftEdge() {
   let content = PanelContentView()
   content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)

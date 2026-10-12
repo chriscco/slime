@@ -155,6 +155,21 @@ final class PanelContentView: NSView {
     searchLabel.textColor = isEmpty ? .secondaryLabelColor : .labelColor
   }
 
+  /// 渲染一批卡片：先把文档宽度定稿（跑一遍布局、经 setContentWidth 传导），
+  /// 再赋给 `gridView` —— 任何一次 rows 赋值（rebuild）拿到的 contentWidth
+  /// 都必须是最终值。连拍里「面板出现后尺寸再跳」的残余就出在这里（issue #35）。
+  /// 面板尺寸由调用方先定稿（`PanelController.resizeAndPosition`），玻璃 /
+  /// 内容的 bounds 传导见调用点。
+  func render(rows: [Window]) {
+    layoutSubtreeIfNeeded()
+    gridView.rows = rows
+    // rows 换了 → 文档高度换了（4 排起要滚动），而文档高度会影响 scrollView
+    // 的 contentSize（竖条 reserve）——同帧内再跑一遍，把二次修正收在这一帧里，
+    // 而不是留给下一帧。
+    needsLayout = true
+    layoutSubtreeIfNeeded()
+  }
+
   override func layout() {
     super.layout()
     let padding = CGFloat(Self.metrics.padding)

@@ -16,6 +16,8 @@ final class PanelController {
   var onRefresh: (() -> Void)?
 
   private let panel = PanelWindow()
+  /// 玻璃参数的来源。只在 show() 里读一次（spec §8）。
+  private let settings = Settings()
 
   /// 最新快照（cache 推过来），rank 的输入。
   private var windows: [Window] = []
@@ -30,10 +32,10 @@ final class PanelController {
   /// 只在空态生效：有结果时宽度必须跟着卡数收窄（spec §2 第 3 条）。
   private static let emptyStateMinWidth: CGFloat = 180
 
-  /// 空态文字在内容坐标系里 y ≈ 60（padding + 搜索框 + padding + 6）、
-  /// 14pt 字约 17 高，加回 10 的下边距要 87 —— 纯网格高度（70）会把文字
-  /// 下缘裁掉（content 层 masksToBounds）。下限取 88 留一点余量。
-  private static let emptyStateMinHeight: CGFloat = 88
+  /// 空态文字在内容坐标系里 y ≈ 64（padding 12 + headerHeight 46 + 6）、
+  /// 14pt 字约 17 高 —— 纯网格高度（70）会把文字下缘裁掉（content 层
+  /// masksToBounds）。加回 padding 的下边距要 93，下限取 94 留一点余量。
+  private static let emptyStateMinHeight: CGFloat = 94
 
   init() {
     panel.onKey = { [weak self] event in self?.key(event) }
@@ -102,6 +104,9 @@ final class PanelController {
     resizeAndPosition()
     // 手动布局：上屏前跑一遍，第一帧就是完整列表（spec §7「瞬时」）。
     panel.content.layoutSubtreeIfNeeded()
+    // 只在显示时读一次，不做观察者：设置窗口一旦成为 key，面板就 resignKey
+    // 藏起来了，「面板开着时改设置」这个场景不存在（spec §8）。
+    panel.applyGlassSettings(settings)
     panel.makeKeyAndOrderFront(nil)
     // 同时后台重枚举，回来静默更新。
     onRefresh?()
@@ -149,7 +154,8 @@ final class PanelController {
     return min(targetRow * columns + column, count - 1)
   }
 
-  /// 网格里 ↑↓ 走一排 = `GridLayout.columns` 格（spec §6）。Tab / ←→ 恒为一格。
+  /// ↑↓ 按「排」循环（首排回绕到末排、末排缺列时收缩到最后一个格子），
+  /// ←→ 与 Tab 恒为一格 —— 语义全在纯函数 `movedSelection`。
   private func moveSelection(axis: Axis, step: Int) {
     guard !rows.isEmpty else { return }
     selection = Self.movedSelection(from: selection, axis: axis, step: step, layout: gridLayout)

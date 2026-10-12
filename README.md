@@ -16,7 +16,7 @@ plus two things it doesn't have: **type-to-search** and **two trigger gestures**
 | Hold `⌘`, tap `Tab` | Cycles windows. **Release `⌘` to switch** — the same feel as the system switcher. |
 | Hold `⌥`, tap `Tab` | The same panel, but **it stays up after you release**. Type to search, `Enter` to switch. |
 | `⌘F` | Focus the search box. Works in both modes. |
-| `Tab` / `⇧Tab` | Move the selection forward / backward. |
+| `Tab` / `⇧Tab` | Move the selection forward / backward. The highlight slides between items. |
 | `↑` `↓` `←` `→` | Move the selection. |
 | Type anything | Live fuzzy filter — `ghb` matches `Chrome — GitHub`. |
 | `Enter` | Switch to the selection. Works on minimized windows too. |
@@ -26,6 +26,10 @@ The list is sorted MRU, so the window you used most recently is first.
 
 slime has no Dock icon and does not appear in the system's own `⌘+Tab` list. It
 stays out of the way until you ask for it.
+
+It also lists **every window of every app**, not one entry per app — so you can
+jump straight to the window you want instead of landing on an app and then
+cycling through its windows.
 
 ## Requirements
 

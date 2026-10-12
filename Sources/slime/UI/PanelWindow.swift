@@ -49,15 +49,27 @@ final class PanelWindow: NSPanel {
     content.layer?.masksToBounds = true
   }
 
+  /// 面板底色。**固定常量** —— 这一版不允许改背景色（spec §3 非目标），
+  /// 浓度是它的 alpha 表达的。
+  private static let panelBase = NSColor.black
+
   /// 玻璃参数由设置驱动。内容**必须**挂在 `glass.contentView` 上 ——
   /// 头文件明说任意子视图的 z-order 不保证（spec §7）。
   ///
-  /// shortcut: 只有一块玻璃面，没用 NSGlassEffectContainerView —— 每张卡片
-  ///           单独做玻璃时再回来合并渲染（spec §14）
+  /// 浓度不是玻璃的属性：`NSGlassEffectView` 没有 opacity，`tintColor` 的 alpha
+  /// 实测无效（spec §7 那张五个 alpha 长得一模一样的截图）。做法是在玻璃之上、
+  /// 内容之下盖一层实色遮罩，`alpha = 1 − 浓度` —— 背后的内容跟着变淡，
+  /// 而卡片上的文字图标是内容视图的子视图，不受影响。
+  ///
+  /// shortcut: 玻璃浓度是一层遮罩，不是玻璃本身的属性（NSGlassEffectView 没有
+  ///           opacity，tintColor 的 alpha 实测无效）—— Apple 给出真属性时换掉
   func applyGlassSettings(_ settings: Settings) {
     glass.style = settings.glassStyle.glassEffectStyle
-    glass.tintColor = settings.glassTint
     glass.cornerRadius = settings.glassCornerRadius
+    // 遮罩是方的，玻璃是圆的：不给内容层同样的圆角，四角会露出黑方块。
+    content.layer?.cornerRadius = settings.glassCornerRadius
+    content.layer?.backgroundColor = Self.panelBase
+      .withAlphaComponent(1 - settings.glassStrength).cgColor
   }
 
   override var canBecomeKey: Bool { true }

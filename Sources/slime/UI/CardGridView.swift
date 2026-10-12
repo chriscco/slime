@@ -25,6 +25,12 @@ final class CardGridView: NSView {
   private(set) var layout = GridLayout(count: 0)
   private(set) var selection = 0
 
+  /// 高亮色（spec §8）。PanelController 在 show() 里推一次，同玻璃参数。
+  var highlightColor: NSColor {
+    get { highlight.color }
+    set { highlight.color = newValue }
+  }
+
   private let highlight = HighlightView()
   private var cards: [CardView] = []
   /// scroll view 传下来的内容宽度。宽度为 0 时卡片的 frame 宽度是负的，
@@ -185,31 +191,32 @@ final class CardView: NSView {
   }
 }
 
-/// 高亮：强调色 2pt 轮廓 + 8% 同色填充，贴合卡片尺寸（动画由
+/// 高亮：设定色的 2.5pt 轮廓 + 8% 同色填充，贴合卡片尺寸（动画由
 /// `CardGridView.setSelection` 驱动）。
 final class HighlightView: NSView {
   private static let cornerRadius: CGFloat = 12
+  /// 线条粗细（spec §8：0.0.2 是 2）。
+  private static let borderWidth: CGFloat = 2.5
+
+  /// 线条颜色。**不绑系统主题色**（spec §8），面板 `show()` 时推一次 ——
+  /// 不是动态色，所以不需要 `viewDidChangeEffectiveAppearance` 那套重解析。
+  var color: NSColor = Settings.defaultHighlightColor {
+    didSet { applyColor() }
+  }
 
   init() {
     super.init(frame: .zero)
     wantsLayer = true
     layer?.cornerRadius = Self.cornerRadius
-    layer?.borderWidth = 2
-    applyAccent()
+    layer?.borderWidth = Self.borderWidth
+    applyColor()
   }
 
   required init?(coder: NSCoder) { fatalError("高亮条只从代码建") }
 
-  /// 强调色是动态颜色，浅 / 深色模式下分辨率不同；CGColor 不会跟着变，重解析。
-  override func viewDidChangeEffectiveAppearance() {
-    super.viewDidChangeEffectiveAppearance()
-    applyAccent()
-  }
-
-  /// 外圈轮廓 + 极轻填充：文字保持 labelColor 不换色，80% 的玻璃面透上来。
-  private func applyAccent() {
-    let accent = NSColor.selectedContentBackgroundColor
-    layer?.borderColor = accent.cgColor
-    layer?.backgroundColor = accent.withAlphaComponent(0.08).cgColor
+  /// 外圈轮廓 + 极轻填充：文字保持 labelColor 不换色，玻璃面透上来。
+  private func applyColor() {
+    layer?.borderColor = color.cgColor
+    layer?.backgroundColor = color.withAlphaComponent(0.08).cgColor
   }
 }

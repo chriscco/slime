@@ -199,3 +199,18 @@ private func label(of card: CardView) -> String? {
   // 列表面板出现的路径上，空态由 reloadRows 显式打开。
   #expect(content.emptyLabel.isHidden)
 }
+
+// spec §8：线条加粗到 2.5。2.5 是提案值，但「不能悄悄回到 2」值得钉住。
+@Test @MainActor func highlightOutlineIsThickerThanTheOldTwoPoints() throws {
+  let grid = CardGridView()
+  let highlight = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  #expect(highlight.layer?.borderWidth == 2.5)
+}
+
+@Test @MainActor func highlightColorIsPushedInFromTheOutside() throws {
+  // 高亮拿不到 Settings —— 面板 show() 时推一次（不做观察者，同 0.0.2 §8）。
+  let grid = CardGridView()
+  let highlight = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  grid.highlightColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+  #expect(highlight.layer?.borderColor == NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor)
+}

@@ -114,6 +114,7 @@ final class PanelController {
     // 只在显示时读一次，不做观察者：设置窗口一旦成为 key，面板就 resignKey
     // 藏起来了，「面板开着时改设置」这个场景不存在（spec §8）。
     panel.applyGlassSettings(settings)
+    panel.content.gridView.highlightColor = settings.highlightColor
     panel.makeKeyAndOrderFront(nil)
     // 同时后台重枚举，回来静默更新。
     onRefresh?()

@@ -1,6 +1,6 @@
 import AppKit
 
-/// 设置窗口（spec §8）。三个控件，就这三样。
+/// 设置窗口（spec §8）。四个控件：玻璃样式 / 强度 / 高亮色 / 圆角。
 ///
 /// 从 `.accessory` app 打开普通窗口必须先 `NSApp.activate()`，
 /// 否则窗口会开在别的 app 后面，用户以为没反应。
@@ -11,7 +11,12 @@ final class SettingsWindowController {
 
   private let styleControl = NSSegmentedControl(
     labels: ["标准", "通透"], trackingMode: .selectOne, target: nil, action: nil)
-  private let tintWell = NSColorWell()
+  private let strengthSlider = NSSlider(
+    value: Settings.defaultGlassStrength,
+    minValue: Settings.strengthRange.lowerBound,
+    maxValue: Settings.strengthRange.upperBound,
+    target: nil, action: nil)
+  private let highlightWell = NSColorWell()
   private let radiusSlider = NSSlider(
     value: Settings.defaultCornerRadius,
     minValue: Settings.cornerRadiusRange.lowerBound,
@@ -28,7 +33,7 @@ final class SettingsWindowController {
 
   private func makeWindow() -> NSWindow {
     let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 320, height: 190),
+      contentRect: NSRect(x: 0, y: 0, width: 320, height: 210),
       styleMask: [.titled, .closable],
       backing: .buffered,
       defer: false
@@ -43,27 +48,32 @@ final class SettingsWindowController {
   private func makeContentView() -> NSView {
     let grid = NSGridView(views: [
       [label("玻璃样式"), styleControl],
-      [label("色调"), tintWell],
+      [label("玻璃强度"), strengthSlider],
+      [label("高亮颜色"), highlightWell],
       [label("圆角"), radiusSlider],
     ])
     grid.rowSpacing = 12
     grid.columnSpacing = 12
     grid.column(at: 0).xPlacement = .trailing
-    grid.frame = NSRect(x: 20, y: 20, width: 280, height: 130)
+    grid.frame = NSRect(x: 20, y: 20, width: 280, height: 170)
 
     styleControl.target = self
     styleControl.action = #selector(styleChanged)
     styleControl.selectedSegment = 0
 
-    tintWell.target = self
-    tintWell.action = #selector(tintChanged)
-    tintWell.colorWellStyle = .minimal
+    strengthSlider.target = self
+    strengthSlider.action = #selector(strengthChanged)
+    strengthSlider.isContinuous = true
+
+    highlightWell.target = self
+    highlightWell.action = #selector(highlightChanged)
+    highlightWell.colorWellStyle = .minimal
 
     radiusSlider.target = self
     radiusSlider.action = #selector(radiusChanged)
     radiusSlider.isContinuous = true
 
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 190))
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 210))
     container.addSubview(grid)
     return container
   }
@@ -75,7 +85,8 @@ final class SettingsWindowController {
   /// 窗口每次打开都从 settings 同步一次 —— settings 是唯一真相。
   private func syncControlsFromSettings() {
     styleControl.selectedSegment = settings.glassStyle == .regular ? 0 : 1
-    if let tint = settings.glassTint { tintWell.color = tint }
+    strengthSlider.doubleValue = settings.glassStrength
+    highlightWell.color = settings.highlightColor
     radiusSlider.doubleValue = settings.glassCornerRadius
   }
 
@@ -83,10 +94,12 @@ final class SettingsWindowController {
     settings.glassStyle = styleControl.selectedSegment == 0 ? .regular : .clear
   }
 
-  @objc private func tintChanged() {
-    // 「无色调」用滑块的极端位置表达不了，所以色板取到白就算清除。
-    // shortcut: 没有显式的「无色调」按钮 —— 真嫌不够用时再加一个复选框。
-    settings.glassTint = tintWell.color == .white ? nil : tintWell.color
+  @objc private func strengthChanged() {
+    settings.glassStrength = strengthSlider.doubleValue
+  }
+
+  @objc private func highlightChanged() {
+    settings.highlightColor = highlightWell.color
   }
 
   @objc private func radiusChanged() {

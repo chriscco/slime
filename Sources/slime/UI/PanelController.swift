@@ -70,8 +70,8 @@ final class PanelController {
         show()
       case .hidePanel:
         hide()
-      case .moveSelection(let delta):
-        moveSelection(delta)
+      case .moveSelection(let axis, let step):
+        moveSelection(axis: axis, step: step)
       case .appendQuery(let character):
         append(character)
       case .deleteQueryChar:
@@ -115,8 +115,13 @@ final class PanelController {
 
   // MARK: - 列表
 
-  private func moveSelection(_ delta: Int) {
+  /// 竖向列表下「一排」就是一格。Task 5 换成卡片网格后接 `GridLayout.columns`。
+  private var columnsPerRow: Int { 1 }
+
+  /// 网格里 ↑↓ 走一排 = `columnsPerRow` 格（spec §6）。Tab / ←→ 恒为一格。
+  private func moveSelection(axis: Axis, step: Int) {
     guard !rows.isEmpty else { return }
+    let delta = step * (axis == .vertical ? columnsPerRow : 1)
     // 首尾相接：连续 Tab 循环（spec §2 第 7 条）。
     selection = (selection + delta + rows.count) % rows.count
     panel.content.listView.setSelection(selection, animated: true)

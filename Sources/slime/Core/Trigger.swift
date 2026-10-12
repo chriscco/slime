@@ -11,6 +11,12 @@ public enum Modifier: Equatable, Sendable {
   case cmd, opt
 }
 
+/// 方向键的轴。状态机只知道「用户在哪个方向走了一步」，
+/// 「走一步等于几格」是布局知识，由面板层换算（spec §6）。
+public enum Axis: Equatable, Sendable {
+  case horizontal, vertical
+}
+
 public enum State: Equatable, Sendable {
   case idle
   /// 修饰键按下，还没按 Tab。
@@ -27,7 +33,9 @@ public enum State: Equatable, Sendable {
 public enum Event: Equatable, Sendable {
   case modifierDown(Modifier), modifierUp(Modifier)
   case tab(shift: Bool)
-  case char(Character), backspace, arrow(Int)  // arrow: -1 上 / +1 下
+  case char(Character), backspace
+  /// step: -1 前一格 / +1 后一格。垂直方向由面板层乘以列数。
+  case arrow(axis: Axis, step: Int)
   case focusSearch                             // ⌘F / ⌥F
   case enter, escape
 }
@@ -35,7 +43,7 @@ public enum Event: Equatable, Sendable {
 public enum Effect: Equatable, Sendable {
   case passThrough, swallow
   case showPanel(Modifier), hidePanel
-  case moveSelection(Int)
+  case moveSelection(axis: Axis, step: Int)
   case appendQuery(Character), deleteQueryChar
   case focusSearchField
   case activate, cancel
@@ -127,19 +135,19 @@ private enum PanelStep {
 private func panelStep(_ event: Event, query: String, selection: Int) -> PanelStep? {
   switch event {
   case .tab(let shift):
-    let direction = shift ? -1 : 1
+    let step = shift ? -1 : 1
     return .update(
-      query: query, selection: selection + direction,
-      effects: [.swallow, .moveSelection(direction)])
+      query: query, selection: selection + step,
+      effects: [.swallow, .moveSelection(axis: .horizontal, step: step)])
   case .char(let c):
     return .update(query: query + String(c), selection: 0, effects: [.swallow, .appendQuery(c)])
   case .backspace:
     return .update(
       query: String(query.dropLast()), selection: 0, effects: [.swallow, .deleteQueryChar])
-  case .arrow(let direction):
+  case .arrow(let axis, let step):
     return .update(
-      query: query, selection: selection + direction,
-      effects: [.swallow, .moveSelection(direction)])
+      query: query, selection: selection + step,
+      effects: [.swallow, .moveSelection(axis: axis, step: step)])
   case .focusSearch:
     return .update(query: query, selection: selection, effects: [.swallow, .focusSearchField])
   case .enter:

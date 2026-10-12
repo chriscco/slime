@@ -82,8 +82,24 @@ git config core.hooksPath scripts/hooks
 
 分支命名：`feat/` `fix/` `docs/` `chore/`
 
-PR 必须写清**为什么**这么改，不只是改了什么。commit message 用祈使句。
+PR 必须写清**为什么**这么改，不只是改了什么。
 行为变更必须同时提交测试；纯文档或只改静态配置时可以不新增测试，但仍要跑完整测试命令。
+
+### 提交信息格式
+
+**非 merge commit 的一行标题必须写成 `类型(范围): 做了什么`。** 例如：
+
+```
+feat(trigger): add the pure state machine
+fix(panel): keep the selection when the list refreshes
+docs(norms): record the commit-message format
+chore(scripts): probe the toolchain in scripts/test
+```
+
+- 类型就是分支前缀那一组：`feat` / `fix` / `docs` / `chore`，与 `feat/` `fix/` … 分支对应
+- 范围 = 改动的模块（`trigger` `search` `window` `system` `panel` `app` `scripts` `norms` …），不是文件路径
+- 冒号后一个空格，接小写祈使句，说清「做了什么」；**为什么**和细节放正文
+- merge commit 不适用 —— GitHub 生成的 `Merge pull request #N from chriscco/<branch>` 保持原样
 
 ### 提交署名
 

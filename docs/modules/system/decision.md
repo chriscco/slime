@@ -2,6 +2,14 @@
 
 <!-- 新的在最上面。 -->
 
+## 2026-10-12 · 幽灵窗口过滤：regular app + 在屏上/AX 对应，不按尺寸
+
+- **背景**：用户实测面板里同一 app 刷出十几行空标题重复项、没有窗口的 app 也出现。诊断（在 slime 进程内取数）：本机 `layer == 0 && alpha > 0` 的候选有 **252 个**，绝大多数是系统给每个 app 生的幽灵窗口 —— 每个 app 每个显示器一个菜单栏条（1470×33 @(0,0)、1920×30 @(-582,-1080)）、跨 app 同位置同尺寸的缓存窗（500×500 @(0,456)、1×1、64×64）、以及各 app 的 helper 窗。
+- **选定**：app 级只留 `activationPolicy == .regular`；窗口级只留「在屏上 **或** 在 `kAXWindows`/`kAXMainWindow` 里」；一个 AX 窗口只认领一个 CGWindow（在屏优先，防孪生幽灵重复行）。
+- **放弃了**：按尺寸过滤（红线 7 禁止 —— 台前调度的小方框）；`kCGWindowName`（无录屏权限时整个键都不存在，实测）；manual accessibility（Chrome 实测 `AXManualAccessibility` 返回 attribute unsupported、Electron 类 5 秒后仍 0 个窗口 —— 不能作为准据）；私有 SkyLight/SLS（spec §3 非目标；alt-tab 的 windowserver/README.md 明确记录了它就是为了补「其他 Space 的窗口」才改用私有 API）。
+- **代价**：**其他 Space 的窗口进不齐** —— 只有「在屏上」或「是该 app 的主窗口」时能进列表；手动验收里「Chrome 三个窗口都列出」要求那三个窗口至少在屏上（同一 Space / 双屏都在屏上）。少数同 frame 的真窗口会只留一个。
+- **推翻条件**：真觉得「切不到别的 Space 的窗口」烦到不能忍时 —— 那时评估私有 API（等于推翻 spec §3 的非目标，spec §15 的 0.0.2 候选里没列，需要单独立项）。
+
 ## 2026-10-11 · 用公开的 frame/标题匹配 AX 窗口，不用私有 `_AXUIElementGetWindow`
 
 - **背景**：激活一个 `Window` 需要它的 `AXUIElement`，但公开 API 里没有 windowID → AX element 的映射（CGWindowList 给 id，AX 只有 kAXWindowsAttribute 的元素数组）。

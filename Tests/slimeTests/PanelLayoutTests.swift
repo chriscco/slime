@@ -185,6 +185,13 @@ private func label(of card: CardView) -> String? {
   card.subviews.compactMap { $0 as? NSTextField }.first?.stringValue
 }
 
+// 出场动画（连拍观察到的真正根因，issue #35）：NSWindow 默认的 animationBehavior
+// 会在 makeKeyAndOrderFront 后把整块面板从 ~98% 缩放到位 —— 内容跟着一起缩放，
+// 用户看到的就是「图标闪一下」，每次召出都会发生。必须关掉。
+@Test @MainActor func panelDoesNotAnimateOnAppearance() {
+  #expect(PanelWindow().animationBehavior == .none)
+}
+
 // 原样保留 —— 这个测试跟列表还是网格无关，改成网格时不要顺手删掉。
 @Test @MainActor func emptyPlaceholderIsHiddenOnlyWhenThereAreRows() {
   let content = PanelContentView()

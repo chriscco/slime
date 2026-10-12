@@ -27,6 +27,9 @@ final class PanelWindow: NSPanel {
     becomesKeyOnlyIfNeeded = false
     hidesOnDeactivate = false
     isReleasedWhenClosed = false
+    // 关掉系统的出场动画：默认行为会让整块面板（含图标/文字）在展示时
+    // 从 ~98% 缩放到位，用户看到的是「图标闪一下」（每一次召出都会）。
+    animationBehavior = .none
     hasShadow = true
     isOpaque = false
     backgroundColor = .clear

@@ -20,7 +20,10 @@ import Testing
 
   for file in files {
     let source = try String(contentsOf: core.appendingPathComponent(file), encoding: .utf8)
-    for framework in ["import AppKit", "import CoreGraphics", "import ApplicationServices"] {
+    for framework in [
+      "import AppKit", "import CoreGraphics", "import ApplicationServices",
+      "import ScreenCaptureKit",
+    ] {
       #expect(!source.contains(framework), "\(file) 里出现了 \(framework)")
     }
   }

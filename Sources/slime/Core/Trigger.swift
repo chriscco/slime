@@ -77,6 +77,13 @@ public func reduce(_ state: State, _ event: Event) -> (State, [Effect]) {
         return (.lingering(query: query, selection: selection), [.focusSearchField])
       }
     }
+    // ⌘ 模式下 ⌘F = 「我要慢慢找」：会话转 lingering —— 松开 ⌘ 不再切换、
+    // 回车才切、Esc 取消（用户实测：按 F 想搜索，松 ⌘ 却直接切走了）。
+    // ⌥ 模式的松开本来就转 lingering，⌥F 保持 holding 即可。
+    if case .focusSearch = event, m == .cmd {
+      return (.lingering(query: query, selection: selection), [.swallow, .focusSearchField])
+    }
+
     switch panelStep(event, query: query, selection: selection) {
     case .update(let q, let sel, let effects):
       return (.holding(m, query: q, selection: sel), effects)

@@ -121,10 +121,36 @@ private func expect(
     .holding(.cmd, query: "q", selection: 3), [.swallow, .moveSelection(1)])
 }
 
-@Test func holdingFocusSearchKeepsSession() {
+@Test func holdingCmdFocusSearchLingersSoModifierCanBeReleased() {
+  // ⌘ 模式下 ⌘F =「我要慢慢找」：会话转 lingering —— 松 ⌘ 不切换，回车才切。
+  // 用户实测的 bug：之前 ⌘F 后松 ⌘ 会直接切走，想搜索得一直按住 ⌘。
+  expect(
+    from: .holding(.cmd, query: "sl", selection: 1), on: .focusSearch,
+    .lingering(query: "sl", selection: 1), [.swallow, .focusSearchField])
+}
+
+@Test func holdingOptFocusSearchKeepsHolding() {
+  // ⌥ 模式下 ⌥F 留在 holding：⌥ 松开本来就转 lingering，语义没变。
   expect(
     from: .holding(.opt, query: "sl", selection: 1), on: .focusSearch,
     .holding(.opt, query: "sl", selection: 1), [.swallow, .focusSearchField])
+}
+
+@Test func releasingCmdAfterFocusSearchDoesNotSwitch() {
+  // 完整路径：⌘Tab → ⌘F → 松 ⌘ → 面板留着；回车才切。
+  var (state, _) = reduce(.idle, .modifierDown(.cmd))
+  (state, _) = reduce(state, .tab(shift: false))
+  (state, _) = reduce(state, .char("s"))
+  (state, _) = reduce(state, .focusSearch)
+  #expect(state == .lingering(query: "s", selection: 0))
+
+  let (afterRelease, releaseEffects) = reduce(state, .modifierUp(.cmd))
+  #expect(afterRelease == .lingering(query: "s", selection: 0))
+  #expect(releaseEffects == [.passThrough])  // 不激活、不隐藏
+
+  let (afterEnter, enterEffects) = reduce(afterRelease, .enter)
+  #expect(afterEnter == .idle)
+  #expect(enterEffects == [.swallow, .activate, .hidePanel])
 }
 
 @Test func holdingEnterActivates() {

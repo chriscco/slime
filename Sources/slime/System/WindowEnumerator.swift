@@ -17,6 +17,9 @@ struct WindowCandidate: Sendable {
   let onscreen: Bool
   /// 这一轮在 AX 里匹配到的信息（标题/最小化），没匹配上就是 nil。
   let matched: KnownWindow?
+  /// AX 把它报成「非标准窗口且无标题」（`AXUnknown`）—— Chromium 的
+  /// 菜单栏 / 工具栏条就这么报。用户窗口不可能是这样，见 select。
+  let helper: Bool
 }
 
 /// 一次枚举的产物 + 更新后的「见过」表（调用方跨次持有并传回来）。
@@ -35,9 +38,16 @@ struct WindowEnumeration: Sendable {
 ///   条带里的小方框，按尺寸会把它们全部丢掉；
 /// - app 必须是 `activationPolicy == .regular` —— 菜单栏 app 和系统服务
 ///   不是切换目标；
+/// - **frame 与任一显示器范围相交** —— 显示器范围外的窗口不可能是用户
+///   可见的窗口（Chromium 的助手条报 @x=-1920）；台前调度条带 / 其他
+///   Space 的窗口 frame 都在屏内，不会误伤（红线 7 禁的是按尺寸，这不是）；
 /// - 窗口必须**在屏上**、**有 AX 对应物**、或**在 known 表里**。系统会给
 ///   每个 app 生一批 layer 0、alpha 1 的幽灵窗口（菜单栏条、缓存窗等），
-///   它们从不在屏上、从不在 AX 里 —— 永远进不了 known 表（issue #21）。
+///   它们从不在屏上、从不在 AX 里 —— 永远进不了 known 表（issue #21）；
+/// - **助手条否决**：AX 匹配到「子类型 AXUnknown 且无标题」直接丢弃 ——
+///   Chromium 把菜单栏 / 工具栏条经 AX 报成窗口，onscreen / matched /
+///   known 三条正面证据全命中，只有应用自己声明的「非标准 + 无标题」能
+///   否决它（用户实测 Chrome 3 窗口显示 7 行）。
 ///
 /// `known` 表解的是另一个问题（issue #23）：`kAXWindows` 只暴露**当前
 /// Space** 的窗口，公开 API 里免空间过滤的只有主窗口/焦点窗口 —— 一个 app
@@ -80,6 +90,15 @@ enum WindowEnumerator {
       raw.append((windowID, pid, owner, bounds, onscreen))
     }
 
+    // 显示器范围外的窗口丢弃：不可能是用户可见的窗口（Chromium 的助手条
+    // 报 @x=-1920）。台前调度条带 / 其他 Space 的窗口 frame 都在屏内 ——
+    // 不会误伤（红线 7 禁的是按尺寸过滤，这不是尺寸）。拿不到显示器信息时
+    // 不判（宁多勿错）。
+    let displays = NSScreen.screens.map(\.frame)
+    if !displays.isEmpty {
+      raw = raw.filter { Self.isOnAnyDisplay($0.bounds, displays: displays) }
+    }
+
     // 每个 app 只建一次 AX element；按 frame 把 AX 窗口和 CGWindow 对上。
     //
     // 一个 AX 窗口只认领一个 CGWindow：系统会给真窗口生一份**同 frame 的
@@ -108,14 +127,16 @@ enum WindowEnumerator {
 
     return select(
       raw.map { window in
-        WindowCandidate(
+        let match = axInfo[window.windowID]
+        return WindowCandidate(
           windowID: window.windowID,
           pid: window.pid,
           appName: window.appName,
           onscreen: window.onscreen,
-          matched: axInfo[window.windowID].map {
+          matched: match.map {
             KnownWindow(title: $0.title, minimized: $0.minimized)
-          }
+          },
+          helper: match.map { AXWindows.isHelper(subrole: $0.subrole, title: $0.title) } ?? false
         )
       },
       known: previous
@@ -124,6 +145,10 @@ enum WindowEnumerator {
 
   /// 纯函数：过滤 + known 表更新（System 层唯一能单测的部分）。
   ///
+  /// - 助手否决：AX 判定为助手条（`AXUnknown` + 空标题）直接丢弃，**优先于**
+  ///   其它正面证据（onscreen / matched / known）—— 应用自己声明它是非标准
+  ///   窗口且无标题，用户窗口不可能是这样（用户实测 Chrome 3 窗口 7 行）。
+  ///   也不进 known 表：助手条在下一次枚举就自愈消失。
   /// - 幽灵过滤：不在屏上、AX 里没有、也从没见过 —— 不是用户开的窗。
   /// - known 表：通过过滤的窗口都写回表里 —— 之后离屏也还在（issue #23），
   ///   标题留用（离屏时 AX 读不到）；表里只留这一轮出现的 id（窗口消失即
@@ -134,6 +159,8 @@ enum WindowEnumerator {
   ) -> WindowEnumeration {
     var result = WindowEnumeration()
     for candidate in candidates {
+      guard !candidate.helper else { continue }
+
       let remembered = known[candidate.windowID]
       // 幽灵过滤：三种证据都没有，就不是用户开的窗。
       guard candidate.onscreen || candidate.matched != nil || remembered != nil else { continue }
@@ -155,6 +182,13 @@ enum WindowEnumerator {
     return result
   }
 
+  /// 纯函数：frame 与任一显示器范围相交即算在屏内（显示器范围注入，可单测）。
+  /// 只丢真正在所有显示器之外的窗口 —— 台前调度条带的小方框、其他 Space
+  /// 的窗口 frame、全屏窗口都在屏内。
+  static func isOnAnyDisplay(_ frame: CGRect, displays: [CGRect]) -> Bool {
+    displays.contains { $0.intersects(frame) }
+  }
+
   private static func bounds(_ value: Any?) -> CGRect? {
     guard let dict = value as? NSDictionary,
           let rect = CGRect(dictionaryRepresentation: dict as CFDictionary)
@@ -170,7 +204,18 @@ enum AXWindows {
     let element: AXUIElement
     let frame: CGRect
     let title: String
+    /// 读不到就是空串。真窗口是 `AXStandardWindow`；Chromium 的菜单栏 /
+    /// 工具栏条报 `AXUnknown`（助手条判定的依据，见 isHelper）。
+    let subrole: String
     let minimized: Bool
+  }
+
+  /// 助手条判定：应用把窗口声明成 `AXUnknown` 且没有标题。用户窗口不可能是
+  /// 这样（真机对照：Chrome / ZCode / VS Code / 企业微信 / line puppy 的真
+  /// 窗口全是 `AXStandardWindow`）。读不到 subrole（空串）时不否决 —— 拿不准
+  /// 就不丢（未知窗口的代价是列表多一行，误丢的代价是用户切不到窗口）。
+  static func isHelper(subrole: String, title: String) -> Bool {
+    subrole == kAXUnknownSubrole && title.isEmpty
   }
 
   /// AX 消息超时。红线 6：**没有这一条，一个无响应的 Electron 应用就能让
@@ -209,6 +254,7 @@ enum AXWindows {
         element: element,
         frame: frame,
         title: Self.string(of: element, kAXTitleAttribute) ?? "",
+        subrole: Self.string(of: element, kAXSubroleAttribute) ?? "",
         minimized: Self.bool(of: element, kAXMinimizedAttribute) ?? false
       )
     }
@@ -227,6 +273,7 @@ enum AXWindows {
       element: element,
       frame: frame,
       title: Self.string(of: element, kAXTitleAttribute) ?? "",
+      subrole: Self.string(of: element, kAXSubroleAttribute) ?? "",
       minimized: Self.bool(of: element, kAXMinimizedAttribute) ?? false
     )
   }

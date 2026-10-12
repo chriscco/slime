@@ -95,7 +95,8 @@ final class PanelController {
     panel.content.searchLabel.stringValue = ""
     rerank(following: nil)
     resizeAndPosition()
-    // 先渲染再上屏：第一帧就是完整列表（spec §7「瞬时」）。
+    // 手动布局：上屏前跑一遍，第一帧就是完整列表（spec §7「瞬时」）。
+    panel.content.layoutSubtreeIfNeeded()
     panel.makeKeyAndOrderFront(nil)
     // 同时后台重枚举，回来静默更新。
     onRefresh?()

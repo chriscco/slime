@@ -56,9 +56,9 @@ identity=$(security find-identity -v -p codesigning 2>/dev/null \
 
 if [ -n "$identity" ]; then
   codesign --force --sign "$identity" "$APP"
-  echo "✓ $APP（自签证书，辅助功能权限可扛 rebuild）"
+  echo "✓ ${APP}（自签证书，辅助功能权限可扛 rebuild）"
 else
   codesign --force --sign - "$APP"
-  echo "⚠ $APP（ad-hoc 签名：每次 rebuild 都要去系统设置里重新勾一遍辅助功能权限）"
+  echo "⚠ ${APP}（ad-hoc 签名：每次 rebuild 都要去系统设置里重新勾一遍辅助功能权限）"
   echo "  一次性解决：scripts/setup-signing"
 fi

@@ -129,6 +129,8 @@ final class PanelContentView: NSView {
     let listTop = Self.padding + Self.searchHeight + Self.padding
     scrollView.frame = NSRect(
       x: Self.padding, y: listTop, width: inner, height: bounds.height - listTop - Self.padding)
+    // document view 不会自己撑开：宽度必须从 scroll view 传下去。
+    listView.setContentWidth(scrollView.contentSize.width)
     emptyLabel.sizeToFit()
     emptyLabel.frame = NSRect(
       x: Self.padding + 8, y: listTop + 6, width: inner - 16, height: emptyLabel.frame.height)
@@ -160,6 +162,14 @@ final class WindowListDocumentView: NSView {
   }
 
   required init?(coder: NSCoder) { fatalError("列表只从代码建") }
+
+  /// document view 的宽度跟着 scroll view 的内容宽度走（高度由行数决定）。
+  /// 宽度变化经 resizeSubviews 传导到每一行 —— 没有这一步，document view
+  /// 宽度是 0，行的 frame 宽度为负，文字画不出来（面板看起来是空白的）。
+  func setContentWidth(_ width: CGFloat) {
+    guard frame.width != width else { return }
+    frame.size.width = width
+  }
 
   /// 选中移动。`animated` 只给键盘移动用 —— 刷新重建时不闪。
   func setSelection(_ index: Int, animated: Bool) {

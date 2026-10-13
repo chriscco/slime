@@ -91,40 +91,7 @@ final class CardGridView: NSView {
       motion.animations = [slide, stretch]
       motion.duration = 0.3
       layer.add(motion, forKey: "selection")
-    } else {
-      let dx = target.midX - oldFrame.midX
-      let dy = target.midY - oldFrame.midY
-      let distance = hypot(dx, dy)
-      let stops: [(time: CGFloat, width: CGFloat)] = [
-        (0, oldFrame.width), (0.075, min(52, max(oldFrame.width, 44))),
-        (0.225, 4), (0.725, 4), (0.875, 38), (1, target.width),
-      ]
-      let samples = (0...40).map { step -> (width: CGFloat, position: NSValue) in
-        let t = CGFloat(step) / 40
-        // Finish shrinking before departure; unfold only after arrival.
-        let progress = min(max((t - 0.225) / 0.5, 0), 1)
-        let travel = progress * progress * (3 - 2 * progress)
-        // A single small rebound stays bounded even when wrapping several rows.
-        let rebound = t > 0.725 ? pow(sin(.pi * (t - 0.725) / 0.275), 2) * min(6, distance * 0.025) : 0
-        let end = stops.indices.dropFirst().first { t <= stops[$0].time } ?? stops.count - 1
-        let from = stops[end - 1], to = stops[end]
-        let phase = (t - from.time) / (to.time - from.time)
-        let width = from.width + (to.width - from.width) * phase * phase * (3 - 2 * phase)
-        let center = NSPoint(x: oldFrame.midX + dx * travel + dx / max(distance, 1) * rebound,
-                             y: oldFrame.midY + dy * travel + dy / max(distance, 1) * rebound)
-        return (width, NSValue(point: NSPoint(
-          x: center.x + (layer.anchorPoint.x - 0.5) * width,
-          y: center.y + (layer.anchorPoint.y - 0.5) * target.height)))
-      }
-      let flight = CAKeyframeAnimation(keyPath: "position")
-      flight.values = samples.map(\.position)
-      let morph = CAKeyframeAnimation(keyPath: "bounds.size.width")
-      morph.values = samples.map(\.width)
-      for animation in [flight, morph] { animation.duration = 0.24 }
-      let motion = CAAnimationGroup()
-      motion.animations = [flight, morph]
-      motion.duration = 0.24
-      layer.add(motion, forKey: "selection")
+
     }
   }
 

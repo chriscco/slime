@@ -323,23 +323,10 @@ private func label(of card: CardView) -> String? {
     #expect(widths.last == 32)
     #expect(widths[1] > 32)
     grid.setSelection(5, animated: true)
-    let flight = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
-    let flightWidth = try #require(flight.animations?.compactMap { $0 as? CAKeyframeAnimation }
-      .first { $0.keyPath == "bounds.size.width" }?.values as? [CGFloat])
-    #expect(flight.duration == 0.24)
-    #expect(flightWidth[1] > 32)
-    #expect(flightWidth.suffix(12).max()! > 32)
-    #expect(flightWidth.max()! <= 52)
-    let positions = try #require(flight.animations?.compactMap { $0 as? CAKeyframeAnimation }
-      .first { $0.keyPath == "position" }?.values as? [NSValue])
-    let end = try #require(positions.last?.pointValue)
-    #expect(positions.contains { $0.pointValue.y > end.y })
-    #expect(positions.allSatisfy { $0.pointValue.y <= end.y + 6 })
-    #expect(flightWidth.first == 32)
-    #expect(flightWidth.min() == 4)
-    #expect(flightWidth.last == 32)
+    #expect(bar.layer?.animation(forKey: "selection") == nil)
+    #expect(bar.frame.midX == grid.card(for: 6)?.frame.midX)
     grid.setSelection(0, animated: true)
-    #expect(bar.layer?.animation(forKey: "selection") is CAAnimationGroup)
+    #expect(bar.layer?.animation(forKey: "selection") == nil)
   }
   grid.setSelection(1, animated: false)
   #expect(bar.layer?.animation(forKey: "selection") == nil)
@@ -398,44 +385,15 @@ private func label(of card: CardView) -> String? {
   #expect(widths.allSatisfy { $0 <= 52 })
 }
 
-@Test @MainActor func interruptedFlightKeepsItsVerticalPositionWhenMovingAlongTheNewRow() throws {
-  guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-  let grid = CardGridView()
-  grid.rows = (1...7).map { window("App", "Window", id: UInt32($0)) }
-  grid.setSelection(5, animated: false)
-  let bar = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
-  bar.frame.origin.y -= 80 // The previous flight has not reached this row yet.
-  let start = try #require(bar.layer?.position)
-  grid.setSelection(6, animated: true)
-  let group = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
-  let positions = try #require(group.animations?.compactMap { $0 as? CAKeyframeAnimation }
-    .first { $0.keyPath == "position" }?.values as? [NSValue])
-  #expect(positions.first?.pointValue == start)
-}
-
-@Test @MainActor func crossRowTravelHappensAsADotBeforeTheLineUnfolds() throws {
-  guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+@Test @MainActor func crossRowSelectionPlacesTheUnderlineImmediately() throws {
   for (from, to) in [(0, 5), (5, 0), (4, 5), (6, 0)] {
     let grid = CardGridView()
     grid.rows = (1...7).map { window("App", "Window", id: UInt32($0)) }
     grid.setSelection(from, animated: false)
     grid.setSelection(to, animated: true)
     let bar = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
-    let group = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
-    let animations = try #require(group.animations?.compactMap { $0 as? CAKeyframeAnimation })
-    let positions = try #require(animations.first { $0.keyPath == "position" }?.values as? [NSValue])
-    let widths = try #require(animations.first { $0.keyPath == "bounds.size.width" }?.values as? [CGFloat])
-    let start = try #require(positions.first?.pointValue)
-    let end = try #require(positions.last?.pointValue)
-    let dy = end.y - start.y
-    var travellingFrames = 0
-    for (point, width) in zip(positions, widths) {
-      let progress = (point.pointValue.y - start.y) / dy
-      if progress > 0.02 && progress < 0.98 {
-        travellingFrames += 1
-        #expect(abs(width - bar.frame.height) < 0.01)
-      }
-    }
-    #expect(travellingFrames >= 12)
+    let target = try #require(grid.card(for: UInt32(to + 1)))
+    #expect(bar.frame == NSRect(x: target.frame.midX - 16, y: target.frame.maxY - 7, width: 32, height: 4))
+    #expect(bar.layer?.animationKeys()?.isEmpty != false)
   }
 }

@@ -1,11 +1,9 @@
-# Search · 取舍记录
+# Search decisions
 
-<!-- 新的在最上面。 -->
+## 2026-10-11 · Greedy subsequence matching and explicit stable tie-breaking
 
-## 2026-10-11 · 贪心子序列匹配，得分并列靠显式稳定排序保持 MRU
-
-- **背景**：模糊匹配要能从一堆窗口里挑出「打字想找的那个」。fzf 式的分数要把位置惩罚、长度归一、词首权重全调一遍，而这里的数据只有几十个窗口名。
-- **选定**：贪心从左到右取最早命中；得分 = 基础分 + 连续 + 词首。排序显式带上原下标（`(score desc, index asc)`），保证「得分相同按 MRU」。
-- **放弃了**：fzf 式最优对齐打分（对窗口名这个数据量，收益接近零）；靠 Swift `sort`（不保证稳定，会破坏同分保 MRU）；把 MRU 编进分数（分数和 MRU 耦合后单测就要为 MRU 造分数场景）。
-- **代价**：多重合处（`a_b_ab` 里两处能凑出 `ab`）不会选最优那处 —— 只是排名不够理想，不会漏命中。
-- **推翻条件**：搜索结果排序实际用起来别扭时（比如短 query 下大窗口标题总压过精确匹配），再换最优对齐 + 位置惩罚。
+- **Context:** Window search needs to select the intended title from a few dozen candidates. fzf-style position penalties, normalization, and boundary weights would need tuning for little demonstrated benefit.
+- **Decision:** Greedily take the earliest match from left to right. Score base, adjacent, and word-boundary matches; explicitly sort by `(score descending, original index ascending)` to preserve MRU ties.
+- **Alternatives rejected:** Optimal fzf-style alignment; relying on the sort implementation for tie ordering; encoding MRU in the score, which would couple ranking tests to MRU scenarios. The original decision described Swift sort as not guaranteeing stability; explicit indices make this contract independent of that assumption.
+- **Cost:** With multiple possible alignments, such as `ab` in `a_b_ab`, the selected alignment may not score best. Matching itself remains complete.
+- **Revisit:** Real ranking becomes awkward, for example long titles consistently outrank exact matches for short queries. Then consider optimal alignment and position penalties.

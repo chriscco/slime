@@ -1,32 +1,36 @@
-# Panel · 设计
+# Panel design
 
-## 职责与边界
+## Boundaries
 
-`PanelWindow` 是 nonactivating 浮动面板；`PanelController` 维护查询、真实窗口身份、选择与会话 generation。键盘只由 EventTap 驱动，面板不运行第二个 reducer。枚举和 AX 由 System 层负责。
+`PanelWindow` is a nonactivating floating panel. `PanelController` owns query, window identities, bounded selection, and session generation. EventTap alone drives keyboard state; the panel has no second reducer. System owns enumeration and Accessibility.
 
-## 布局与渲染（0.0.5）
+## Layout and rendering
 
-- `GridLayout`：固定五列，200×160pt 卡片、12pt 间隔、20pt padding、52pt 搜索区。未分组 0–5 项为 1088×252pt；超过三行滚动。屏幕可用宽度减 40pt 后不足时缩小预览，标题字号不变；总高也不超过屏幕可用高减 40pt。
-- 分组开启时按结果中 app 首次出现排序，组内保留搜索排名。每组另起行，28pt 图标/名称标题；高度按内容增长至三行卡片的可视上限，更多滚动。`rowStarts` 描述实际占用的行，方向键不会落入空槽或标题。
-- `PanelContentView`：搜索展示、关闭状态提示、滚动网格、空态。先确定窗口尺寸和布局，再 render；document 宽度由 scroll view 传入。
-- `CardGridView` 按 windowID 复用视图。高亮为 13% 同色底（14pt 圆角）和 32×4pt 下划线；同行从 presentation layer 当前位置向新目标移动 300ms，连续采样位置和宽度曲线，宽度先伸展（上限 52pt）再收回 32pt；同一选择的异步刷新不打断在途动画，快速重定向不累加伸长，跨行（包括跨行的首尾循环）直接显示在目标位置，无飞行、形变或回弹，底色独立淡化 160ms。Reduce Motion 直接更新选中。
-- `WindowPreviewView` 对 aspect-fit 后的实际图片区域做 10pt 圆角裁切，含纵向图。优先真实图及同窗口缓存；无图绘制通用小窗口、静态示意线和 app 图标。标题保持真实内容，tooltip/辅助功能说明不可预览。
-- 面板固定暗色 appearance，与既有黑底遮罩保持文字对比度；设置窗口遵循系统外观。面板默认圆角 20pt，用户已有偏好保留。
+- GridLayout has five fixed columns, 200×160 pt cards, 12 pt gaps, 20 pt padding, and a 52 pt search region. Ungrouped lists of zero to five items use 1088×252 pt. More than three rows scroll. A narrow screen reduces preview size while retaining title font size and five columns; panel bounds stay within the visible screen minus 40 pt.
+- App grouping follows first appearance in ranked results and preserves ranking within each app. Each group starts a new row with a 28 pt icon/name header. `rowStarts` describes occupied rows; arrow navigation never selects blank slots or headings.
+- PanelContentView contains search, close status, scrollable grid, and empty state. The scroll view supplies document width. Render after settling initial geometry; post-close height changes use a 200 ms centered transition, disabled by Reduce Motion.
+- CardGridView reuses cards by windowID. Selection is a 13% accent tint with 14 pt corners and a 32×4 pt underline. Within a row, a 300 ms sampled position/width curve begins at the presentation frame, stretches no wider than 52 pt, then settles to 32 pt. Refreshing the same selection does not interrupt it. Cross-row movement and wrapping place the underline immediately. Tint fades independently over 160 ms; Reduce Motion removes travel.
+- WindowPreviewView clips the aspect-fit image itself to 10 pt corners, including portrait previews. Real/cached images take precedence. Otherwise draw a generic small window and app icon, without inventing website content. Preserve real titles and expose unavailable-preview help to accessibility.
+- The panel uses dark appearance and a black opacity mask; settings follows system appearance. Default panel corners are 20 pt. The 0.0.6 default accent is sRGB #96D76A, with one-time migration and later customization.
 
-## 会话和关闭
+## Session and close lifecycle
 
-show/hide 推进 session generation；缩略图等待最长 300ms，旧等待回调不能打开新/已结束的会话。外部失焦、停用由 dismiss 同时取消 tap 会话。
+Show/hide advances session generation. Thumbnail warm-up waits at most 300 ms; stale callbacks cannot reopen a dismissed or replacement session. Dismissal/disable cancels the tap session.
 
-⌘D 捕获窗口和相邻窗口身份，进入 closing；后台关闭和预览动画并行，二者完成后才移除卡片。动画只作用预览快照：画面垂直收缩并提亮，独立的 2pt 发光横线水平收成点，4pt 亮点短闪和余辉消失，总长 560ms；画面、横线、亮点分别动画，避免把光晕也压成硬边矩形；Reduce Motion 为 120ms 淡出。
+Command-D captures target and neighbor identities. AX work and CRT run concurrently. At close start, title, tint, and underline fade away; only the card-sized preview snapshot animates. The 560 ms CRT separates picture compression/exposure, a 2 pt luminous beam, and a 4 pt fading point so glow is not flattened into a rectangle. Reduce Motion uses a 120 ms fade.
 
-closing 期间缓存快照仍更新，但不重排可见卡片；禁止导航和再次关闭。关闭确认后通知 cache 删除目标，再选后邻居（末项选前邻居）；失败恢复预览和目标，并显示原因。Esc/设置/停用可结束会话；旧任务仍可维护 cache，但不能修改新会话的选择、动画或键盘状态。
+During closing, cache snapshots can arrive but cannot reorder visible cards. Confirmed closure removes only the target and selects the next surviving neighbor, or the previous one at the end. A direct failure restores the preview/decorations and shows a reason. A fallback that must reveal the target application dismisses slime permanently for that transaction, leaving save confirmation to the user.
 
-## 接口和验证
+One AXRequest supplies a shared three-second deadline and cancellation checks. A replacement session, Escape, settings, or disable cancels pending retries. Deliberate application handoff preserves that request but not the panel session. An outstanding operation prevents a second close from starting. Old confirmed results may update cache, never a new session's UI or tap state.
 
-`handle(state:effects:)`、`setWindows(_:)`、`dismiss()`；`onActivate/onRefresh/onOpenSettings/onClosed/onCloseFinished/onCancelSession` 接外部边界。关闭函数可注入异步结果，测试通过真实 controller 验证确认、恢复和会话隔离。GridLayout/PanelLayout 测试验证尺寸、导航、身份复用、纵向图片圆角。
+## Search and performance
 
-真实原生空白窗口 AX 关闭及下划线连续帧采样已通过；实际键盘动态观感、五列相较旧 240×176 的辨识度仍需真机验收；离屏渲染不能验证玻璃合成、系统焦点或动画手感。
+The filter is a tap-owned append/backspace query, not an AppKit field editor. Explicit focus shows an accent border/icon and blinking end caret. Caret position interpolates over 90 ms and replaces its previous movement; hidden panels stop blinking. Long text is clipped with its end visible. Arrows still select windows; no IME, arbitrary text selection, or mouse window selection is implemented.
 
-## 已知限制
+Unchanged ordered results skip grid rendering. Cards avoid wrapping an unchanged CGImage again or invalidating its preview. Focus does not restart its animations on every character. Resize frames update geometry without repeating ranking or capture. Thumbnail updates are snapshots, not live video.
 
-搜索框仅展示 Effect 更新的文本，不支持 IME；不做鼠标选窗。缩略图随窗口快照更新，不承诺实时视频。五列的新尺寸仍是待真机校准提案，详见 0.0.5 spec。
+## Interfaces and verification
+
+`handle(state:effects:)`, `setWindows`, and `dismiss` connect to activation, refresh, settings, cache closure, tap completion, and cancellation callbacks. Injected close/reveal operations test restoration, cancellation, and session isolation. Layout tests cover geometry, navigation, identity reuse, portrait rounding, and underline behavior.
+
+Offscreen rendering does not certify glass composition, system focus, physical keyboard behavior, or perceived smoothness. The 0.0.6 spec defines native acceptance and the release performance matrix. Historical native-window/underline checks from 0.0.5 remain evidence for that version, not proof that every new path is validated.

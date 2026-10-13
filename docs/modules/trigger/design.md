@@ -1,18 +1,20 @@
-# Trigger · 设计
+# Trigger design
 
-纯函数 `reduce(state, event) -> (state, [Effect])`，只依赖标准库。EventTap 翻译并独占状态；PanelController 执行 UI Effect，维护有边界的真实选择。
+`reduce(state, event) -> (state, [Effect])` is a pure function. EventTap translates events and exclusively owns state; PanelController executes UI effects and maintains bounded selection.
 
-| 状态 | 转移 |
+| State | Transition |
 |---|---|
-| idle | 修饰键按下 → armed；其余放行 |
-| armed(m) | Tab → holding + showPanel；该修饰键松开 → idle；普通快捷键放行 |
-| holding(cmd) | 松 Command → activate/hide；⌘F → lingering |
-| holding(opt) | 松 Option → lingering |
-| lingering | 修饰键上下保持 query/selection；Tab、方向、输入继续操作；Enter 激活，Esc 取消，⌘, 开设置 |
-| closing | 修饰键上下保持会话，导航/输入/重复关闭吞掉；Esc 或设置仍可结束；closeFinished → lingering |
+| idle | Modifier down → armed; otherwise pass through |
+| armed(m) | Tab → holding/showPanel; matching modifier up → idle; ordinary shortcuts pass through |
+| holding(cmd) | Command up → activate/hide; Command-F → lingering |
+| holding(opt) | Option up → lingering |
+| lingering | Modifier changes retain query/selection; Tab/arrows/type continue; Enter activates, Escape cancels, Command-comma opens settings |
+| closing | Modifier changes retain the session; navigation/input/repeated close are swallowed; Escape/settings can end it; closeFinished → lingering |
 
-holding/lingering 的 ⌘D 都进入 closing 并发出 closeWindow。因此松 Command 不会意外激活邻居。关闭操作完成（包括失败、空列表）后由 UI 经 tap run loop 发 closeFinished；会话 revision 过滤过期完成。
+Command-D from holding or lingering enters closing and emits closeWindow, preventing Command release from activating a neighboring window. UI completion, including failure or an empty list, sends closeFinished on the tap run loop. Revision checks discard obsolete completion deliveries.
 
-`panelStep` 共用普通导航、搜索和结束操作。`selection` 是无界计数，实际窗口数量、分组、循环导航及身份跟随由 PanelController/GridLayout 处理。空列表 activate 由 UI 变为 no-op。
+`panelStep` shares ordinary navigation, filtering, and finish behavior. Core selection is an unbounded counter; actual counts, grouping, wrapping, and identity-following belong to PanelController/GridLayout. Activating an empty list is a UI no-op.
 
-Effect 中有 swallow 才吞；会话外非 Tab 键必须放行。会话内无法翻译的 keyDown、关闭键 autorepeat 由 EventTap 兜底处理。Core 不引用 AppKit/CGEvent/AX，状态转移可直接单测。
+Swallow only when an effect explicitly says so. Non-Tab keys outside a session pass through. EventTap handles untranslated in-session key-downs and close autorepeat. Core never imports AppKit, CGEvent, or AX.
+
+The 0.0.6 close deadline and cancellation live outside Core. An intentional handoff to the target application ends the tap session; it must not synthesize a new lingering session after confirmation.

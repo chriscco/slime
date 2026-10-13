@@ -1,197 +1,141 @@
-# System · 取舍记录
+# System decisions
 
-<!-- 新的在最上面。 -->
+Historical entries retain their original order and evidence. Later entries explicitly supersede earlier rules.
 
-## 2026-10-12 · 缩略图抓取：SCK 公开 API，不用私有 SkyLight
+## 2026-10-12 · Public ScreenCaptureKit instead of private SkyLight
 
-- **背景**：spec §4 的 spike。私有 `CGSHWCaptureWindowList` 比 SCK 快 ~10ms，
-  且能抓个别 SCK 失败的 Chrome 窗口（历史见过 -3811）。
-- **选定**：`SCShareableContent` + `SCContentFilter(desktopIndependentWindow:)` +
-  `SCScreenshotManager.captureImage`。**搁置窗口不实时抓** —— spike 实测三条路
-  各有各的坏法（斜的透视条带 / 全白 / 不稳定），它们的卡片走「缓存上一张好图 →
-  app 图标」的降级。用户看到的是它搁置**前**的全分辨率样子，比任何实时抓取都清楚。
-- **放弃了**：私有 SkyLight（`dlopen` + 零文档 + 每次 macOS 升级赌一次，换 10ms
-  和一类边缘窗口不值）；`SLSCaptureWindowsContentsToRectWithOptions`（符号存在但
-  没有任何公开签名，参数猜错有把 WindowServer 搞崩的风险）。
-- **代价**：多一项 TCC（屏幕录制）、多一个权限失败面；搁置窗口没有实时图。
-- **推翻条件**：SCK 在真实使用里经常抓不到正常窗口（那时重估私有路径），
-  或 Apple 给出抓「合成后但未变换」窗口的公开 API。
+- **Context:** The spec §4 spike found private CGSHWCaptureWindowList about 10 ms faster and able to capture some Chrome windows that SCK rejected with -3811.
+- **Decision:** SCShareableContent, a desktop-independent SCContentFilter, and SCScreenshotManager. Parked windows use their last good image or icon because three capture approaches produced distorted, white, or unstable results.
+- **Rejected:** Undocumented dlopen-based SkyLight, whose OS-update risk was not worth the small gain; SLSCaptureWindowsContentsToRectWithOptions had a symbol but no public signature, making guessed calls a WindowServer risk.
+- **Cost:** Screen Recording TCC and another permission-failure surface; no live parked-window image.
+- **Revisit:** Normal-window capture becomes routinely unreliable, or Apple exposes an untransformed composited-window API. Private APIs would require a separate scope decision.
 
-## 2026-10-12 · 缩略图判据：关掉 shadow framing + 四角采样内缩 2px
+## 2026-10-12 · Disable shadow framing and inset corner sampling
 
-- **背景**：`looksLikeWindowRender` 的四角不透明判据第一版采最外圈 —— 真窗口的圆角
-  本身就是透明的，**每一扇真窗口都被判否**（320pt 宽抓图，缩到 32×32 采样后 (0,0)
-  的 alpha = 0）。另外 SCK 默认带 shadow framing，阴影把窗口从抓取边界内缩，
-  抓出来的不是窗口本身。
-- **选定**：抓取时 `config.ignoreShadowsSingleWindow = true`；四角采样**内缩 2px**
-  （内缩后 (0,0) 实测 alpha = 255）。内缩不会放过斜条带 —— 它的四角在
-  x ∈ [10, 22] 之外仍是空的，判据照旧拦得住。
-- **代价**：内缩把「四角不透明」的有效范围收进 2px；「整扇窗只有一种颜色」的窗口
-  仍会被第二种判据误杀 —— 退回 app 图标，不是白屏（shortcut: 注释）。
-- **推翻条件**：内缩放过坏图的实测案例出现时（收窄内缩 / 改采样点）。
+- **Context:** Sampling outer corners rejected every real rounded window: alpha at (0,0) was zero after downsampling 320 px captures to 32×32. SCK shadow framing further inset the actual window.
+- **Decision:** ignoreShadowsSingleWindow and sample corners two pixels inward, where native samples reached alpha 255. Distorted tiles still had empty corners outside their x≈10…22 span.
+- **Cost:** A narrower opacity check; uniformly colored real windows still fail the color-diversity check and show icons.
+- **Revisit:** A measured bad image passes the inset test; narrow or relocate samples.
 
-## 2026-10-12 · 过期缩略图用窗口身份判，不用 generation 计数
+## 2026-10-12 · Reject stale thumbnails by live identity, not batch generation
 
-- **背景**：红线 5 要求「过期结果必须丢弃」。`WindowCache` 用的是 generation 计数。
-- **选定**：`WindowThumbnails` 用 `live: Set<UInt32>`（当前快照的 windowID 集合），
-  抓取结果回来时只收 `live` 里的。
-- **为什么**：计数器只能说「这批可能过期了」，身份能说「这扇窗已经不在快照里了」。
-  而且计数器在这里有个洞：批次 A 被批次 B 顶掉时，B 看到 A 的窗口还在 pending
-  就跳过，A 回来又因 generation 不符而丢弃并清掉 pending —— 那几个窗口再没人抓。
-- **代价**：windowID 被 WindowServer 复用时会认错（每一次快照边界都清理，
-  所以复用得跨过边界才可能撞上）。
-- **推翻条件**：出现「关掉的窗口的图被显示出来」的实测案例。
+- **Context:** Results must not resurrect vanished windows.
+- **Decision:** Initially accept results only for IDs in the current live set. A global batch generation creates a hole: B skips IDs pending in A, then A is discarded for being old and nobody captures them.
+- **Cost:** WindowServer ID reuse can confuse identity across snapshot boundaries.
+- **Revisit:** A closed window's image reappears. The 0.0.6 entry adds per-window tickets/owner checks without invalidating unrelated batches.
 
-## 2026-10-12 · `WindowCache.sort` 从 private 放开到 internal 供测试直调
+## 2026-10-12 · Expose WindowCache.sort internally for regression tests
 
-- **背景**：spec §10 的聚拢 bug 只有 4 行修法，但它是「冷启动后同一个 app 的窗口
-  交错」这个现象的全部根因 —— 不留回归钉，下次动排序就会再犯。
-- **选定**：`private nonisolated static func sort` → `nonisolated static func sort`，
-  新增 `Tests/slimeTests/WindowCacheSortTests.swift` 用 `@testable import` 直接测。
-- **放弃了**：搬进 `Core/`（纯逻辑进 Core 更合规矩，但那要新增文件，和 CLAUDE.md
-  第六条「源文件保持精简 / 加文件之前先问能不能并进已有的那个」冲突，而它只有 4 行）。
-- **代价**：**这是对「只有 Core 能单测」的一处有意偏离** —— `System/` 里出现了一个
-  为测试而放开的可见性。它不 import 任何系统框架，是纯函数，所以偏离是安全的。
-- **推翻条件**：`System/` 里为测试放开的成员多到第三处（那时该抽一个 `Core/` 模块）。
+- **Context:** A four-line sorting defect interleaved one app's windows on cold start.
+- **Decision:** Change private nonisolated sort to internal and exercise it with @testable import.
+- **Rejected:** Moving four lines into a new Core file conflicted with the small-file-count rule.
+- **Cost:** Deliberately depart from the original claim that only Core can be unit tested; the function itself remains pure despite living in System.
+- **Revisit:** Three or more such exposed seams justify revisiting the module boundary.
 
-## 2026-10-12 · 助手条否决（AXUnknown + 空标题）与屏外丢弃 —— Chromium 的假窗口
+## 2026-10-12 · Veto AXUnknown/empty-title helpers and off-display surfaces
 
-- **背景**：用户实测 Chrome 只有 3 个窗口、面板显示 7 行。真机 dump（临时、未提交）：Chromium 经 AX 把**菜单栏 / 工具栏条**当窗口暴露 —— 两条 `subrole=AXUnknown`、`title=""`、`size=1920x41/47 @x=-1920`，且 `onscreen=1` 并 frame/title 匹配上 AX；现有「在屏上 / 有 AX 对应物 / known」三条判据全部拦不住，一进 known 表就长期驻留。对照：Chrome、ZCode、VS Code、企业微信、line puppy 的真窗口 subrole 全是 `AXStandardWindow`。现有证据链（真窗口 = 在屏上 / AX standard 匹配 / known）对这两条全部为真 —— 唯一为假的是「应用自己声明它是非标准窗口」。
-- **选定**：(a) AX 匹配条目带 `subrole`；匹配到「`AXUnknown` 且无标题」→ 判为助手条，`select` 里**直接丢弃**（优先于 onscreen / matched / known），且**不进 known 表** —— 用户现有的 7 行会在下一次枚举自愈回 3 行。(b) 枚举阶段丢弃 frame 与所有显示器范围交集为空的窗口（显示器范围注入纯函数，可单测）—— 显示器范围外的窗口不可能是用户可见的窗口。
-- **放弃了**：只靠现有三条正面证据（条全命中，拦不住）；把条留在 known 里靠后续过滤（known 是长期驻留地，必须在进表前否决）；按尺寸 / 位置启发式（红线 7 禁尺寸；「不在任何显示器内」比几何启发干净）；读不到 subrole 也谨慎否决（拿不准就不丢 —— 多一行的代价远小于误丢用户窗口）。
-- **代价**：把真窗口报成 `AXUnknown` + 空标题的应用会被误丢（当前真机对照里没有）；多显示器热插拔瞬间 NSScreen 可能少一个屏，屏外的窗口会被丢弃一帧（下一轮枚举自愈）。「屏外」判定不涉及尺寸/位置启发 —— 台前调度条带（屏内小方框）、其他 Space（frame 在屏内）、全屏窗口都不会被误伤。
-- **推翻条件**：再遇到应用把真窗口报成 `AXUnknown` + 空标题（用户反馈丢窗）时，改用别的信号（例如只否决「在屏外 **且** AXUnknown 且无标题」的组合，或评估私有 `_AXUIElementGetWindow` 语义）。
+- **Context:** Chrome had three real windows but seven entries. Native diagnostics found AXUnknown, empty-title menu/toolbar surfaces, including 1920×41/47 at x=-1920, that were onscreen and matched AX, so all prior positive evidence admitted them. Real sampled Chrome, ZCode, VS Code, WeCom, and line puppy windows were AXStandardWindow.
+- **Decision:** Carry subrole, veto AXUnknown plus empty title before all positive evidence, and never persist those entries. Also reject enumeration frames intersecting no display, using testable display geometry.
+- **Rejected:** Existing positive evidence, retaining rejected helpers in known, size heuristics forbidden by Stage Manager, and vetoing unknown/unreadable subroles.
+- **Cost:** A real unnamed AXUnknown window would be lost; display hot-plug can temporarily omit a window. The original assumption that all genuine offscreen frames intersect a display is not a general guarantee.
+- **Revisit:** A real window is lost; narrow the veto or investigate another identity signal. Private AX ID mapping was listed historically as a possible separately scoped investigation, not permission to add it.
 
-## 2026-10-12 · known 表：访问过一次的窗口，离屏后仍然留在列表里
+## 2026-10-12 · Remember previously observed windows across Spaces
 
-- **背景**：幽灵过滤（上一条）之后的新 bug：一个 app 有多个窗口时面板只显示一个（用户实测 Warp、VS Code 各两个窗口）。根因：进列表需要「在屏上或 AX 里有对应物」的证据，而 `kAXWindows` 只暴露**当前 Space** 的窗口，免空间过滤的公开 API 只有 `kAXMainWindow`/`kAXFocusedWindow` —— 所以每个 app 只有主窗口进得来，第二个窗口只要不在屏上就消失。
-- **选定**：枚举器带一张跨次持有的 known 表：窗口只要「在屏上 / AX 匹配上」过就记进去（含最后的标题/最小化），之后即使离屏也仍进列表；表按这一轮出现过的 id 重建（窗口消失即修剪）。
-- **放弃了**：只按 in-screen/AX 过滤（用户可见的窗口会随机消失）；私有 SkyLight/AX（spec §3 非目标；同类工具为此改用私有 API，代价是随系统更新失效）；几何启发式（幽灵里有 500×500、1218×418 这种真窗口尺寸，分不开）。
-- **代价**：应用刚启动时 known 为空 —— 隐藏 Space 里的非主窗口要等用户去过那个 Space 才进列表（之后持续记住）。窗口 id 被复用的一瞬可能把新窗口误判一次（等到下一轮 id 不在枚举里就修剪了）。标题在离屏期间可能过期（读不到新的）。
-- **推翻条件**：still 觉得「切不到没去过的 Space」烦时 —— 评估私有 API（= 推翻 spec §3 的非目标，需要单独立项）。
+- **Context:** After helper filtering, Warp/VS Code each showed only one of two windows. The observed AX window list covered the current Space, while public main/focused-window access exposed only a subset.
+- **Decision:** Keep a known table of windows previously visible or AX-matched, retaining last title/minimized state while offscreen and pruning missing IDs each enumeration.
+- **Rejected:** Visible/AX-only selection, private APIs excluded by the spec, and size heuristics that cannot separate real-sized ghost surfaces.
+- **Cost:** Never-visited offscreen windows may be absent at startup, titles can become stale, and ID reuse can briefly confuse identity.
+- **Revisit:** Unvisited-Space omission becomes intolerable; private APIs would explicitly overturn the non-goal and need a separate issue.
 
-## 2026-10-12 · 幽灵窗口过滤：regular app + 在屏上/AX 对应，不按尺寸
+## 2026-10-12 · Regular apps plus visible/AX evidence, without size filtering
 
-- **背景**：用户实测面板里同一 app 刷出十几行空标题重复项、没有窗口的 app 也出现。诊断（在 slime 进程内取数）：本机 `layer == 0 && alpha > 0` 的候选有 **252 个**，绝大多数是系统给每个 app 生的幽灵窗口 —— 每个 app 每个显示器一个菜单栏条（1470×33 @(0,0)、1920×30 @(-582,-1080)）、跨 app 同位置同尺寸的缓存窗（500×500 @(0,456)、1×1、64×64）、以及各 app 的 helper 窗。
-- **选定**：app 级只留 `activationPolicy == .regular`；窗口级只留「在屏上 **或** 在 `kAXWindows`/`kAXMainWindow` 里」；一个 AX 窗口只认领一个 CGWindow（在屏优先，防孪生幽灵重复行）。
-- **放弃了**：按尺寸过滤（红线 7 禁止 —— 台前调度的小方框）；`kCGWindowName`（无录屏权限时整个键都不存在，实测）；manual accessibility（Chrome 实测 `AXManualAccessibility` 返回 attribute unsupported、Electron 类 5 秒后仍 0 个窗口 —— 不能作为准据）；私有 SkyLight/SLS（spec §3 非目标；同类工具为补「其他 Space 的窗口」确实改用了私有 API）。
-- **代价**：**其他 Space 的窗口进不齐** —— 只有「在屏上」或「是该 app 的主窗口」时能进列表；手动验收里「Chrome 三个窗口都列出」要求那三个窗口至少在屏上（同一 Space / 双屏都在屏上）。少数同 frame 的真窗口会只留一个。
-- **推翻条件**：真觉得「切不到别的 Space 的窗口」烦到不能忍时 —— 那时评估私有 API（等于推翻 spec §3 的非目标，spec §15 的 0.0.2 候选里没列，需要单独立项）。
+- **Context:** A slime-process probe found 252 layer-zero positive-alpha candidates, including per-display menu bars (1470×33 and 1920×30), shared-frame 500×500 surfaces, 1×1/64×64 surfaces, and helpers.
+- **Decision:** Keep regular applications and visible or AX windows/main-window counterparts. Each AX window claims at most one CG surface, preferring onscreen candidates.
+- **Rejected:** Size filtering; CG names as a mandatory signal because the key disappears without Screen Recording; AXManualAccessibility (unsupported for Chrome and no Electron windows after five seconds); private SkyLight/SLS.
+- **Cost:** Incomplete other-Space coverage; at this stage some equal-frame real windows could collapse. Original three-Chrome-window acceptance required those windows to be onscreen or main windows.
+- **Revisit:** Cross-Space gaps become unacceptable; reconsider the explicitly excluded private route separately.
 
-## 2026-10-11 · 用公开的 frame/标题匹配 AX 窗口，不用私有 `_AXUIElementGetWindow`
+## 2026-10-11 · Public frame/title AX matching instead of private ID mapping
 
-- **背景**：激活一个 `Window` 需要它的 `AXUIElement`，但公开 API 里没有 windowID → AX element 的映射（CGWindowList 给 id，AX 只有 kAXWindowsAttribute 的元素数组）。
-- **选定**：按 frame（±2pt）匹配，台前调度等对不上的场景退到标题匹配。匹配不中时激活降级为「只 activate app、不 raise」。
-- **放弃了**：私有 `_AXUIElementGetWindow`（同类工具在用，能精确拿 id）—— spec §3 把「私有 SkyLight」列为非目标，理由是随系统更新失效；同一类风险不在这里重开；标题匹配的错误代价只是标题/最小化状态，不是激活目标。
-- **代价**：同名同位置窗口（同 app 两个「未命名」）可能匹配错元素；台前调度条带里的窗口拿不到标题。2pt 容差是拍的。
-- **推翻条件**：真的出现「切错窗口」的用户反馈（不是切错 app）时，再评估私有 API 或别的锚。
+- **Context:** CG exposes window IDs while AX exposes element arrays; there is no public direct mapping in the chosen API surface.
+- **Decision:** Match frame within ±2 pt, then title when Stage Manager changes geometry. Activation without a match falls back to activating the application.
+- **Rejected:** Private _AXUIElementGetWindow because its maintenance risk belongs to the same excluded private-API category.
+- **Cost:** Same-title/same-position windows may match incorrectly; parked titles may be unavailable. The original 2 pt tolerance was not rigorously calibrated. Activation's app fallback does not establish destructive-close safety.
+- **Revisit:** A reported wrong-window activation requires another identity anchor or a separately approved private-API evaluation.
 
-## 2026-10-11 · 事件 tap 放 `kCGSessionEventTap`，`.headInsertEventTap` + `.defaultTap`
+## 2026-10-11 · Session-level head-insert default event tap
 
-- **背景**：spec §12 把「session 层还是 HID 层」列为待验证项，两个都能吞事件。
-- **选定**：先 `kCGSessionEventTap`（同类工具的常态位置）；吞放靠 Effect 里的 `swallow`，放行是默认。验证方式写在 design.md（真机按 ⌘Tab 看谁响应）。
-- **放弃了**：一上来就 `kCGHIDEventTap` —— 更靠前意味着更早看到、也更可能被安全输入等机制挡住或被系统更新改行为；没有证据说 session 层不够。
-- **代价**：如果 session 层拿不到 ⌘Tab（被系统先处理），需要手动验证后改一行。
-- **推翻条件**：真机上 ⌘Tab 被系统抢走（面板不出现）时改 HID 层 —— spec §12 本来就要求写第一版时验证。
+- **Context:** The spec left session versus HID placement to native verification.
+- **Decision:** Start with kCGSessionEventTap/headInsert/defaultTap; swallow only explicit effects.
+- **Rejected:** Starting at HID without evidence session placement is insufficient; earlier interception may interact differently with Secure Input or OS updates.
+- **Cost:** If native Command-Tab wins, the placement must change after verification.
+- **Revisit:** Physical-key testing shows the panel never receives Command-Tab; evaluate HID as the spec anticipated.
 
-## 2026-10-11 · 缓存快照 + 按下时后台重枚举，而不是每次都枚举或 AXObserver 增量
+## 2026-10-11 · Cached snapshots with background refresh
 
-- **背景**：AX 取标题是跨进程同步 IPC，一次 ⌘Tab 全量枚举会有 ~50ms 首次卡顿；AXObserver 增量缓存代码最多，通知会丢、时序难调。
-- **选定**：启动枚举一次；按下时立刻用快照渲染，同时后台重新枚举、回来静默 diff 更新（generation 丢弃过期结果）。用①的代码量拿接近③的体感。
-- **放弃了**：每次按下才枚举（第一下必卡）；AXObserver 增量缓存（0.0.2 再说，那时也更清楚通知在哪些场景会丢）。
-- **代价**：面板刚出现的一瞬间列表可能不是最新的；「别的途径换前台 app」后的一帧里当前窗口可能没被排除，几十毫秒后静默修正。
-- **推翻条件**：真的觉得列表更新不及时了。
+- **Context:** Synchronous AX enumeration on every gesture introduced about 50 ms first-use latency in the original measurements. Incremental AXObserver caching required more code and difficult notification ordering/loss handling.
+- **Decision:** Enumerate on startup, render the snapshot immediately on invocation, then refresh asynchronously and discard stale generations.
+- **Rejected:** Enumerating only when pressed; implementing AXObserver incrementally before understanding notification reliability.
+- **Cost:** Briefly stale initial lists. At this historical point current-window exclusion could also be stale after an external app switch.
+- **Revisit:** Refresh freshness is visibly inadequate. Current-window inclusion and coalescing later refine this design.
 
-## 2026-10-13 · known 表落 UserDefaults（跨 slime 重启），带 appName 防复用误判
+## 2026-10-13 · Persist known windows with appName as an ID-reuse check
 
-- **背景**：用户实测「重启 slime 后永远只显示 zcode 一个窗口」。known 表在内存里，
-  重启即空 —— 而 Electron 类 app 的 AX 不暴露窗口，它们的离屏窗口只能靠 known 表
-  进来，所以重启后列表只剩「此刻在屏」的那几个。
-- **选定**：known 表编码成 JSON 存进 `UserDefaults`（键 `cache.knownWindows`），
-  加载即用。条目带 **appName**：windowID 只在一次开机内稳定，**重启机器**后可能
-  被复用 —— 名字对不上的条目按不认识处理（纯函数测试 `knownEntryWithADifferentAppNameIsIgnored`）。
-- **放弃了**：不持久化（用户的实测就是它的代价）；只存 windowID（跨开机复用误判的概率更高）。
-- **代价**：第一次跑新版本时 known 表是空的，需要用户在各 Space 走一圈把窗口「看进」表里
-  （之后跨重启保留）；重启机器后表里的旧 id 会自然修剪。
-- **推翻条件**：出现「关掉的窗口的图/行又出现了」的实测案例。
+- **Context:** Restarting slime left only the currently visible ZCode window because inaccessible Electron windows depended on the lost in-memory known table.
+- **Decision:** JSON in UserDefaults cache.knownWindows; appName mismatches invalidate an old ID. Cover this through knownEntryWithADifferentAppNameIsIgnored.
+- **Rejected:** No persistence or storing only IDs, which increases cross-boot confusion.
+- **Cost:** The first run still needs discovery across Spaces; old IDs are pruned as observations change.
+- **Revisit:** A closed window's row/image reappears.
 
-## 2026-10-13 · 缩略图落盘 + 负缓存 + 只刷新在屏窗口 —— 用户实测「大部分卡片只有 app 图标」
+## 2026-10-13 · Disk previews, negative cache, and onscreen refresh
 
-- **背景**：用户报「只有几个窗口显示内容，其他全都是图标代替的小窗」。诊断结论与最初的
-  猜测（SCK 并发 / 节流）**相反**：抓不到的恰好是**离屏窗口**（其他 Space、最小化、台前
-  调度搁置）—— 它们在合成层没有渲染，SCK 要么报 `-3811 音频/视频捕捉失败`、要么给斜条带 /
-  全白（spec §4.1 早就测到过这个坏法）。证据：① slime 内探针 10 扇窗只成 4 扇，失败的正是
-  Warp ×2 + Chrome ×4 那批离屏窗；② **把并发改成串行没用**（同一批还是失败）；③ **隔 6 秒
-  再 warm 一次也没用**（失败集一模一样）—— 不是节流；④ 终端里对一个窗口类做 79 次顺序抓，
-  75 次不报错，但那类窗口的图本来就空 / 斜（判据会丢）—— **终端看着「能抓」不等于能出好图**。
-- **选定**：三条一起上。
-  ① **图落盘**（`Application Support/slime/thumbs/<windowID>.png`）：窗口在**当前 Space
-  出现过的那一次**抓到真图，之后长期显示那一张（spec §4.5 的「缓存上一张好图」降级链）；
-  清理跟内存同一条规则（不在快照里的删掉，关掉的窗口不在这份快照里）。落盘在后台，
-  否则 20–40 KB 的 PNG 编码会压主线程（红线 4）。
-  ② **负缓存**（`unrenderable`）：抓过、失败、**而且当时不在屏上**的窗口不再重试 —— 否则
-  它们永远算「正在抓」，把面板首帧拖满 `warmUpDeadline`，还每轮枚举白烧 IPC；回到屏上
-  （`Window.isOnscreen` 转真）就再给一次机会。
-  ③ **在屏的窗口每轮枚举刷新**（不阻塞首帧，结果经 `onChange` 就地换卡片）—— 可见窗口的
-  内容会变，图得跟得上；这也让「缓存里的图」的语义精确成「它在屏时的最近一次」。
-  `Window` 因此加了 `isOnscreen`（**只给缩略图用** —— 它不能当过滤条件，台前调度搁置的
-  窗口这个值会在 0/1 之间横跳，spec §4.3 实测）。
-- **放弃了**：把并发改串行当修法（实测失败与并发无关 —— 串行保留只是因为实测稳定、够用）；
-  给离屏窗口反复重试（注定失败）；只靠内存缓存（重启即空 → 用户看到的就是「大部分窗口
-  只有图标」）；`withTaskGroup` 并发（没有证据说它更快，SCK 同时开多个流的风险不划算）。
-- **代价**：一次 app 切换会重写 4 扇在屏窗的 PNG（≈ 100 KB，`shortcut:` 注释里记了脏检查
-  的退路）；离屏窗口的图会过期（「认出这是哪个窗口」够用，spec §3 非目标）；多一个缓存
-  目录需要用户清 Application Support 时留意。
-- **推翻条件**：出现「关掉的窗口的图/行又显示了」的实测案例；或 Apple 给出抓**未渲染**窗口
-  的公开 API（那时落盘与负缓存都该删掉）。
+- **Context:** Most cards showed icons. A ten-window authorized probe captured four; failures were offscreen Warp/Chrome windows. Serial capture and a six-second retry did not change the failed set. A terminal test had 75 successful calls out of 79, but many images were empty/distorted: API success did not imply a usable preview.
+- **Decision:** Persist the last good PNG off the main thread; suppress repeated capture of failed offscreen windows; retry when onscreen and refresh visible cached windows on enumeration without blocking first presentation. Add Window.isOnscreen for capture policy, not as an exclusive enumeration filter.
+- **Rejected:** Treating serialization as the fix, endless offscreen retries, memory-only caching, and concurrent streams without measured benefit. Serial capture remained because it was stable and sufficient.
+- **Cost:** Roughly four PNG rewrites/about 100 KB per typical app switch, stale parked images, and an Application Support cache directory. A shortcut records dirty-write detection as a possible later optimization.
+- **Revisit:** Closed images reappear or a public API captures unrendered windows reliably, allowing disk/negative-cache removal.
 
-## 2026-10-13 · 缩略图缓存的清理边界是「窗口关没关」，不是「面板显不显示」
+## 2026-10-13 · Cache cleanup follows live windows, not displayed results
 
-- **背景**：找上面那条的验证时踩出来的两个 bug —— 用一个**隐藏**的 TextEdit 窗口做对照
-  （隐藏 → 合成层不渲染 → 抓不到，正好模拟用户那批离屏窗口），种一张洋红假图落盘、
-  重启 slime 后它**被删了**。根因两条，都在「当前窗口」的定义上：
-  ① `WindowThumbnails.warm` 收到的是**面板的列表**（`snapshot`，不含当前窗口）—— 而
-  清理按这个列表走，于是**用户所在的这扇窗的图每次 warm 都被删掉**。用户切走之后它
-  就是列表里第一张卡，而那时它多半已经离屏、抓不到了 —— **永远只能显示 app 图标**。
-  这正是用户报的现象里最刺眼的那一张（刚离开的窗口排在第一位）。
-  ② `frontWindowID` 取的是枚举结果 front-to-back 的**第一个**窗口，而隐藏的窗口
-  （不渲染、可能排在 z 序最前）会被当成「用户所在的窗口」—— 真正的前台窗口因此留在
-  列表里（切到自己没有意义），并且它的图同样被删。
-- **选定**：① `AppDelegate` 把 `cache.allWindows` 传给 `WindowThumbnails.warm`（面板
-  仍在拿 `snapshot`）；② `front` 取**第一个在屏的**窗口（`first { $0.isOnscreen }`）——
-  「用户所在的窗口」必须是在屏的，这是 `Window.isOnscreen` 的第二个用处。
-- **放弃了**：给缓存单独维护一份「哪些窗口还活着」的表（`allWindows` 就是它，不用再加）；
-  按「当前窗口」单独开一个豁免（把 front 塞回列表更简单，也顺带让它在屏时刷新）。
-- **代价**：当前窗口也会进 `refresh`（在屏 → 每轮 warm 抓一次）—— 那本来就是最该
-  新鲜的图，值得；`warm` 的入参语义从「要显示的」变成「还活着的」，读代码时要看注释。
-- **推翻条件**：出现「关掉的窗口的图还在显示」（那时才需要用别的信号判存活）。
+- **Context:** A hidden TextEdit window's seeded magenta cache disappeared after restart. Thumbnail warming received the then-current snapshot excluding the active window, deleting exactly the image needed after switching away. CG's first entry could also be hidden and was incorrectly called current.
+- **Decision:** Warm cache.allWindows, not the filtered snapshot; initially identify current as the first onscreen window.
+- **Rejected:** A second independent live-window table or a special exemption for the active window.
+- **Cost:** Current-window images also refresh, intentionally; warm's input means live rather than displayed windows.
+- **Revisit:** Closed images remain visible. Later frontmost-PID checking fixes the multi-display current-window assumption.
 
-## 2026-10-13 — 关闭采用保守的一对一几何匹配
+## 2026-10-13 · Conservative one-to-one geometry for closing
 
-激活允许降级到 app，关闭不能猜测。公开 API 没有可靠 windowID → AX element 映射，因此要求同 PID、AX 与 CG 两侧 frame 都唯一，操作前复查，不按标题回退。代价是台前调度/重叠/幽灵同 frame 的窗口可能拒绝关闭，明确提示而不尝试错误目标。
+Activation may fall back to an app; closing cannot guess. Initially require same PID and unique geometry on both CG and AX sides, rechecking before press, with no title fallback. Ambiguous Stage Manager/overlapping targets were rejected with an explanation.
 
-AXPress 后最多轮询 2 秒确认 CG id 消失；超时保留卡片并提示检查保存确认，不自动处理对话框。每个 AX 对象继续使用 1 秒消息超时。确认删除使 cache 在途枚举失效；保持正常激活逻辑不变。
+Initially poll CG disappearance for about two seconds after AXPress, preserving the card on timeout and leaving save dialogs to the user. Each AX object retained a one-second timeout. Confirmed deletion invalidates cached enumeration; ordinary activation stays unchanged. Later entries refine title matching, confirmation evidence, and total deadlines.
 
-## 2026-10-13 — 缓存不再覆盖当前的无窗口证据
+## 2026-10-13 · Known cache cannot override current no-window evidence
 
-两屏实测 Chrome 3 个窗口出现 5 项，飞书点关闭后仍出现 2 项。只读 CG/持久化快照确认，多余 Chrome 项是空标题工具栏宿主，飞书两项为同 frame 的残留表面；旧假设“辅助表面从不上屏、不会进入 known”不成立。通过正常应用启动路径读取 AX，飞书返回空 windows 且 main noValue；CLI 子进程没有 AX 权限，不能用它的空结果作关闭证据。
+Two-display feedback showed Chrome three windows as five and closed Feishu as two. CG/persisted data identified empty-title toolbar hosts and retained equal-frame Feishu surfaces. The authorized app saw empty AX windows and main noValue; an untrusted CLI's empty result could not establish closure.
 
-选择保留错误状态：只有完整空 windows + main noValue 才否决整个 app；未知/超时不否决。CG 明确空标题时不再仅凭在屏或未经验证的旧缓存收录；标准 AX 验证过的无标题窗口、最小化窗口仍可保留。CG 标题缺失（无录屏权限）继续原有降级，不追加权限要求。缓存新字段可选，兼容旧数据；不按窗口尺寸或 app 名硬编码。
+Only complete empty windows plus main noValue vetoed an app; errors/unknown did not. Explicitly empty CG titles no longer gained admission solely through onscreen status or unverified cache. Standard-AX-verified unnamed/minimized windows remained eligible; absent CG titles retained the no-Screen-Recording fallback. New fields were optional, with no hardcoded app/size exceptions.
 
-实际 enumerate 的真机复跑得到 Chrome 3 / 飞书 0，捕获形状的回归测试从 7 项失败转为 3 项通过。代价：无录屏权限时，尚未匹配 AX 的辅助表面仍可能被保守保留；公开 API 的跨 Space 可见范围仍是限制。
+Native enumeration returned Chrome three/Feishu zero, and captured-shape regression tests changed seven entries to three. Without Screen Recording, unverified helpers may still be conservatively retained. Later sibling protection narrows the app-wide veto.
 
-## 2026-10-13 — 前台排除限定 app，关闭识别台前调度
+## 2026-10-13 · Limit current-window exclusion to the frontmost app; identify Stage Manager closes
 
-授权诊断发现 Warp 前台时，跨屏 CG 首项却是 Chrome 无痕窗口；无痕和两个 Warp 窗口均已枚举，错误发生在 snapshot 排除阶段。发布时读取当前 frontmost PID，只排除该 app 的首个在屏窗口；切 app 时立即清除其他 app 的排除项。
+The authorized probe found a Chrome incognito CG entry first while Warp was frontmost. All required windows were enumerated but wrongly excluded. Use the current frontmost PID and clear another app's exclusion immediately on activation.
 
-ChatGPT 的 AX 完整窗口 frame 与 CG 台前调度缩略块不同，旧唯一几何匹配必然拒绝关闭。补充同 PID、有效 CG 表面与标准 AX 窗口两侧唯一的实时非空标题匹配；操作前重读双方并核验同一 AX 元素，不用缓存猜测。歧义仍拒绝，不增加私有 API 或前台激活副作用。
+ChatGPT's full AX frame differed from its transformed CG tile. Permit a same-PID nonempty live title unique among valid CG surfaces and standard AX windows, rereading and validating the same element before press. Ambiguity still rejects; no private API or activation side effect was added at that stage.
 
-原生空白测试窗口复现同样的几何差异，实际 AXPress 关闭窗口后进程仍在，CG 表面却暂时保留。因此确认除 CG 消失外，也接受目标 AX 失效，或 CG 离屏且 AX 明确无窗口。保存提示仍不自动回应。测试未关闭用户工作窗口。
+A disposable native window reproduced this geometry difference and closed while its process and CG surface remained. Confirmation therefore accepted AX invalidation or offscreen CG plus explicit no-window AX evidence as well as CG disappearance. Never auto-answer save prompts or close working documents for tests. The 0.0.6 decision removes app-wide emptiness as individual close proof.
 
-## 2026-10-13 — 全部窗口、关闭标记与同应用兄弟窗口
+## 2026-10-13 · Include current windows; retain explicit closed/sibling markers
 
-用户确认面板包含当前窗口；将它排在末尾而非删除，保留快速切到另一个窗口的默认目标。Chrome 原始 CG 仍含缺失窗口，但缓存已丢且 AX 只暴露部分窗口，因此有标准 AX 窗口的应用允许通过非空 CG 标题恢复其他离屏窗口。
+The owner chose to include the current window at the end. Chrome's omitted windows remained in CG but lacked cache/AX coverage, so a standard-window AX app may recover other windows through nonempty CG titles.
 
-四窗原生 fixture 实测：关闭第 4 窗后 AX windows 空、main noValue，前三窗仍在，旧应用级否决使 survivors=0。SCWindow.isActive 也把真实离屏窗口标 false，不能用它判关闭，未引入此依赖。改为保存明确的目标 closed 标记和兄弟 survivedClose 标记，复测 survivors=3，关闭应用进程仍在。可选字段沿用已有持久化格式；AX 重新匹配解除兄弟保护、CG 消失自然修剪、目标重新可见可复用相同 ID。
+Closing the fourth of four native fixture windows left three live CG windows but empty AX/main noValue; the old veto returned zero survivors. SCWindow.isActive also marked real offscreen windows false, so it was rejected as a liveness test. Persist target closed and sibling survivedClose markers instead; retesting returned three survivors and a running process. Optional fields reuse the storage format, AX rediscovery clears protection, and missing CG prunes entries. Reappearing targets can reuse IDs.
 
-代价：受保护兄弟后续在应用自身关闭且 AX 仍不可见、CG 仍保留时，清理可能延迟；升级条件是增加窗口级 AX 生命周期观察，不恢复应用级空列表的一刀切推断。
+Cost: externally closed protected siblings may linger if AX remains unavailable and CG retains a surface. Upgrade to per-window lifecycle evidence if needed; do not restore app-wide empty-list inference.
+
+## 2026-10-13 · Bounded close transactions, coalesced refresh, and asynchronous disk reads
+
+The 0.0.6 performance review found that per-call AX timeouts did not bound a full close, stale-generation rejection did not stop queued work, and disk cache reads still ran on the main actor. Add a shared three-second monotonic AXRequest with per-call remaining-time checks and cancellation; keep one close transaction through application handoff. Retry identity acquisition only before AXPress. Detect save sheets positively and stop guessing closure from an app-wide empty list.
+
+Coalesce enumeration to one running/one pending refresh and check cancellation between IPC calls. Load thumbnail PNGs off the main thread, remember misses for the current lifetime, and use per-window publication tickets/owner checks so a late disk result cannot overwrite a fresh capture or revive a removed identity. No general scheduler, observer framework, or dependencies are introduced. Native and release-build performance measurements remain required.

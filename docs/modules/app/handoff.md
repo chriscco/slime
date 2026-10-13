@@ -1,43 +1,33 @@
-# App · 交接
+# App handoff
 
-更新：2026-10-13。分支 `feat/0.0.5`，基线 main `2fba010`（spec PR #49 已合并）。实现关联 #47；合并仍由用户执行。
+Updated 2026-10-13. Branch: `feat/0.0.6`, based on merged 0.0.5 (`fe3a221`). Implementation: [#51](https://github.com/chriscco/slime/issues/51). Final native acceptance and post-merge publication: [#52](https://github.com/chriscco/slime/issues/52). The owner merges; the agent must not merge or tag the feature branch.
 
-## 已实现
+## Implemented
 
-固定五列和可选独立 app 分区、真实图片圆角、小窗口占位、淡底加动态下划线；General/Appearance/Shortcuts/About、总开关、SMAppService 登录项、默认英文及中文切换；⌥Tab 后 Command 修复；⌘D 唯一匹配窗口关闭、CRT/Reduce Motion、失败恢复和异步会话隔离。bundle 为 0.0.5 (5)。
+Version 0.0.6 (6), supplied application icon, exact sRGB slime-green default and one-time reset of old accents. Subsequent customization persists and updates selected settings controls. Bilingual READMEs include DMG installation and directory trees. All existing module design/decision/handoff documents are in English; historical decisions remain in chronological order.
 
-## 验证
+Command-D has a shared three-second deadline, cancellation between AX calls, and at most one active transaction. It revalidates the CG/AX identity before pressing the close button. Inaccessible targets can be activated/unhidden/raised with public APIs and retried within the same budget. Save sheets are a handoff, never consent. The panel stays dismissed after handing control to the app. An intentional hide's resign-key notification no longer cancels that handoff; user dismissal and replacement sessions still cancel it.
 
-`scripts/test`（155 项）覆盖状态、tap 发布/停用、五列/分组导航、Settings/控件动作、图片圆角像素、关闭唯一性、异步确认/失败/旧会话隔离。`scripts/build-app` 已用本地证书成功构建。当前 head CI 结果记录在实现 PR。
+CRT hides selected tint, title and underline; direct failure restores them. Confirmed removals animate panel height for 200 ms. Search has visible focus and a 90 ms end-caret transition. Cross-row underline placement remains immediate. Reduce Motion keeps the existing fade and disables geometry travel. Cards/images are reused when unchanged.
 
-离屏 AppKit 渲染核对了设置四页和五列占位排版。检测到可用屏幕 1470×867pt 与 1920×1050pt，未超出 1088pt 目标宽；这不是实际多窗辨识度结论。
+Enumeration now allows one running and one pending request and stops obsolete AX work. Thumbnail disk reads and eager decoding run in the background; live identity tickets guard publication, misses are remembered, and the existing 300 ms presentation deadline remains.
 
-本轮正常授权启动的只读诊断已验证枚举：Chrome 3、飞书关闭后 0；旧缓存自动排除辅助/关闭表面。下划线为 4pt/300ms 伸缩，CRT 为独立画面/亮线/亮点 560ms；增加缓存迁移、窗口计数、动画构成与清理测试。严格 warnings-as-errors 构建和本地签名构建通过。
+## Verification and limits
 
-本轮定位：跨屏 CG 首项不代表前台 app，导致已枚举的无痕/Warp 窗口被错误排除。ChatGPT 的 AX 完整窗口和 CG 台前调度缩略块几何不同，关闭现支持双侧唯一实时标题。原生可丢弃窗口实测关闭成功、进程保留，即使 CG 表面暂存也不会恢复卡片。下划线 12 帧采样连续，中途刷新未跳变；快速重定向有伸长上限测试。临时诊断入口已从源码移除。
+See [release validation](../../releases/0.0.6-validation.md) for exact evidence and pending gates. Local tests cover migration, settings actions, identity matching, cancellation/deadline handling, close success/failure/handoff, refresh coalescing, background disk loading, and search focus/caret behavior. Strict source compilation is also required. Temporary native-test entry points must never be committed or packaged.
 
-Computer Use 现在可读取 Finder/Chrome；启动无窗口的 slime 时仍超时，合成快捷键未触发面板，不能据此声称真实键盘/动态观感通过。未改系统权限。以下仍需真机验收：
+Disposable native windows reproduced inaccessible AX state under Stage Manager. The fallback closed only the requested second window while preserving its three siblings and the app process. A separate disposable save-sheet test returned `confirmationRequired`; cancelling kept the window, confirming closed it. Native panel observations verified decoration removal and row-count reduction. These checks do not certify every app, real keyboard capture, other Spaces, or end-to-end frame pacing.
 
-- 两屏上与旧 240×176 对比，辨认同 app 多窗/纵向窗口；必要时重新校准 200×160。
-- 快速 Tab 动画、CRT 三阶段、Reduce Motion、玻璃合成、没有缓存时 Chrome 图标占位。
-- ⌥Tab → Command → ⌘,/⌘F，失焦/Esc/停用后重开；总开关恢复原生 ⌘Tab 并持久化。
-- 实际键盘触发关闭、保存确认；歧义窗口拒绝操作时应有提示（原生空白窗口关闭且不退出 app 已验证）。
-- 登录项批准/失败/重登启动，中英文 UI 和 About 0.0.5。
+The release-build benchmark measures CPU query/layout/offscreen painting for 10/50/100 windows with grouping on/off. It does not measure input-to-display latency. Physical keyboard acceptance, unresponsive-app AX timing, cold/warm preview matrix, Reduce Motion, and available multi-display/high-refresh cases still belong to the release gate. Login approval/relogin is not validated here.
 
-## 运行
+## Run and release
 
-`scripts/build-app` → 退出旧 slime → 打开 `build/slime.app`。授权后重启；若启动失败总开关会关闭，重启后需在菜单栏设置重新开启。正常总开关切换无需重启。
+`scripts/build-app` builds the normal development app; quit the old process and launch `build/slime.app`. Restart after granting Accessibility or Screen Recording. If tap installation fails, interception is disabled while menu-bar settings remain usable; re-enable after permission/restart.
 
-关闭默认等待 2 秒确认窗口消失（不含 AX 消息耗时）；无法唯一对应 CG/AX 的目标保守拒绝。没有改激活的既有回退、没有增加依赖。输入法、鼠标选窗、自定义快捷键、窗口级 MRU 仍为非目标。
+`scripts/package-dmg` builds release configuration and checks the mounted image, signature, metadata, icon, executable, architecture, and Applications link. The owner approved an unnotarized arm64 DMG signed with the local certificate. No Developer ID or universal validation is claimed. Do not disable Gatekeeper globally.
 
-## 本轮反馈回归
+Next: resolve PR review findings, obtain the owner's merge, complete the outstanding release acceptance in #52, verify merged-main CI, rebuild the DMG from that commit, tag `v0.0.6`, publish DMG/checksum/release notes, and verify the downloaded asset. Do not publish before acceptance is complete.
 
-面板包含当前窗口并放在末尾，默认仍选另一个窗口。设置窗口前置至当前 Space；侧栏改为纯色扁平设计，About 仅名称、版本、GitHub。跨行及跨行首尾循环直接显示目标短线，同行保留 300ms 动画。
+## Remaining platform limits
 
-Chrome 丢失的两个窗口在 CG 清单里仍存在，但没有缓存且不在部分 AX 列表中；实际枚举已恢复三窗，Warp 两窗均保留。四个原生空白窗口关闭一个后复现 AX 空列表导致其余三个丢失；明确目标关闭标记与兄弟窗口保留标记修复后，同场景得到 closed、三个存活窗口、进程保留。设置截图已检查。正常入口恢复后再构建；不将临时测试入口提交。
-
-尚未回归受保护窗口随后从应用自身关闭且 CG 继续保留的场景，可能延迟清理（见 System design）；真实键盘和保存确认等上方待验收项仍保留。
-
-最终动画取舍：用户取消跨行飞行设计，已删除相应代码；上下跨行及首尾循环均立即显示 32×4pt 短线，同行动画保留。回归覆盖目标位置、无动画和在途同行动画的取消。
-
-PR 评审收尾：补齐 keyDown/keyUp 配对（含按键重复）、未配对放行、cancelSession 与 configure 双向重置的行为测试，handle 调用同一内部函数；生产吞放规则未改。空态改为 No windows / 没有窗口，spec 明确面板固定暗色，System design 记录会话内普通 ⌘字母仍作过滤输入。
+AX can expose only some Spaces. Never-observed windows can be absent; ambiguous identities are refused. Previously preserved sibling windows closed outside slime can linger if WindowServer retains their surfaces (see System design). Preview disk filenames still use window IDs without cross-boot ownership metadata. The current text filter has no arbitrary caret positioning, clipboard editing, or IME composition. No private APIs or dependencies were added.

@@ -1,26 +1,28 @@
-# App · 设计
+# App design
 
-`main.swift` 在 run 前设置 accessory（无 Dock 图标）；`AppDelegate` 在 MainActor 组装 SettingsWindow、菜单栏、EventTap、WindowCache 和 PanelController。
+`main.swift` sets accessory activation policy before entering the run loop. `AppDelegate` assembles SettingsWindow, the menu-bar item, EventTap, WindowCache, and PanelController on the main actor.
 
-菜单栏先建立，停用/缺权限/监听失败时仍可打开设置。启用时检查 AX 权限并启动 tap 和 cache；失败显示本地化提示、总开关回关，不假装启用。屏幕录制缺失不阻止切窗，仅影响预览。授权后提示重启。
+The menu bar is installed first and remains usable while disabled, without Accessibility permission, or after tap startup failure. Enabling checks Accessibility and starts the tap/cache. Failure shows a localized error and turns the switch off. Screen Recording is optional and affects previews only. Permission onboarding requests a restart after authorization.
 
-总开关关闭立即 dismiss 和 configure(false)，释放键盘，保留其余偏好；再次开启复用 tap，无需正常运行期间重启。连续超时兜底关闭总开关、取消会话并提示原生 ⌘Tab 已恢复。
+Disabling immediately dismisses the panel and calls `configure(false)`, releasing keyboard interception while retaining preferences. Enabling again reuses the installed tap. Repeated tap timeouts disable interception, cancel the session, and explain that native Command-Tab is available.
 
-## 接线
+## Wiring
 
-- tap effects → panel.handle；panel 失焦/停用 → tap.cancelSession。
-- panel.onActivate → WindowActivator.activate + cache.noteActivated。
-- panel.onRefresh → cache.refresh；cache.onChange → AppIcons.warm + WindowThumbnails.warm(allWindows) + panel.setWindows。
-- panel.onClosed → cache.noteClosed；onCloseFinished → tap.completeClose（revision 校验）。
-- panel.onOpenSettings / 菜单栏 → settingsWindow.show。
-- settingsWindow.onChange → 重建菜单文案；总开关改变时启停接管。语言即时保存，面板下次展示读取；真实 app 名/标题不翻译。
+- Tap effects → `panel.handle`; panel dismissal/disable → `tap.cancelSession`.
+- `panel.onActivate` → `WindowActivator.activate` and `cache.noteActivated`.
+- `panel.onRefresh` → `cache.refresh`; cache publication → icon/thumbnail warming and `panel.setWindows`.
+- `panel.onClosed` → `cache.noteClosed`; `onCloseFinished` → revision-checked `tap.completeClose`.
+- Panel/menu settings action → `settingsWindow.show`.
+- Settings changes rebuild menu labels and start/stop interception only when enabled state changes. Language persists immediately; the next panel presentation reads it. Application names and window titles are never translated.
 
-## 设置
+## Settings
 
-720×510pt 原生 AppKit 窗口，纯色扁平侧栏 General/Appearance/Shortcuts/About，无毛玻璃或按钮边框，选中项用淡色背景。窗口使用 floating 层级、moveToActiveSpace/fullScreenAuxiliary，并显式 orderFrontRegardless，避免非激活面板退出后设置落在其他窗口后。About 仅名称、版本与仓库链接。Settings 注入 UserDefaults 供测试；未选语言（包括升级用户）默认英文。现有颜色/玻璃/圆角偏好保留，新默认面板圆角 20pt。
+A 720×510 pt AppKit window contains flat General, Appearance, Shortcuts, and About sections. The sidebar uses solid surfaces and borderless navigation. The floating window moves to the active Space, supports full-screen auxiliary presentation, and explicitly orders itself frontmost. About contains only slime, the bundle version, and the repository link.
 
-登录项直接使用 ServiceManagement 的 SMAppService.mainApp，不复制一份真假状态到 defaults。窗口成为 key 时重读状态；注册/注销期间禁用控件；需要批准、找不到 app、调用失败分别显示系统状态或错误。默认不注册。About 从 bundle 读取版本并链接项目仓库。
+Settings accepts isolated UserDefaults for tests. English is the default. Existing glass preferences remain; default panel corner radius is 20 pt. In 0.0.6 the sole existing user's saved accent resets once to sRGB #96D76A; later customization persists. The settings selection and panel share the configured accent.
 
-## 验证与限制
+Login launch uses `SMAppService.mainApp` directly, without a duplicate defaults flag. Read system status when settings becomes key; disable the control during registration changes and distinguish approval required, missing app, and failure. Registration is off by default.
 
-测试覆盖设置持久化、语言控件动作、tap 接管/撤销及异步关闭联动。系统批准、真实登录启动、TCC、macOS 全局按键与焦点需要真机验收。安全输入时原生 ⌘Tab 接管是预期降级。
+## Verification boundaries
+
+Tests cover preferences, language controls, keyboard enable/disable, and asynchronous close integration. Actual login approval/startup, TCC, global shortcuts, focus, and screen composition require native acceptance. Secure Input falling back to native Command-Tab is expected.

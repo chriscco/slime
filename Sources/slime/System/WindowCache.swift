@@ -64,6 +64,10 @@ final class WindowCache {
   /// 面板要渲染的列表：MRU 序，不含当前窗口。
   var snapshot: [Window] { all.filter { $0.windowID != frontWindowID } }
 
+  /// 这一轮枚举到的所有窗口（含当前窗口）。给缩略图缓存用 —— 它的清理边界
+  /// 是「窗口关没关」，不是「面板显不显示」（见 AppDelegate 的 onChange）。
+  var allWindows: [Window] { all }
+
   func start() {
     observeActivations()
     refresh()
@@ -77,8 +81,12 @@ final class WindowCache {
     let previous = known
     queue.async { [weak self] in
       let result = WindowEnumerator.enumerate(known: previous)
-      // front-to-back 的第一个就是当前窗口（本进程的窗口不在枚举结果里）。
-      let front = result.windows.first?.windowID
+      // front-to-back 的第一个**在屏**窗口就是当前窗口（本进程的窗口不在枚举
+      // 结果里）。必须额外看 `isOnscreen`：隐藏 / 最小化的窗口不渲染、也可能
+      // 排在 z 序最前 —— 实测一个隐藏的 TextEdit 窗口被当成了 frontWindowID，
+      // 后果是（1）真正的当前窗口留在列表里（切到自己没有意义），（2）它的
+      // 缩略图按「不在列表里」被判过期删掉 —— 用户切走之后只能看到 app 图标。
+      let front = result.windows.first { $0.isOnscreen }?.windowID
       let sorted = Self.sort(result.windows, byMRU: mru)
       let updatedKnown = result.known
       DispatchQueue.main.async {

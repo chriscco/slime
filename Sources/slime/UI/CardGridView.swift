@@ -159,7 +159,9 @@ final class CardView: NSView {
     super.init(frame: .zero)
     // 静态配置只做一次；图与标题走 update（刷新复用路径也走它）。
     // 按长宽比缩放整窗可见（不裁切、不拉伸），多出来的边露出面板底色。
-    thumb.imageScaling = .scaleProportionallyUpOrDown
+    // 只缩不放：缩略图要填满图区，而 app 图标是 64–128px —— 放大到 240×150
+    // 只会糊。"scaleProportionallyUpOrDown" 会连图标一起放大。
+    thumb.imageScaling = .scaleProportionallyDown
     thumb.wantsLayer = true
     thumb.layer?.cornerRadius = 6
     thumb.layer?.masksToBounds = true

@@ -54,9 +54,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // 天然在主线程。`WindowThumbnails.warm` 只是把后台抓取发出去 —— 首次唤出
     // 面板时缓存已经就绪（除了「启动后 100ms 内就按 ⌘Tab」那种情况，那时先显示
     // 图标、抓完由 onChange 就地换成缩略图）。
-    cache.onChange = { [weak panel] windows in
+    // 缩略图预热传的是 **allWindows 而不是面板的列表**：面板不显示当前窗口，
+    // 但缩略图缓存要记住它 —— 用户切走之后它就是列表里的第一张卡，而那时它
+    // 可能已经离屏、抓不到了。传面板列表的话，每次 warm 都会把当前窗口的图
+    // 清掉（按列表边界清理），切走时只能显示 app 图标。
+    cache.onChange = { [weak cache, weak panel] windows in
+      guard let cache else { return }
       AppIcons.warm(windows)
-      WindowThumbnails.warm(windows)
+      WindowThumbnails.warm(cache.allWindows)
       panel?.setWindows(windows)
     }
 

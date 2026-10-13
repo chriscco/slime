@@ -76,7 +76,7 @@ final class PanelController {
     rerank(following: nil)
     let generation = session
     var presented = false
-    let present = { [weak self] in
+    let present: @MainActor @Sendable () -> Void = { [weak self] in
       guard let self, !presented, self.session == generation, self.phase.isSessionOpen else { return }
       presented = true
       self.panel.makeKeyAndOrderFront(nil)

@@ -97,7 +97,17 @@ enum WindowEnumerator {
     // 报 @x=-1920）。台前调度条带 / 其他 Space 的窗口 frame 都在屏内 ——
     // 不会误伤（红线 7 禁的是按尺寸过滤，这不是尺寸）。拿不到显示器信息时
     // 不判（宁多勿错）。
-    let displays = NSScreen.screens.map(\.frame)
+    // NSScreen.frame 是**左下原点**，而 CGWindowList 的 bounds 是**左上原点** ——
+    // 必须换算到同一套坐标再判，否则「上方的那块外接屏」的显示范围在 CG 坐标里
+    // 是负 y，它上面的窗口全会被误判成屏外（用户实测：外接屏的窗口一个不剩）。
+    // 换算：以主屏高度做 y 翻转（CG 全局坐标的原点是主屏的左上角）。
+    let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+    let displays = NSScreen.screens.map { screen -> CGRect in
+      let f = screen.frame
+      return CGRect(
+        x: f.origin.x, y: primaryHeight - f.origin.y - f.height,
+        width: f.width, height: f.height)
+    }
     if !displays.isEmpty {
       raw = raw.filter { Self.isOnAnyDisplay($0.bounds, displays: displays) }
     }
@@ -193,6 +203,8 @@ enum WindowEnumerator {
   /// 纯函数：frame 与任一显示器范围相交即算在屏内（显示器范围注入，可单测）。
   /// 只丢真正在所有显示器之外的窗口 —— 台前调度条带的小方框、其他 Space
   /// 的窗口 frame、全屏窗口都在屏内。
+  ///
+  /// `displays` 必须是 **CG 坐标**（左上原点），调用方负责换算 —— 见 enumerate()。
   static func isOnAnyDisplay(_ frame: CGRect, displays: [CGRect]) -> Bool {
     displays.contains { $0.intersects(frame) }
   }

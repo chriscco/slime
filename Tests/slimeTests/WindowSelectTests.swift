@@ -134,6 +134,20 @@ private let displays: [CGRect] = [
   #expect(!WindowEnumerator.isOnAnyDisplay(strip, displays: displays))
 }
 
+@Test func windowsOnASecondDisplayAboveTheMainOneStay() {
+  // 用户实测：连外接屏后，那块屏上的窗口（Warp / ChatGPT）全被丢掉。
+  // 根因是坐标系混用：显示器的范围给了左下原点（NSScreen），窗口 frame 是
+  // 左上原点（CGWindowList）——「上方的那块屏」在 CG 坐标里是负 y。
+  // 这里按换算后的 CG 坐标钉住：外接屏在上方时，它上面的窗口必须在屏内。
+  let main = CGRect(x: 0, y: 0, width: 1470, height: 956)          // 主屏
+  let secondary = CGRect(x: -582, y: -1080, width: 1920, height: 1080)  // 外接屏（CG 坐标）
+  let displays = [main, secondary]
+  #expect(WindowEnumerator.isOnAnyDisplay(CGRect(x: -341, y: -1049, width: 1537, height: 979), displays: displays))
+  #expect(WindowEnumerator.isOnAnyDisplay(CGRect(x: -187, y: -887, width: 1328, height: 780), displays: displays))
+  // 真正在所有显示器之外的仍然丢。
+  #expect(!WindowEnumerator.isOnAnyDisplay(CGRect(x: -5000, y: -5000, width: 200, height: 100), displays: displays))
+}
+
 @Test func stageManagerStripAndFullscreenWindowAreOnDisplay() {
   // 台前调度条带（屏内的小方框）与全屏窗口都在屏内 —— 红线 7 的「不按尺寸」
   // 不被这条过滤破坏。

@@ -157,3 +157,62 @@ private let displays: [CGRect] = [
     WindowEnumerator.isOnAnyDisplay(
       CGRect(x: 0, y: 0, width: 1470, height: 956), displays: displays))
 }
+
+// Captured two-display snapshot: three Chrome windows plus cached toolbar hosts;
+// Feishu retained two CG surfaces after its last window was closed.
+@Test func staleToolbarAndClosedAppSurfacesDoNotSurviveTheCache() {
+  let chrome = "Google Chrome"
+  let old = KnownWindow(appName: chrome, title: "", minimized: false)
+  let known = Dictionary(uniqueKeysWithValues: [38027, 462, 2180, 36395, 2185].map {
+    (UInt32($0), old)
+  }).merging([
+    39813: KnownWindow(appName: "飞书", title: "飞书", minimized: false),
+    99: KnownWindow(appName: "飞书", title: "", minimized: false),
+  ]) { a, _ in a }
+  let chromeCandidates: [WindowCandidate] = [38027, 462, 2180, 36395, 2185].map { id in
+    WindowCandidate(windowID: UInt32(id), pid: 1, appName: chrome,
+      onscreen: id == 2185, matched: nil, helper: false,
+      cgTitle: [38027, 462, 2180].contains(id) ? "Browser page" : "", axAvailable: true)
+  }
+  let larkCandidates: [WindowCandidate] = [39813, 99].map { id in
+    WindowCandidate(windowID: UInt32(id), pid: 2, appName: "飞书",
+      onscreen: false, matched: nil, helper: false,
+      cgTitle: id == 99 ? "飞书" : "", axAvailable: true, appHasNoWindows: true)
+  }
+  let result = WindowEnumerator.select(chromeCandidates + larkCandidates, known: known)
+  #expect(result.windows.map(\.windowID) == [38027, 462, 2180])
+  #expect(result.known.keys.sorted() == [462, 2180, 38027])
+}
+
+@Test func verifiedUntitledAndMinimizedWindowsSurviveMissingAXOnAnotherSpace() {
+  let verified = KnownWindow(appName: "App", title: "", minimized: false, axVerified: true)
+  let result = WindowEnumerator.select([
+    WindowCandidate(windowID: 1, pid: 1, appName: "App", onscreen: false,
+      matched: nil, helper: false, cgTitle: "", axAvailable: true),
+    WindowCandidate(windowID: 2, pid: 1, appName: "App", onscreen: false,
+      matched: KnownWindow(appName: "App", title: "", minimized: true, axVerified: true),
+      helper: false, cgTitle: "", axAvailable: true),
+  ], known: [1: verified])
+  #expect(result.windows.map(\.windowID) == [1, 2])
+  #expect(result.windows.last?.isMinimized == true)
+}
+
+@Test func unavailableAXAndScreenPermissionKeepTheOnscreenFallback() {
+  let result = WindowEnumerator.select([candidate(1, onscreen: true)], known: [:])
+  #expect(result.windows.map(\.windowID) == [1])
+}
+
+@Test func legacyCacheDecodesWithoutInventingAXVerification() throws {
+  let data = Data(#"{"appName":"App","title":"Old title","minimized":false}"#.utf8)
+  let entry = try JSONDecoder().decode(KnownWindow.self, from: data)
+  #expect(entry.title == "Old title")
+  #expect(entry.axVerified == nil)
+}
+
+@Test func titledBackgroundSurfacesStillNeedWindowEvidence() {
+  let result = WindowEnumerator.select([
+    WindowCandidate(windowID: 1, pid: 1, appName: "App", onscreen: false,
+      matched: nil, helper: false, cgTitle: "Background surface", axAvailable: true),
+  ], known: [:])
+  #expect(result.windows.isEmpty)
+}

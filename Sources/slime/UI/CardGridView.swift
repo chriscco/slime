@@ -57,7 +57,7 @@ final class CardGridView: NSView {
     }
     guard !rows.isEmpty, let layer = highlight.layer else { return }
     let cell = cardRect(selection)
-    let target = NSRect(x: cell.midX - 16, y: cell.maxY - 7, width: 32, height: 3)
+    let target = NSRect(x: cell.midX - 16, y: cell.maxY - 7, width: 32, height: 4)
     let oldFrame = layer.presentation()?.frame ?? highlight.frame
     departingUnderline?.removeFromSuperlayer()
     departingUnderline = nil
@@ -68,18 +68,29 @@ final class CardGridView: NSView {
     CATransaction.commit()
     guard motion, previous != selection else { return }
     if layout.shouldAnimate(from: previous, to: selection) {
-      let slide = CABasicAnimation(keyPath: "position")
-      slide.fromValue = NSValue(point: NSPoint(
-        x: oldFrame.minX + layer.anchorPoint.x * oldFrame.width,
-        y: oldFrame.minY + layer.anchorPoint.y * oldFrame.height))
-      slide.toValue = NSValue(point: layer.position)
-      slide.duration = 0.18
-      slide.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
-      layer.add(slide, forKey: "selection")
+      let stretched = min(68, 32 + abs(target.midX - oldFrame.midX) * 0.16)
+      let widths = [oldFrame.width, stretched, target.width]
+      let centers = [oldFrame.midX, oldFrame.midX + (target.midX - oldFrame.midX) * 0.6, target.midX]
+      let slide = CAKeyframeAnimation(keyPath: "position")
+      slide.values = zip(centers, widths).map { center, width in
+        NSValue(point: NSPoint(x: center + (layer.anchorPoint.x - 0.5) * width,
+          y: target.minY + layer.anchorPoint.y * target.height))
+      }
+      let stretch = CAKeyframeAnimation(keyPath: "bounds.size.width")
+      stretch.values = widths
+      let easing = CAMediaTimingFunction(controlPoints: 0.22, 0.7, 0.25, 1)
+      for animation in [slide, stretch] {
+        animation.keyTimes = [0, 0.45, 1]
+        animation.timingFunctions = [easing, easing]
+      }
+      let motion = CAAnimationGroup()
+      motion.animations = [slide, stretch]
+      motion.duration = 0.24
+      layer.add(motion, forKey: "selection")
     } else {
       let old = CALayer()
       old.frame = oldFrame
-      old.cornerRadius = 1.5
+      old.cornerRadius = 2
       old.backgroundColor = highlightColor.cgColor
       self.layer?.addSublayer(old)
       departingUnderline = old
@@ -220,40 +231,95 @@ final class WindowPreviewView: NSView {
     cacheDisplay(in: bounds, to: bitmap)
     let overlay = CALayer()
     overlay.frame = frame
-    overlay.contents = bitmap.cgImage
+    let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    let duration = reduced ? 0.12 : 0.56
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
     parent.addSublayer(overlay)
     closingOverlay = overlay
     layer?.opacity = 0
-    let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let duration = reduced ? 0.12 : 0.45
-    let opacity = CAKeyframeAnimation(keyPath: "opacity")
-    opacity.values = reduced ? [1, 0] : [1, 1, 1, 0.2, 1, 0]
-    opacity.keyTimes = reduced ? [0, 1] : [0, 0.44, 0.78, 0.85, 0.91, 1]
-    var animations: [CAAnimation] = [opacity]
-    if !reduced {
-      let vertical = CAKeyframeAnimation(keyPath: "transform.scale.y")
-      vertical.values = [1, 0.018, 0.018, 0.018]
-      vertical.keyTimes = [0, 0.44, 0.78, 1]
-      let horizontal = CAKeyframeAnimation(keyPath: "transform.scale.x")
-      horizontal.values = [1, 1, 0.014, 0.014]
-      horizontal.keyTimes = [0, 0.44, 0.78, 1]
-      animations += [vertical, horizontal]
-      let glow = CALayer()
-      glow.frame = overlay.bounds
-      glow.backgroundColor = NSColor.white.cgColor
-      overlay.addSublayer(glow)
-      let brighten = CABasicAnimation(keyPath: "opacity")
-      brighten.fromValue = 0; brighten.toValue = 1; brighten.duration = duration * 0.44
-      glow.add(brighten, forKey: "brighten")
+    if reduced {
+      overlay.contents = bitmap.cgImage
+      overlay.opacity = 0
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = 1; fade.toValue = 0; fade.duration = duration
+      overlay.add(fade, forKey: "crt")
+    } else {
+      // Keep the luminous line and dot independent of the shrinking bitmap:
+      // scaling the whole composition also flattens its glow into a hard rectangle.
+      func track(_ path: String, _ values: [CGFloat], _ times: [NSNumber]) -> CAKeyframeAnimation {
+        let animation = CAKeyframeAnimation(keyPath: path)
+        animation.values = values
+        animation.keyTimes = times
+        animation.timingFunctions = (1..<values.count).map { _ in
+          CAMediaTimingFunction(name: .easeInEaseOut)
+        }
+        return animation
+      }
+      func animate(_ target: CALayer, _ animations: [CAAnimation]) {
+        target.opacity = 0
+        let group = CAAnimationGroup()
+        group.animations = animations
+        group.duration = duration
+        target.add(group, forKey: "crt")
+      }
+      let picture = CALayer()
+      picture.frame = overlay.bounds
+      picture.contents = bitmap.cgImage
+      overlay.addSublayer(picture)
+      animate(picture, [
+        track("transform.scale.y", [1, 1.015, 0.035, 0.008, 0.008], [0, 0.08, 0.36, 0.44, 1]),
+        track("transform.scale.x", [1, 1.025, 1.025], [0, 0.36, 1]),
+        track("opacity", [1, 1, 0.8, 0, 0], [0, 0.28, 0.4, 0.46, 1]),
+      ])
+      let exposure = CALayer()
+      exposure.frame = picture.bounds
+      exposure.backgroundColor = NSColor.white.cgColor
+      let mask = CALayer()
+      mask.frame = exposure.bounds
+      mask.contents = bitmap.cgImage
+      exposure.mask = mask
+      picture.addSublayer(exposure)
+      let flash = track("opacity", [0, 0.08, 0.85, 1, 0], [0, 0.12, 0.36, 0.44, 1])
+      flash.duration = duration
+      exposure.opacity = 0
+      exposure.add(flash, forKey: "exposure")
+
+      let imageWidth = image.map { Self.imageRect(size: $0.size, in: bounds).width } ?? bounds.width
+      let beam = CALayer()
+      beam.bounds = CGRect(x: 0, y: 0, width: imageWidth, height: 2)
+      beam.position = CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY)
+      beam.cornerRadius = 1
+      beam.backgroundColor = NSColor.white.cgColor
+      beam.shadowColor = NSColor(calibratedRed: 0.65, green: 0.86, blue: 1, alpha: 1).cgColor
+      beam.shadowOffset = .zero
+      beam.shadowRadius = 6
+      beam.shadowOpacity = 0.95
+      overlay.addSublayer(beam)
+      animate(beam, [
+        track("bounds.size.width", [imageWidth, imageWidth, 4, 2], [0, 0.44, 0.76, 1]),
+        track("opacity", [0, 0, 1, 1, 0, 0], [0, 0.28, 0.4, 0.64, 0.8, 1]),
+      ])
+
+      let dot = CALayer()
+      dot.bounds = CGRect(x: 0, y: 0, width: 4, height: 4)
+      dot.position = beam.position
+      dot.cornerRadius = 2
+      dot.backgroundColor = NSColor.white.cgColor
+      dot.shadowColor = beam.shadowColor
+      dot.shadowOffset = .zero
+      dot.shadowRadius = 9
+      dot.shadowOpacity = 1
+      overlay.addSublayer(dot)
+      animate(dot, [
+        track("opacity", [0, 0, 1, 0.45, 0.7, 0], [0, 0.7, 0.77, 0.85, 0.91, 1]),
+        track("transform.scale", [1, 1, 1.3, 0.2], [0, 0.75, 0.84, 1]),
+      ])
     }
-    let group = CAAnimationGroup()
-    group.animations = animations
-    group.duration = duration
-    group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-    overlay.opacity = 0
-    overlay.add(group, forKey: "crt")
+    CATransaction.commit()
     try? await Task.sleep(for: .seconds(duration))
     overlay.removeFromSuperlayer()
+    if closingOverlay === overlay { closingOverlay = nil }
   }
 
   static func imageRect(size: NSSize, in bounds: NSRect) -> NSRect {
@@ -301,7 +367,7 @@ final class HighlightView: NSView {
   init() {
     super.init(frame: .zero)
     wantsLayer = true
-    layer?.cornerRadius = 1.5
+    layer?.cornerRadius = 2
     layer?.backgroundColor = color.cgColor
     isHidden = true
   }

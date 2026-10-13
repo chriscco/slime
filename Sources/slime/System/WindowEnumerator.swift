@@ -2,14 +2,14 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
-/// 见过的窗口：能证明它是真窗口（在屏上或 AX 里匹配上过），也留下最后的
-/// 标题/最小化状态（离屏时 AX 读不到，靠这里留用）。
+/// 跨 Space 保留标题和最小化状态；只有标准 AX 窗口能为无标题缓存提供长期证据。
 struct KnownWindow: Sendable, Equatable, Codable {
   /// 记录时的 app 名：known 表要跨 slime 重启存活（同一次开机内 windowID 稳定），
   /// 而**重启机器**后 windowID 可能被复用 —— 名字对不上的条目按不认识处理。
   var appName: String
   var title: String
   var minimized: Bool
+  var axVerified: Bool? = nil
 }
 
 /// 纯过滤的输入形状：一个候选窗口的系统信息。
@@ -23,6 +23,9 @@ struct WindowCandidate: Sendable {
   /// AX 把它报成「非标准窗口且无标题」（`AXUnknown`）—— Chromium 的
   /// 菜单栏 / 工具栏条就这么报。用户窗口不可能是这样，见 select。
   let helper: Bool
+  var cgTitle: String? = nil
+  var axAvailable: Bool = false
+  var appHasNoWindows: Bool = false
 }
 
 /// 一次枚举的产物 + 更新后的「见过」表（调用方跨次持有并传回来）。
@@ -31,33 +34,9 @@ struct WindowEnumeration: Sendable {
   var known: [UInt32: KnownWindow] = [:]
 }
 
-/// 窗口枚举：`CGWindowList` 定「有哪些窗口」，AX 取标题和最小化状态
-/// （spec §5 / §7）。必须在后台线程跑 —— 一次枚举是成串的跨进程同步 IPC，
-/// 跑主线程 = 按下快捷键就转圈（红线 4）。
-///
-/// 过滤规则：
-/// - `layer == 0`、alpha > 0、排除桌面元素、排除本进程 —— 基础可见性；
-/// - **不按窗口尺寸过滤**（红线 7）：台前调度搁置的窗口，CG 报的是左侧
-///   条带里的小方框，按尺寸会把它们全部丢掉；
-/// - app 必须是 `activationPolicy == .regular` —— 菜单栏 app 和系统服务
-///   不是切换目标；
-/// - **frame 与任一显示器范围相交** —— 显示器范围外的窗口不可能是用户
-///   可见的窗口（Chromium 的助手条报 @x=-1920）；台前调度条带 / 其他
-///   Space 的窗口 frame 都在屏内，不会误伤（红线 7 禁的是按尺寸，这不是）；
-/// - 窗口必须**在屏上**、**有 AX 对应物**、或**在 known 表里**。系统会给
-///   每个 app 生一批 layer 0、alpha 1 的幽灵窗口（菜单栏条、缓存窗等），
-///   它们从不在屏上、从不在 AX 里 —— 永远进不了 known 表（issue #21）；
-/// - **助手条否决**：AX 匹配到「子类型 AXUnknown 且无标题」直接丢弃 ——
-///   Chromium 把菜单栏 / 工具栏条经 AX 报成窗口，onscreen / matched /
-///   known 三条正面证据全命中，只有应用自己声明的「非标准 + 无标题」能
-///   否决它（用户实测 Chrome 3 窗口显示 7 行）。
-///
-/// `known` 表解的是另一个问题（issue #23）：`kAXWindows` 只暴露**当前
-/// Space** 的窗口，公开 API 里免空间过滤的只有主窗口/焦点窗口 —— 一个 app
-/// 的第二个窗口只要不在屏上就会消失。known 表记住「见过一次的窗口」：
-/// 用户访问过的 Space 里的窗口留下记录，之后离屏也仍然进列表（标题留用）。
-/// 从没访问过的其他 Space 窗口进不来 —— 公开 API 的天花板到此为止，
-/// 同类工具为补这块改用了私有 WindowServer API（spec §3 非目标）。
+/// 后台枚举 CG 窗口，用 AX 和可用的 CG 标题排除辅助表面。
+/// 不按尺寸过滤：台前调度会把真实窗口缩成条带。AX 的当前 Space 列表
+/// 不能单独证明窗口关闭；只有列表为空且 main 明确无值时才清掉该 app。
 enum WindowEnumerator {
   /// 枚举一次。`known` 是上一次的「见过」表（跨次持有，见上）。
   static func enumerate(known previous: [UInt32: KnownWindow]) -> WindowEnumeration {
@@ -67,7 +46,7 @@ enum WindowEnumerator {
 
     let ownPid = getpid()
     var regularApp: [pid_t: Bool] = [:]
-    var raw: [(windowID: UInt32, pid: pid_t, appName: String, bounds: CGRect, onscreen: Bool)] = []
+    var raw: [(windowID: UInt32, pid: pid_t, appName: String, bounds: CGRect, onscreen: Bool, title: String?)] = []
     for info in rawList {
       guard
         let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
@@ -85,12 +64,11 @@ enum WindowEnumerator {
       }
       guard isRegular == true else { continue }
 
-      // 窗口标题不能从 CGWindowList 拿（要屏幕录制权限，是 0.0.1 的非目标）；
-      // 这里只拿不需要权限的 owner name 和「是否在屏上」。
+      // nil means screen-recording access is unavailable; empty is an actual unnamed surface.
       let owner = info[kCGWindowOwnerName as String] as? String ?? ""
-      // 幽灵窗口整个键都不存在（不是 false，是没有）。真窗口才有这个键。
+      // 离屏真窗口和辅助表面都可能没有这个键。
       let onscreen = info[kCGWindowIsOnscreen as String] as? Bool ?? false
-      raw.append((windowID, pid, owner, bounds, onscreen))
+      raw.append((windowID, pid, owner, bounds, onscreen, info[kCGWindowName as String] as? String))
     }
 
     // 显示器范围外的窗口丢弃：不可能是用户可见的窗口（Chromium 的助手条
@@ -112,29 +90,31 @@ enum WindowEnumerator {
       raw = raw.filter { Self.isOnAnyDisplay($0.bounds, displays: displays) }
     }
 
-    // 每个 app 只建一次 AX element；按 frame 把 AX 窗口和 CGWindow 对上。
-    //
-    // 一个 AX 窗口只认领一个 CGWindow：系统会给真窗口生一份**同 frame 的
-    // 孪生幽灵**，不加这一步会多出整行一模一样的重复项（issue #21）。
-    // 在屏上的优先 —— 孪生里只有一个是真在显示的。
+    // 每个 AX element 最多认领一个 CG 表面；同位置的不同真窗口仍可分别匹配。
     var axInfo: [UInt32: AXWindows.Entry] = [:]
+    var snapshots: [pid_t: AXWindows.Snapshot] = [:]
     for (pid, group) in Dictionary(grouping: raw, by: { $0.pid }) {
-      let entries = AXWindows.read(pid: pid)
-      var claimed: [CGRect] = []
+      let snapshot = AXWindows.snapshot(pid: pid)
+      snapshots[pid] = snapshot
+      let entries = snapshot.entries
+      var claimed: Set<Int> = []
       let ordered = group.enumerated()
         .sorted { a, b in
-          a.element.onscreen != b.element.onscreen
-            ? a.element.onscreen
-            : a.offset < b.offset
+          if a.element.onscreen != b.element.onscreen { return a.element.onscreen }
+          let aTitled = a.element.title.map { !$0.isEmpty } ?? false
+          let bTitled = b.element.title.map { !$0.isEmpty } ?? false
+          if aTitled != bTitled { return aTitled }
+          return a.offset < b.offset
         }
         .map { $0.element }
       for window in ordered {
-        guard
-          let match = AXWindows.match(bounds: window.bounds, title: nil, in: entries),
-          !claimed.contains(where: { AXWindows.isSameFrame($0, match.frame) })
-        else { continue }
-        claimed.append(match.frame)
-        axInfo[window.windowID] = match
+        let matches = entries.indices.filter {
+          !claimed.contains($0) && AXWindows.isSameFrame(entries[$0].frame, window.bounds)
+        }
+        guard let index = matches.first(where: { entries[$0].title == window.title })
+          ?? matches.first else { continue }
+        claimed.insert(index)
+        axInfo[window.windowID] = entries[index]
       }
     }
 
@@ -147,44 +127,46 @@ enum WindowEnumerator {
           appName: window.appName,
           onscreen: window.onscreen,
           matched: match.map {
-            KnownWindow(appName: window.appName, title: $0.title, minimized: $0.minimized)
+            KnownWindow(appName: window.appName, title: $0.title, minimized: $0.minimized,
+              axVerified: $0.subrole == kAXStandardWindowSubrole)
           },
-          helper: match.map { AXWindows.isHelper(subrole: $0.subrole, title: $0.title) } ?? false
+          helper: match.map { AXWindows.isHelper(subrole: $0.subrole, title: $0.title) } ?? false,
+          cgTitle: window.title,
+          axAvailable: snapshots[window.pid]?.available ?? false,
+          appHasNoWindows: snapshots[window.pid]?.hasNoWindows ?? false
         )
       },
       known: previous
     )
   }
 
-  /// 纯函数：过滤 + known 表更新（System 层唯一能单测的部分）。
-  ///
-  /// - 助手否决：AX 判定为助手条（`AXUnknown` + 空标题）直接丢弃，**优先于**
-  ///   其它正面证据（onscreen / matched / known）—— 应用自己声明它是非标准
-  ///   窗口且无标题，用户窗口不可能是这样（用户实测 Chrome 3 窗口 7 行）。
-  ///   也不进 known 表：助手条在下一次枚举就自愈消失。
-  /// - 幽灵过滤：不在屏上、AX 里没有、也从没见过 —— 不是用户开的窗。
-  /// - known 表：通过过滤的窗口都写回表里 —— 之后离屏也还在（issue #23），
-  ///   标题留用（离屏时 AX 读不到）；表里只留这一轮出现的 id（窗口消失即
-  ///   自然修剪，防 id 复用）。
-  /// - 这一轮亲眼匹配到的信息优先于旧记忆。
+  /// 当轮证据优先于缓存；被否决的条目不会写回，旧幽灵缓存自动清理。
   static func select(
     _ candidates: [WindowCandidate], known: [UInt32: KnownWindow]
   ) -> WindowEnumeration {
     var result = WindowEnumeration()
     for candidate in candidates {
-      guard !candidate.helper else { continue }
+      guard !candidate.helper, !candidate.appHasNoWindows else { continue }
 
       // known 条目要 app 名对得上才算数（windowID 只在一次开机内稳定）。
       let remembered = known[candidate.windowID].flatMap {
         $0.appName == candidate.appName ? $0 : nil
       }
-      // 幽灵过滤：三种证据都没有，就不是用户开的窗。
-      guard candidate.onscreen || candidate.matched != nil || remembered != nil else { continue }
+      let titled = candidate.cgTitle.map { !$0.isEmpty } ?? false
+      // Onscreen alone admits Chromium toolbar hosts. A readable AX snapshot plus
+      // an explicitly empty CG title needs stronger evidence, including for old caches.
+      let visible = candidate.onscreen && !(candidate.axAvailable && candidate.cgTitle == "")
+      let retained = remembered != nil && (candidate.cgTitle == nil || titled
+        || remembered?.axVerified == true || remembered?.minimized == true)
+      guard visible || candidate.matched != nil || retained else { continue }
 
-      let info =
+      var info =
         candidate.matched
         ?? remembered
         ?? KnownWindow(appName: candidate.appName, title: "", minimized: false)
+      if titled, candidate.matched?.title.isEmpty != false, let title = candidate.cgTitle {
+        info.title = title
+      }
       result.known[candidate.windowID] = info
       result.windows.append(
         Window(
@@ -245,30 +227,38 @@ enum AXWindows {
 
   /// 读一个 app 的全部 AX 窗口。每个 element 都设超时 —— app element 的超时
   /// 不自动继承给子 element。
-  static func read(pid: pid_t) -> [Entry] {
-    let app = AXUIElementCreateApplication(pid)
-    AXUIElementSetMessagingTimeout(app, Self.timeout)
-
-    var entries = readWindows(app)
-    // 补上主窗口：`kAXWindows` 只给当前 Space 的窗口，而 `kAXMainWindow`
-    // 不受 Space 过滤 —— 其他 Space 上每个 app 的前台窗口靠它进列表。
-    // 这是公开 API 能给到的最全范围（同类工具为剩下的部分改用私有 API）。
-    if let main = entry(of: app, kAXMainWindowAttribute as CFString) {
-      if !entries.contains(where: { Self.isSameFrame($0.frame, main.frame) }) {
-        entries.append(main)
-      }
-    }
-    return entries
+  struct Snapshot {
+    let entries: [Entry]
+    let available: Bool
+    let hasNoWindows: Bool
   }
 
-  private static func readWindows(_ app: AXUIElement) -> [Entry] {
+  static func read(pid: pid_t) -> [Entry] { snapshot(pid: pid).entries }
+
+  static func snapshot(pid: pid_t) -> Snapshot {
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, Self.timeout)
+    let windows = readWindows(app)
+    var entries = windows.entries
+    var mainStatus = AXError.failure
+    let main = entry(of: app, kAXMainWindowAttribute as CFString, status: &mainStatus)
+    if let main, !entries.contains(where: { CFEqual($0.element, main.element) }) {
+      entries.append(main)
+    }
+    // An empty current-Space list alone does not prove closure. The main-window
+    // attribute must also explicitly report no value, not a timeout/unsupported error.
+    return Snapshot(entries: entries, available: windows.complete,
+      hasNoWindows: windows.complete && windows.entries.isEmpty && mainStatus == .noValue)
+  }
+
+  private static func readWindows(_ app: AXUIElement) -> (entries: [Entry], complete: Bool) {
     var value: CFTypeRef?
     guard
       AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
       let windows = value as? [AXUIElement]
-    else { return [] }
+    else { return ([], false) }
 
-    return windows.compactMap { element in
+    let entries = windows.compactMap { element -> Entry? in
       AXUIElementSetMessagingTimeout(element, Self.timeout)
       guard let frame = Self.frame(of: element) else { return nil }
       return Entry(
@@ -279,12 +269,14 @@ enum AXWindows {
         minimized: Self.bool(of: element, kAXMinimizedAttribute) ?? false
       )
     }
+    return (entries, entries.count == windows.count)
   }
 
-  private static func entry(of app: AXUIElement, _ attribute: CFString) -> Entry? {
+  private static func entry(of app: AXUIElement, _ attribute: CFString, status: inout AXError) -> Entry? {
     var value: CFTypeRef?
+    status = AXUIElementCopyAttributeValue(app, attribute, &value)
     guard
-      AXUIElementCopyAttributeValue(app, attribute, &value) == .success,
+      status == .success,
       let ref = value, CFGetTypeID(ref) == AXUIElementGetTypeID()
     else { return nil }
     let element = unsafeDowncast(ref as AnyObject, to: AXUIElement.self)

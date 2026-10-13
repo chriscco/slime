@@ -212,7 +212,7 @@ private func label(of card: CardView) -> String? {
   #expect(highlight.layer?.borderWidth == 0)
   grid.rows = [window("Chrome", "A", id: 1)]
   grid.setSelection(0, animated: false)
-  #expect(highlight.frame.height == 3)
+  #expect(highlight.frame.height == 4)
   #expect(highlight.frame.width == 32)
 }
 
@@ -303,4 +303,53 @@ private func label(of card: CardView) -> String? {
   let scale = Double(bitmap.pixelsWide) / 180
   #expect(bitmap.colorAt(x: Int(60 * scale), y: 0)!.alphaComponent < 0.1)
   #expect(bitmap.colorAt(x: Int(90 * scale), y: Int(60 * scale))!.redComponent > 0.9)
+}
+
+@Test @MainActor func underlineStretchesThenSettlesBelowTheSelectedCard() throws {
+  let grid = CardGridView()
+  grid.rows = (1...6).map { window("App", "Window", id: UInt32($0)) }
+  grid.setSelection(0, animated: false)
+  grid.setSelection(1, animated: true)
+  let bar = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  #expect(bar.frame.height == 4)
+  #expect(bar.frame.width == 32)
+  #expect(bar.frame.midX == grid.card(for: 2)?.frame.midX)
+  if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+    let motion = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
+    let width = try #require(motion.animations?.compactMap { $0 as? CAKeyframeAnimation }
+      .first { $0.keyPath == "bounds.size.width" })
+    let widths = try #require(width.values as? [CGFloat])
+    #expect(widths.first == 32)
+    #expect(widths.last == 32)
+    #expect(widths[1] > 32)
+    grid.setSelection(5, animated: true)
+    #expect(bar.layer?.animation(forKey: "selection") is CABasicAnimation)
+  }
+  grid.setSelection(0, animated: false)
+  #expect(bar.layer?.animation(forKey: "selection") == nil)
+}
+
+@Test @MainActor func crtUsesAStablePreviewCanvasAndCleansUpItsLightLayers() async throws {
+  let card = CardView(window: window("App", "Window", id: 100))
+  card.frame = NSRect(x: 0, y: 0, width: 200, height: 160)
+  card.layoutSubtreeIfNeeded()
+  let closing = Task { await card.preview.animateClose() }
+  for _ in 0..<100 {
+    if card.preview.layer?.opacity == 0 { break }
+    try await Task.sleep(for: .milliseconds(1))
+  }
+  let canvas = try #require(card.layer?.sublayers?.last)
+  #expect(canvas.frame == card.preview.frame)
+  #expect(card.preview.layer?.opacity == 0)
+  if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+    // Collapse the picture while the beam/afterglow retain their own thickness.
+    #expect(canvas.animation(forKey: "crt") == nil)
+    #expect(canvas.sublayers?.count == 3)
+    #expect(canvas.sublayers?.allSatisfy { $0.animation(forKey: "crt") != nil } == true)
+  }
+  await closing.value
+  #expect(canvas.superlayer == nil)
+  card.preview.restore()
+  #expect(card.preview.layer?.opacity == 1)
+  #expect(card.preview.layer?.superlayer === card.layer)
 }

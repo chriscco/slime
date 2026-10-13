@@ -21,7 +21,7 @@ struct Settings {
   static let strengthRange: ClosedRange<Double> = 0...1
   /// 默认给偏透明的值，但留出可见余量：1.0 时滑块到底、没有任何变化可看。
   /// shortcut: 0.7 是提案值，对着真机看玻璃定 —— 人工验收清单里那一条。
-  static let defaultGlassStrength: Double = 0.7
+  static let defaultGlassStrength: Double = 0.2
 
   /// 高亮线条的颜色（spec §8）。**固定默认值，不跟系统主题色** —— 绑系统意味着
   /// 系统主题一改 slime 就跟着变，那是需求方明确不要的耦合，还多一个「跟随系统」

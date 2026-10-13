@@ -4,7 +4,10 @@ import CoreGraphics
 
 /// 见过的窗口：能证明它是真窗口（在屏上或 AX 里匹配上过），也留下最后的
 /// 标题/最小化状态（离屏时 AX 读不到，靠这里留用）。
-struct KnownWindow: Sendable, Equatable {
+struct KnownWindow: Sendable, Equatable, Codable {
+  /// 记录时的 app 名：known 表要跨 slime 重启存活（同一次开机内 windowID 稳定），
+  /// 而**重启机器**后 windowID 可能被复用 —— 名字对不上的条目按不认识处理。
+  var appName: String
   var title: String
   var minimized: Bool
 }
@@ -134,7 +137,7 @@ enum WindowEnumerator {
           appName: window.appName,
           onscreen: window.onscreen,
           matched: match.map {
-            KnownWindow(title: $0.title, minimized: $0.minimized)
+            KnownWindow(appName: window.appName, title: $0.title, minimized: $0.minimized)
           },
           helper: match.map { AXWindows.isHelper(subrole: $0.subrole, title: $0.title) } ?? false
         )
@@ -161,12 +164,17 @@ enum WindowEnumerator {
     for candidate in candidates {
       guard !candidate.helper else { continue }
 
-      let remembered = known[candidate.windowID]
+      // known 条目要 app 名对得上才算数（windowID 只在一次开机内稳定）。
+      let remembered = known[candidate.windowID].flatMap {
+        $0.appName == candidate.appName ? $0 : nil
+      }
       // 幽灵过滤：三种证据都没有，就不是用户开的窗。
       guard candidate.onscreen || candidate.matched != nil || remembered != nil else { continue }
 
       let info =
-        candidate.matched ?? remembered ?? KnownWindow(title: "", minimized: false)
+        candidate.matched
+        ?? remembered
+        ?? KnownWindow(appName: candidate.appName, title: "", minimized: false)
       result.known[candidate.windowID] = info
       result.windows.append(
         Window(

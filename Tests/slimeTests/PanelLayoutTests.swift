@@ -64,35 +64,40 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(content.gridView.frame.width == content.scrollView.contentSize.width)
 }
 
-@Test @MainActor func fifthCardWrapsToTheSecondRowAtTheLeftEdge() {
+@Test @MainActor func cardAfterAFullRowWrapsAtTheLeftEdge() {
   let content = PanelContentView()
-  content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
-  content.gridView.rows = (1...5).map { window("Chrome", "W\($0)", id: UInt32($0)) }
+  content.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
+  let n = GridLayout.maxColumns + 2  // 满排 + 换行后的两张（尺寸是调参值，断言用公式）
+  content.gridView.rows = (1...n).map { window("Chrome", "W\($0)", id: UInt32($0)) }
   content.layoutSubtreeIfNeeded()
 
   #expect(content.gridView.layout.rows == 2)
   let cards = content.gridView.subviews.compactMap { $0 as? CardView }
-  #expect(cards.count == 5)
-  // 第 5 张换行：第 4 张还在第一排，第 5 张 y 变大（flipped 文档视图 y 向下）、
+  #expect(cards.count == n)
+  // 换行的那张：前一张还在第一排，它 y 变大（flipped 文档视图 y 向下）、
   // x 回到排首。
-  #expect(cards[3].frame.minY == cards[0].frame.minY)
-  #expect(cards[4].frame.minY > cards[3].frame.minY)
-  #expect(cards[4].frame.minX == cards[0].frame.minX)
+  let wrap = GridLayout.maxColumns
+  #expect(cards[wrap - 1].frame.minY == cards[0].frame.minY)
+  #expect(cards[wrap].frame.minY > cards[wrap - 1].frame.minY)
+  #expect(cards[wrap].frame.minX == cards[0].frame.minX)
 }
 
 // 键盘移动的集成：GridLayout + 轴语义。真按键的移动全走这个纯函数
 // （PanelController.moveSelection 里只有它 + 高亮刷新）。
 @Test @MainActor func upFromTheFirstRowWrapsToTheLastRow() {
-  // 5 个窗口 = 两排（4 列）：首排 ↑ 应与「同一列的上一排」循环等价 → 第 4 格，
-  // 而不是 0 − 4 的普通索引取模（那样恒在首排漂移）。
-  let five = GridLayout(count: 5)
-  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: five) == 4)
-  #expect(PanelController.movedSelection(from: 4, axis: .vertical, step: 1, layout: five) == 0)
+  // 满排 + 1 个窗口 = 两排：首排 ↑ 应与「同一列的上一排」循环等价 → 末排那一格，
+  // 而不是 0 − 列数的普通索引取模（那样恒在首排漂移）。
+  let cols = GridLayout.maxColumns
+  let twoRows = GridLayout(count: cols + 1)
+  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: twoRows) == cols)
+  #expect(PanelController.movedSelection(from: cols, axis: .vertical, step: 1, layout: twoRows) == 0)
 
-  // 11 个窗口 = 三排：↑ 到末排第一格（第 2 排 × 4 列）；→ 只退一格。
-  let eleven = GridLayout(count: 11)
-  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: eleven) == 8)
-  #expect(PanelController.movedSelection(from: 3, axis: .horizontal, step: 1, layout: eleven) == 4)
+  // 满排 ×2 + 1 = 三排：↑ 到末排第一格；→ 只挪一格。
+  let threeRows = GridLayout(count: 2 * cols + 1)
+  #expect(
+    PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: threeRows)
+      == 2 * cols)
+  #expect(PanelController.movedSelection(from: 3, axis: .horizontal, step: 1, layout: threeRows) == 4)
 
   // 任何 (count, selection, 轴, 方向) 组合都落在 0..<count —— 不允许负索引
   // （负索引的高亮 frame 落在文档视图外，被裁掉 = 高亮整条消失）。
@@ -232,12 +237,34 @@ private func label(of card: CardView) -> String? {
 // 缩略图区在上、标题在下，两者不重叠（spec §5.4：图区 + 间隙 + 标题）。
 @Test @MainActor func cardLaysTheThumbnailAboveTheTitle() throws {
   let card = CardView(window: window("Chrome", "GitHub", id: 910))
-  card.frame = NSRect(x: 0, y: 0, width: 160, height: 120)
+  let cell = GridLayout(count: 1)
+  card.frame = NSRect(x: 0, y: 0, width: cell.cardWidth, height: cell.cardHeight)
   card.layoutSubtreeIfNeeded()
 
   let thumb = try #require(card.subviews.compactMap { $0 as? NSImageView }.first)
   let label = try #require(card.subviews.compactMap { $0 as? NSTextField }.first)
-  #expect(thumb.frame.height == 100)                       // 120 − 16 标题 − 4 间隙
-  #expect(thumb.frame.maxY <= label.frame.minY)            // flipped：y 向下
-  #expect(label.frame.maxY <= card.bounds.maxY)
+  // 图区 = 卡片 − 底部标题 − 间隙 − 上下内缩（尺寸是调参值，用关系断言）。
+  #expect(thumb.frame.maxY <= label.frame.minY)  // flipped：y 向下
+  #expect(thumb.frame.height > label.frame.height * 3)  // 图区远大于标题
+  #expect(label.frame.maxY <= card.bounds.maxY - 2)
+}
+
+@Test @MainActor func cardContentSitsInsideTheHighlightOutline() {
+  // 用户实测：高亮描边压在缩略图 / 底部标题上。高亮画在**单元格边界**，
+  // 所以卡片内容必须内缩 —— 这条钉住「内容和描边不重叠」。
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
+  content.gridView.rows = [window("Chrome", "GitHub", id: 1)]
+  content.layoutSubtreeIfNeeded()
+
+  let cards = content.gridView.subviews.compactMap { $0 as? CardView }
+  #expect(cards.count == 1)
+  let card = try! #require(cards.first)
+  for sub in card.subviews {
+    let frame = sub.frame
+    #expect(
+      frame.minX >= 2 && frame.minY >= 2
+        && frame.maxX <= card.bounds.width - 2 && frame.maxY <= card.bounds.height - 2,
+      "子视图 \(type(of: sub)) 压到了高亮描边所在的边界：\(frame) in \(card.bounds)")
+  }
 }

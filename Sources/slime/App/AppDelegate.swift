@@ -15,7 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
     start()
-    // 屏幕录制走另一条路：没它也能用，所以只弹一次文案，不拦启动、不退出。
+    // 屏幕录制走另一条路：没它也能用，所以不拦启动、不退出。
+    // 系统弹窗只在第一次出现（拒绝后 CGRequestScreenCaptureAccess 静默返回 false），
+    // 但这条提示每次启动都会出现，直到用户在系统设置里勾上 —— 文案里写明要重启。
     Self.beginScreenRecordingOnboarding()
   }
 

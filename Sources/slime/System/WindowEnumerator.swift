@@ -79,13 +79,7 @@ enum WindowEnumerator {
     // 必须换算到同一套坐标再判，否则「上方的那块外接屏」的显示范围在 CG 坐标里
     // 是负 y，它上面的窗口全会被误判成屏外（用户实测：外接屏的窗口一个不剩）。
     // 换算：以主屏高度做 y 翻转（CG 全局坐标的原点是主屏的左上角）。
-    let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
-    let displays = NSScreen.screens.map { screen -> CGRect in
-      let f = screen.frame
-      return CGRect(
-        x: f.origin.x, y: primaryHeight - f.origin.y - f.height,
-        width: f.width, height: f.height)
-    }
+    let displays = Self.displayBounds()
     if !displays.isEmpty {
       raw = raw.filter { Self.isOnAnyDisplay($0.bounds, displays: displays) }
     }
@@ -181,6 +175,16 @@ enum WindowEnumerator {
       )
     }
     return result
+  }
+
+  static func displayBounds() -> [CGRect] {
+    let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+    return NSScreen.screens.map { screen -> CGRect in
+      let f = screen.frame
+      return CGRect(
+        x: f.origin.x, y: primaryHeight - f.origin.y - f.height,
+        width: f.width, height: f.height)
+    }
   }
 
   /// 纯函数：frame 与任一显示器范围相交即算在屏内（显示器范围注入，可单测）。

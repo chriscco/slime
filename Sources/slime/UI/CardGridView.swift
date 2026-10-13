@@ -58,6 +58,9 @@ final class CardGridView: NSView {
     guard !rows.isEmpty, let layer = highlight.layer else { return }
     let cell = cardRect(selection)
     let target = NSRect(x: cell.midX - 16, y: cell.maxY - 7, width: 32, height: 4)
+    if previous == selection, highlight.frame == target,
+       layer.animation(forKey: "selection") != nil,
+       !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return }
     let oldFrame = layer.presentation()?.frame ?? highlight.frame
     departingUnderline?.removeFromSuperlayer()
     departingUnderline = nil
@@ -68,24 +71,28 @@ final class CardGridView: NSView {
     CATransaction.commit()
     guard motion, previous != selection else { return }
     if layout.shouldAnimate(from: previous, to: selection) {
-      let stretched = min(68, 32 + abs(target.midX - oldFrame.midX) * 0.16)
-      let widths = [oldFrame.width, stretched, target.width]
-      let centers = [oldFrame.midX, oldFrame.midX + (target.midX - oldFrame.midX) * 0.6, target.midX]
+      let bulge = min(max(0, 52 - oldFrame.width),
+                      min(20, abs(target.midX - oldFrame.midX) * 0.08))
+      let samples = (0...32).map { step -> (width: CGFloat, position: NSValue) in
+        let t = CGFloat(step) / 32
+        let travel = 1 - pow(1 - t, 3)
+        let settle = t * t * (3 - 2 * t)
+        let width = oldFrame.width + (target.width - oldFrame.width) * settle
+          + bulge * pow(sin(.pi * t), 2)
+        let center = oldFrame.midX + (target.midX - oldFrame.midX) * travel
+        return (width, NSValue(point: NSPoint(
+          x: center + (layer.anchorPoint.x - 0.5) * width,
+          y: target.minY + layer.anchorPoint.y * target.height)))
+      }
       let slide = CAKeyframeAnimation(keyPath: "position")
-      slide.values = zip(centers, widths).map { center, width in
-        NSValue(point: NSPoint(x: center + (layer.anchorPoint.x - 0.5) * width,
-          y: target.minY + layer.anchorPoint.y * target.height))
-      }
+      slide.values = samples.map(\.position)
       let stretch = CAKeyframeAnimation(keyPath: "bounds.size.width")
-      stretch.values = widths
-      let easing = CAMediaTimingFunction(controlPoints: 0.22, 0.7, 0.25, 1)
-      for animation in [slide, stretch] {
-        animation.keyTimes = [0, 0.45, 1]
-        animation.timingFunctions = [easing, easing]
-      }
+      stretch.values = samples.map(\.width)
+      // One continuous travel curve; width has zero slope at its peak and ends.
+      for animation in [slide, stretch] { animation.duration = 0.3 }
       let motion = CAAnimationGroup()
       motion.animations = [slide, stretch]
-      motion.duration = 0.24
+      motion.duration = 0.3
       layer.add(motion, forKey: "selection")
     } else {
       let old = CALayer()

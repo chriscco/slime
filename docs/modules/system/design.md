@@ -83,7 +83,7 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 
 - `Window`（Core）：不可变值类型；快照是不可变数组，发布时整体替换 —— 天然无锁（红线 8）。
 - `AXWindows.Entry`：一个 app 的某个 AX 窗口的元素 + frame + 标题 + 子类型（`subrole`，真窗口是 `AXStandardWindow`）+ 最小化。
-- `WindowCache.snapshot`：MRU 序、滤掉 `frontWindowID`（当前窗口）的列表。
+- `WindowCache.snapshot`：MRU 序、滤掉 `frontWindowID`（当前窗口）的列表。发布枚举时按当前 frontmost app 的 PID 取其第一个在屏窗口，不能取跨屏 CG 列表的首项；app 切换立即清除其他 app 的排除项。
 
 ## 流程
 
@@ -148,8 +148,7 @@ known 表保存最近标题、最小化状态和可选 `axVerified`（标准 AX 
 
 ## 关闭窗口（0.0.5）
 
-`WindowActivator.close` 在 detached task 读取当前 CGWindow 身份与 bounds、AX 窗口集合。必须同 PID、同 frame，且 CG 同 frame 窗口和 AX 匹配均唯一；不沿用激活的标题回退。读取关闭按钮后再次核验 CG 身份/位置/唯一性，再 AXPress。每个 AX element 设 1 秒超时。
+`WindowActivator.close` 在 detached task 读取同 PID 的实时 CG/AX 集合。优先两侧唯一 frame；台前调度改变 CG 几何时，允许非空实时标题在有效 CG 表面和标准 AX 窗口两侧均唯一的匹配。CG 候选复用枚举的显示器边界，不按尺寸过滤。读取关闭按钮后重新读取两侧，核验 CG 身份/位置及 AX 元素身份，再 AXPress；不依赖缓存标题。每个 AX element 设 1 秒超时。
 
-AXPress 成功不等于关闭成功：最多轮询 CGWindowList 2 秒，只有目标 id 消失返回 closed；查询失败返回 failed，等待保存确认返回 stillOpen，匹配不可靠返回 unavailable。绝不 quit/terminate，不替用户回应保存对话框。保守匹配可能拒绝台前调度/重复 frame 窗口，这是有可见提示的降级。
-
+AXPress 成功不等于关闭成功：最多轮询 20 次、间隔 100ms（不含 AX 耗时）。CG id 消失、目标 AX 元素失效，或 CG 已离屏且 app 明确报告无窗口，才返回 closed。查询失败返回 failed，等待保存确认返回 stillOpen，歧义/无按钮返回 unavailable。绝不 quit/terminate，不替用户回应保存对话框。
 cache.noteClosed 递增 generation 使在途旧枚举失效，清除目标与 known 并发布新快照。UI 的 session generation 单独防止旧关闭结果影响新会话。登录项 API 直接位于 SettingsWindowController，此处不增加只有一个调用方的包装层。

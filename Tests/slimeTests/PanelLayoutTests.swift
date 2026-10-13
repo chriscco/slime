@@ -353,3 +353,31 @@ private func label(of card: CardView) -> String? {
   #expect(card.preview.layer?.opacity == 1)
   #expect(card.preview.layer?.superlayer === card.layer)
 }
+
+@Test @MainActor func refreshingTheSameSelectionKeepsItsInFlightUnderlineMotion() throws {
+  guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+  let grid = CardGridView()
+  grid.rows = (1...3).map { window("App", "Window", id: UInt32($0)) }
+  grid.setSelection(1, animated: true)
+  let bar = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  #expect(bar.layer?.animation(forKey: "selection") != nil)
+  // An asynchronous enumeration/layout refresh can arrive during this move.
+  grid.setSelection(1, animated: false)
+  #expect(bar.layer?.animation(forKey: "selection") != nil)
+}
+
+@Test @MainActor func retargetedUnderlineDoesNotAccumulateStretch() throws {
+  guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+  let grid = CardGridView()
+  grid.rows = (1...3).map { window("App", "Window", id: UInt32($0)) }
+  let bar = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  bar.frame.size.width = 52 // Retarget while the previous stretch is still expanded.
+  grid.setSelection(1, animated: true)
+  let group = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
+  let stretch = try #require(group.animations?.compactMap { $0 as? CAKeyframeAnimation }
+    .first { $0.keyPath == "bounds.size.width" })
+  let widths = try #require(stretch.values as? [CGFloat])
+  #expect(widths.first == 52)
+  #expect(widths.last == 32)
+  #expect(widths.allSatisfy { $0 <= 52 })
+}

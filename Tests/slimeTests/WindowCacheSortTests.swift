@@ -47,3 +47,13 @@ private func pids(_ windows: [Window]) -> [pid_t] { windows.map(\.pid) }
   #expect(WindowCache.sort([], byMRU: []).isEmpty)
   #expect(pids(WindowCache.sort([window(pid: 7, id: 70)], byMRU: [])) == [7])
 }
+
+@Test func frontWindowMustBelongToTheFrontmostAppAcrossDisplays() {
+  let incognito = Window(pid: 10, windowID: 1, appName: "Chrome", title: "Incognito", isMinimized: false)
+  let warp = Window(pid: 20, windowID: 2, appName: "Warp", title: "Terminal", isMinimized: false)
+  let windows = [incognito, warp] // CG order is not application focus across displays.
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: 20) == 2)
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: 10) == 1)
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: 30) == nil)
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: nil) == nil)
+}

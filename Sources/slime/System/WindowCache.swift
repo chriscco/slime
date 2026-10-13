@@ -81,16 +81,12 @@ final class WindowCache {
     let previous = known
     queue.async { [weak self] in
       let result = WindowEnumerator.enumerate(known: previous)
-      // front-to-back 的第一个**在屏**窗口就是当前窗口（本进程的窗口不在枚举
-      // 结果里）。必须额外看 `isOnscreen`：隐藏 / 最小化的窗口不渲染、也可能
-      // 排在 z 序最前 —— 实测一个隐藏的 TextEdit 窗口被当成了 frontWindowID，
-      // 后果是（1）真正的当前窗口留在列表里（切到自己没有意义），（2）它的
-      // 缩略图按「不在列表里」被判过期删掉 —— 用户切走之后只能看到 app 图标。
-      let front = result.windows.first { $0.isOnscreen }?.windowID
       let sorted = Self.sort(result.windows, byMRU: mru)
       let updatedKnown = result.known
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
+          let front = Self.frontWindowID(in: result.windows,
+            frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
           self?.apply(sorted, frontWindowID: front, known: updatedKnown, generation: gen)
         }
       }
@@ -149,10 +145,16 @@ final class WindowCache {
   private func noteFrontApp(_ pid: pid_t) {
     mruPids.removeAll { $0 == pid }
     mruPids.insert(pid, at: 0)
-    // 前台窗口是哪个不知道（没经过我们的激活链路）：先不动 frontWindowID，
-    // 下一次枚举校准；最坏是面板第一帧多列/漏列一个窗口，几十毫秒后静默修正。
+    // Drop another app's exclusion immediately; preserve an explicit noteActivated target.
+    if !all.contains(where: { $0.windowID == frontWindowID && $0.pid == pid }) {
+      frontWindowID = Self.frontWindowID(in: all, frontmostPID: pid)
+    }
     all = Self.sort(all, byMRU: mruPids)
     onChange?(snapshot)
+  }
+
+  nonisolated static func frontWindowID(in windows: [Window], frontmostPID: pid_t?) -> UInt32? {
+    windows.first { $0.isOnscreen && $0.pid == frontmostPID }?.windowID
   }
 
   /// MRU 排序：app 按 MRU 名次，没进过 MRU 的 app 按它在窗口列表里第一次出现的

@@ -134,14 +134,19 @@ final class EventTap: @unchecked Sendable {
     guard enabled, !degraded else { return Unmanaged.passUnretained(event) }
     let code = event.getIntegerValueField(.keyboardEventKeycode)
     if type == .keyUp {
-      return swallowedKeys.remove(code) != nil ? nil : Unmanaged.passUnretained(event)
+      return swallowKeyUp(keycode: code) ? nil : Unmanaged.passUnretained(event)
     }
     let swallow = process(Self.translate(type: type, event: event),
       isKeyDown: type == .keyDown,
       isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
-    if swallow, type == .keyDown { swallowedKeys.insert(code) }
+    if swallow, type == .keyDown { noteSwallowedKeyDown(code) }
     return swallow ? nil : Unmanaged.passUnretained(event)
   }
+
+  // Called only on the tap run loop, or before installation in tests.
+  func noteSwallowedKeyDown(_ keycode: Int64) { swallowedKeys.insert(keycode) }
+
+  func swallowKeyUp(keycode: Int64) -> Bool { swallowedKeys.remove(keycode) != nil }
 
   /// The same event path is exercised without installing a global tap in tests.
   @discardableResult
@@ -189,7 +194,7 @@ final class EventTap: @unchecked Sendable {
       )
 
     default:
-      return nil  // keyUp：状态机不感知；进 holding 时按上面的兜底吞
+      return nil  // keyUp 在 handle 中按已吞 keyDown 配对，不进入状态机
     }
   }
 

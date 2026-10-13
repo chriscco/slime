@@ -56,3 +56,37 @@ import Testing
   await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
   #expect(effects.filter { $0 == .closeWindow }.count == 2)
 }
+
+@Test @MainActor func swallowedKeyDownConsumesExactlyOneMatchingKeyUp() {
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {})
+  tap.noteSwallowedKeyDown(48)
+  tap.noteSwallowedKeyDown(48) // Autorepeat is still one physical key press.
+  tap.noteSwallowedKeyDown(0)
+  #expect(tap.swallowKeyUp(keycode: 48))
+  #expect(!tap.swallowKeyUp(keycode: 48))
+  #expect(tap.swallowKeyUp(keycode: 0))
+}
+
+@Test @MainActor func unmatchedKeyUpPassesWithoutConsumingAnotherKeysPair() {
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {})
+  #expect(!tap.swallowKeyUp(keycode: 12))
+  tap.noteSwallowedKeyDown(48)
+  #expect(!tap.swallowKeyUp(keycode: 12))
+  #expect(tap.swallowKeyUp(keycode: 48))
+}
+
+@Test @MainActor func cancellingAndConfiguringClearKeyUpPairs() {
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {})
+  tap.noteSwallowedKeyDown(48)
+  tap.noteSwallowedKeyDown(0)
+  tap.cancelSession()
+  #expect(!tap.swallowKeyUp(keycode: 48))
+  #expect(!tap.swallowKeyUp(keycode: 0))
+  for enabled in [false, true] {
+    tap.noteSwallowedKeyDown(48)
+    tap.noteSwallowedKeyDown(0)
+    tap.configure(enabled: enabled)
+    #expect(!tap.swallowKeyUp(keycode: 48))
+    #expect(!tap.swallowKeyUp(keycode: 0))
+  }
+}

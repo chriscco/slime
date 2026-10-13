@@ -125,7 +125,7 @@ final class PanelController {
     content.gridView.groupByApp = settings.groupByApp
     content.gridView.availableWidth = available
     content.setSearchText(query)
-    content.emptyLabel.stringValue = localized("No other windows", "没有其他窗口")
+    content.emptyLabel.stringValue = localized("No windows", "没有窗口")
     content.emptyLabel.isHidden = !rows.isEmpty
     content.render(rows: rows)
     content.gridView.setSelection(selection, animated: false)

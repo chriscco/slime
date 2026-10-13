@@ -9,6 +9,9 @@ final class PanelWindow: NSPanel {
   /// 面板内容，PanelController 从这里摸控件。
   let content = PanelContentView()
   /// 玻璃面：内容**必须**挂在它的 `contentView` 里（spec §7）。
+  ///
+  /// shortcut: 只有一块玻璃面，没用 NSGlassEffectContainerView —— 每张卡片
+  ///           单独做玻璃时再回来合并渲染
   private let glass = NSGlassEffectView()
   /// lingering 下的 NSEvent 翻译入口（spec §6：两个事件源、一个状态机）。
   var onKey: (@MainActor (Event) -> Void)?

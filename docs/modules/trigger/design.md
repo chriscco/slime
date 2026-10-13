@@ -11,19 +11,19 @@
 - `Modifier`：`.cmd` / `.opt`。
 - `State`：`idle` / `armed(m)` / `holding(m, query, selection)` / `lingering(query, selection)`。
   - `selection` 是**无界计数**：纯状态机不知道列表长度，`sel+1` 不做钳位。真正的显示选中由 PanelController 维护（循环取模、刷新后钳位、选中项消失回 0）。
-- `Event`：修饰键上下、`tab(shift:)`、`char` / `backspace` / `arrow(axis:step:)` / `focusSearch` / `enter` / `escape`。`Axis` 是 `.horizontal` / `.vertical`。
-- `Effect`：`passThrough` / `swallow`（事件级）+ `showPanel` / `hidePanel` / `moveSelection(axis:step:)` / `appendQuery` / `deleteQueryChar` / `focusSearchField` / `activate` / `cancel`（UI 级）。
+- `Event`：修饰键上下、`tab(shift:)`、`char` / `backspace` / `arrow(axis:step:)` / `focusSearch` / `openSettings` / `enter` / `escape`。`Axis` 是 `.horizontal` / `.vertical`。
+- `Effect`：`passThrough` / `swallow`（事件级）+ `showPanel` / `hidePanel` / `moveSelection(axis:step:)` / `appendQuery` / `deleteQueryChar` / `focusSearchField` / `activate` / `cancel` / `openSettings`（UI 级）。
 
 ## 流程
 
 `reduce` 按 `State` 分四支：
 
 - `idle`：只认 `modifierDown` → `armed`；其余全部 `passThrough`（不装手势时键盘完全是应用的）。
-- `armed(m)`：`tab` → `holding(m, "", 0)` + `showPanel`（⇧Tab 等价）；`modifierUp(m)` → `idle`；**其余（含 ⌘C 这类按键、另一个修饰键）全放行**。
+- `armed(m)`：`tab` → `holding(m, "", 0)` + `showPanel`（⇧Tab 等价）；`modifierUp(m)` → `idle`；**其余（含 ⌘C 这类按键、另一个修饰键、⌘,）全放行** —— 面板还没开，⌘, 是别人的快捷键。
 - `holding(m)`：`modifierUp(m)` 是会话出口 —— `.cmd` 松手 → `activate + hidePanel`；`.opt` 松手 → `lingering` + `focusSearchField`。`:cmd` 模式下 ⌘F 也转 `lingering`（「我要慢慢找」；见 decision.md）。其余键盘事件走共用的 `panelStep`。
 - `lingering`：`modifierDown` → 关面板并回 `armed`（开始新手势）；键盘事件与 `holding` 走同一个 `panelStep`（spec §6 的「同上转移」）。
 
-`panelStep` 是 holding / lingering 共用的转移（tab/char/backspace/arrow/focusSearch/enter/escape），两处实现不分别写，免得漂移。
+`panelStep` 是 holding / lingering 共用的转移（tab/char/backspace/arrow/focusSearch/openSettings/enter/escape），两处实现不分别写，免得漂移。`openSettings` 结束会话（回 `.idle`，同回车 / Esc），Effect = `[.swallow, .openSettings]` —— **面板由 Effect 的执行者藏起来**（PanelController 先 `hide()`、再回调 `onOpenSettings`），状态机不知道「怎么藏」。
 
 **放行是默认的**：一个转移的 Effect 里没有 `swallow` 就默认放行。只有明确要吞的事件才吞（红线 3）。
 

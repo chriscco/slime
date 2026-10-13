@@ -90,7 +90,7 @@ struct Settings {
     clamp(value, to: strengthRange)
   }
 
-  /// 钳位是这一层唯一的纯逻辑，也是唯一的单测点。
+  /// 两个钳位（浓度 / 圆角）是这一层仅有的纯逻辑，也是仅有的单测点。
   static func clampCornerRadius(_ value: Double) -> Double {
     clamp(value, to: cornerRadiusRange)
   }

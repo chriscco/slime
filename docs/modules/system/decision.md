@@ -2,6 +2,58 @@
 
 <!-- 新的在最上面。 -->
 
+## 2026-10-12 · 缩略图抓取：SCK 公开 API，不用私有 SkyLight
+
+- **背景**：spec §4 的 spike。私有 `CGSHWCaptureWindowList` 比 SCK 快 ~10ms，
+  且能抓个别 SCK 失败的 Chrome 窗口（历史见过 -3811）。
+- **选定**：`SCShareableContent` + `SCContentFilter(desktopIndependentWindow:)` +
+  `SCScreenshotManager.captureImage`。**搁置窗口不实时抓** —— spike 实测三条路
+  各有各的坏法（斜的透视条带 / 全白 / 不稳定），它们的卡片走「缓存上一张好图 →
+  app 图标」的降级。用户看到的是它搁置**前**的全分辨率样子，比任何实时抓取都清楚。
+- **放弃了**：私有 SkyLight（`dlopen` + 零文档 + 每次 macOS 升级赌一次，换 10ms
+  和一类边缘窗口不值）；`SLSCaptureWindowsContentsToRectWithOptions`（符号存在但
+  没有任何公开签名，参数猜错有把 WindowServer 搞崩的风险）。
+- **代价**：多一项 TCC（屏幕录制）、多一个权限失败面；搁置窗口没有实时图。
+- **推翻条件**：SCK 在真实使用里经常抓不到正常窗口（那时重估私有路径），
+  或 Apple 给出抓「合成后但未变换」窗口的公开 API。
+
+## 2026-10-12 · 缩略图判据：关掉 shadow framing + 四角采样内缩 2px
+
+- **背景**：`looksLikeWindowRender` 的四角不透明判据第一版采最外圈 —— 真窗口的圆角
+  本身就是透明的，**每一扇真窗口都被判否**（320pt 宽抓图，缩到 32×32 采样后 (0,0)
+  的 alpha = 0）。另外 SCK 默认带 shadow framing，阴影把窗口从抓取边界内缩，
+  抓出来的不是窗口本身。
+- **选定**：抓取时 `config.ignoreShadowsSingleWindow = true`；四角采样**内缩 2px**
+  （内缩后 (0,0) 实测 alpha = 255）。内缩不会放过斜条带 —— 它的四角在
+  x ∈ [10, 22] 之外仍是空的，判据照旧拦得住。
+- **代价**：内缩把「四角不透明」的有效范围收进 2px；「整扇窗只有一种颜色」的窗口
+  仍会被第二种判据误杀 —— 退回 app 图标，不是白屏（shortcut: 注释）。
+- **推翻条件**：内缩放过坏图的实测案例出现时（收窄内缩 / 改采样点）。
+
+## 2026-10-12 · 过期缩略图用窗口身份判，不用 generation 计数
+
+- **背景**：红线 5 要求「过期结果必须丢弃」。`WindowCache` 用的是 generation 计数。
+- **选定**：`WindowThumbnails` 用 `live: Set<UInt32>`（当前快照的 windowID 集合），
+  抓取结果回来时只收 `live` 里的。
+- **为什么**：计数器只能说「这批可能过期了」，身份能说「这扇窗已经不在快照里了」。
+  而且计数器在这里有个洞：批次 A 被批次 B 顶掉时，B 看到 A 的窗口还在 pending
+  就跳过，A 回来又因 generation 不符而丢弃并清掉 pending —— 那几个窗口再没人抓。
+- **代价**：windowID 被 WindowServer 复用时会认错（每一次快照边界都清理，
+  所以复用得跨过边界才可能撞上）。
+- **推翻条件**：出现「关掉的窗口的图被显示出来」的实测案例。
+
+## 2026-10-12 · `WindowCache.sort` 从 private 放开到 internal 供测试直调
+
+- **背景**：spec §10 的聚拢 bug 只有 4 行修法，但它是「冷启动后同一个 app 的窗口
+  交错」这个现象的全部根因 —— 不留回归钉，下次动排序就会再犯。
+- **选定**：`private nonisolated static func sort` → `nonisolated static func sort`，
+  新增 `Tests/slimeTests/WindowCacheSortTests.swift` 用 `@testable import` 直接测。
+- **放弃了**：搬进 `Core/`（纯逻辑进 Core 更合规矩，但那要新增文件，和 CLAUDE.md
+  第六条「源文件保持精简 / 加文件之前先问能不能并进已有的那个」冲突，而它只有 4 行）。
+- **代价**：**这是对「只有 Core 能单测」的一处有意偏离** —— `System/` 里出现了一个
+  为测试而放开的可见性。它不 import 任何系统框架，是纯函数，所以偏离是安全的。
+- **推翻条件**：`System/` 里为测试放开的成员多到第三处（那时该抽一个 `Core/` 模块）。
+
 ## 2026-10-12 · 助手条否决（AXUnknown + 空标题）与屏外丢弃 —— Chromium 的假窗口
 
 - **背景**：用户实测 Chrome 只有 3 个窗口、面板显示 7 行。真机 dump（临时、未提交）：Chromium 经 AX 把**菜单栏 / 工具栏条**当窗口暴露 —— 两条 `subrole=AXUnknown`、`title=""`、`size=1920x41/47 @x=-1920`，且 `onscreen=1` 并 frame/title 匹配上 AX；现有「在屏上 / 有 AX 对应物 / known」三条判据全部拦不住，一进 known 表就长期驻留。对照：Chrome、ZCode、VS Code、企业微信、line puppy 的真窗口 subrole 全是 `AXStandardWindow`。现有证据链（真窗口 = 在屏上 / AX standard 匹配 / known）对这两条全部为真 —— 唯一为假的是「应用自己声明它是非标准窗口」。

@@ -29,7 +29,34 @@ final class WindowCache {
 
   /// 「见过一次是真窗口」的表（枚举器产出、跨次传回）—— 其他 Space 的窗口
   /// 靠它留在列表里。见 WindowEnumerator 的文档。
+  ///
+  /// **持久化**：同一次开机内 windowID 稳定，所以跨 slime 重启存活是有意义的 ——
+  /// 不持久化的话，重启后 known 表为空，Electron 类 app（AX 不暴露窗口）的
+  /// 离屏窗口全部被过滤掉，列表只剩当前在屏的那几个。
   private var known: [UInt32: KnownWindow] = [:]
+
+  private let defaults: UserDefaults
+
+  /// known 表的落盘键。不用 `Settings`：那是用户设置的封装，这是缓存。
+  private static let knownKey = "cache.knownWindows"
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+    self.known = Self.loadKnown(from: defaults)
+  }
+
+  private static func loadKnown(from defaults: UserDefaults) -> [UInt32: KnownWindow] {
+    guard let data = defaults.data(forKey: knownKey),
+          let stored = try? JSONDecoder().decode([StoredKnownWindow].self, from: data)
+    else { return [:] }
+    return Dictionary(uniqueKeysWithValues: stored.map { ($0.id, $0.entry) })
+  }
+
+  private static func saveKnown(_ known: [UInt32: KnownWindow], to defaults: UserDefaults) {
+    let stored = known.map { StoredKnownWindow(id: $0.key, entry: $0.value) }
+    guard let data = try? JSONEncoder().encode(stored) else { return }
+    defaults.set(data, forKey: knownKey)
+  }
 
   /// 快照更新后的回调 —— 面板还开着时静默刷新用。
   var onChange: (([Window]) -> Void)?
@@ -80,6 +107,7 @@ final class WindowCache {
     all = windows
     self.frontWindowID = frontWindowID
     self.known = known
+    Self.saveKnown(known, to: defaults)
     onChange?(snapshot)
   }
 
@@ -141,4 +169,10 @@ final class WindowCache {
       }
       .map { $0.element }
   }
+}
+
+/// known 表落盘用的形状（UserDefaults 的 JSON 里字典键得是字符串）。
+struct StoredKnownWindow: Codable {
+  let id: UInt32
+  let entry: KnownWindow
 }

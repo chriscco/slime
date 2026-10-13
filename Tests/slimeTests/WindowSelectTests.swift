@@ -30,7 +30,7 @@ private func candidate(
   let result = WindowEnumerator.select(
     [
       candidate(1, onscreen: true),
-      candidate(2, matched: KnownWindow(title: "Code — 标题", minimized: false)),
+      candidate(2, matched: KnownWindow(appName: "App", title: "Code — 标题", minimized: false)),
     ],
     known: [:]
   )
@@ -41,34 +41,57 @@ private func candidate(
 
 @Test func rememberedOffscreenWindowStaysWithItsTitle() {
   // 第二块屏幕 / 访问过的 Space：见过一次，之后离屏仍在（issue #23）。
-  let known: [UInt32: KnownWindow] = [7: KnownWindow(title: "Welcome — slime", minimized: false)]
+  let known: [UInt32: KnownWindow] = [7: KnownWindow(appName: "App", title: "Welcome — slime", minimized: false)]
   let result = WindowEnumerator.select([candidate(7)], known: known)
   #expect(result.windows.map(\.windowID) == [7])
   #expect(result.windows.first?.title == "Welcome — slime")
   #expect(result.known[7] != nil)  // 继续留用
 }
 
+@Test func knownEntryWithADifferentAppNameIsIgnored() {
+  // known 表跨 slime 重启存活（windowID 同一次开机内稳定），但**重启机器**后
+  // windowID 可能被复用 —— 名字对不上的条目按不认识处理（用户实测：重启后
+  // 只剩下一个窗口，这条持久化修复的另一半是它的防误判）。
+  let known: [UInt32: KnownWindow] = [
+    7: KnownWindow(appName: "Chrome", title: "旧窗口", minimized: false)
+  ]
+  let result = WindowEnumerator.select([candidate(7, app: "Finder")], known: known)
+  #expect(result.windows.isEmpty)  // 不是 Finder 的窗口 → 不认识 → 只有 known 的 id 也不算数
+}
+
+@Test func knownTableSurvivesABinaryRoundTrip() throws {
+  // 持久化的编码/解码形状：跨 slime 重启存活靠它。
+  let known: [UInt32: KnownWindow] = [
+    1: KnownWindow(appName: "ZCode", title: "项目", minimized: false),
+    2: KnownWindow(appName: "Chrome", title: "GitHub", minimized: true),
+  ]
+  let stored = known.map { StoredKnownWindow(id: $0.key, entry: $0.value) }
+  let data = try JSONEncoder().encode(stored)
+  let decoded = try JSONDecoder().decode([StoredKnownWindow].self, from: data)
+  #expect(Dictionary(uniqueKeysWithValues: decoded.map { ($0.id, $0.entry) }) == known)
+}
+
 @Test func vanishedWindowsArePrunedFromKnown() {
   // 窗口消失（这一轮不在候选里）→ known 表自然修剪，防 id 复用误判。
   let known: [UInt32: KnownWindow] = [
-    1: KnownWindow(title: "A", minimized: false),
-    2: KnownWindow(title: "B", minimized: false),
+    1: KnownWindow(appName: "App", title: "A", minimized: false),
+    2: KnownWindow(appName: "App", title: "B", minimized: false),
   ]
   let result = WindowEnumerator.select([candidate(1, onscreen: true)], known: known)
   #expect(result.known.keys.sorted() == [1])
 }
 
 @Test func freshMatchInfoWinsOverMemory() {
-  let known: [UInt32: KnownWindow] = [3: KnownWindow(title: "旧标题", minimized: false)]
+  let known: [UInt32: KnownWindow] = [3: KnownWindow(appName: "App", title: "旧标题", minimized: false)]
   let result = WindowEnumerator.select(
-    [candidate(3, matched: KnownWindow(title: "新标题", minimized: true))],
+    [candidate(3, matched: KnownWindow(appName: "App", title: "新标题", minimized: true))],
     known: known
   )
-  #expect(result.known[3] == KnownWindow(title: "新标题", minimized: true))
+  #expect(result.known[3] == KnownWindow(appName: "App", title: "新标题", minimized: true))
 }
 
 @Test func rememberedMinimizedStateSurvivesOffscreen() {
-  let known: [UInt32: KnownWindow] = [9: KnownWindow(title: "T", minimized: true)]
+  let known: [UInt32: KnownWindow] = [9: KnownWindow(appName: "App", title: "T", minimized: true)]
   let result = WindowEnumerator.select([candidate(9)], known: known)
   #expect(result.windows.first?.isMinimized == true)
 }
@@ -78,7 +101,7 @@ private func candidate(
 // known 三条正面证据全命中。助手判定必须优先否决，且不进 known
 //（用户现有的 7 行会在下一次枚举自愈回 3 行）。
 @Test func helperStripsAreDroppedEvenWithOnscreenOrKnownEvidence() {
-  let known: [UInt32: KnownWindow] = [1: KnownWindow(title: "", minimized: false)]
+  let known: [UInt32: KnownWindow] = [1: KnownWindow(appName: "App", title: "", minimized: false)]
   let result = WindowEnumerator.select(
     [
       candidate(1, onscreen: true, helper: true),  // 在屏上 + known，仍要丢

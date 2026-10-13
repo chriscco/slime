@@ -412,3 +412,30 @@ private func label(of card: CardView) -> String? {
     .first { $0.keyPath == "position" }?.values as? [NSValue])
   #expect(positions.first?.pointValue == start)
 }
+
+@Test @MainActor func crossRowTravelHappensAsADotBeforeTheLineUnfolds() throws {
+  guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+  for (from, to) in [(0, 5), (5, 0), (4, 5), (6, 0)] {
+    let grid = CardGridView()
+    grid.rows = (1...7).map { window("App", "Window", id: UInt32($0)) }
+    grid.setSelection(from, animated: false)
+    grid.setSelection(to, animated: true)
+    let bar = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+    let group = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
+    let animations = try #require(group.animations?.compactMap { $0 as? CAKeyframeAnimation })
+    let positions = try #require(animations.first { $0.keyPath == "position" }?.values as? [NSValue])
+    let widths = try #require(animations.first { $0.keyPath == "bounds.size.width" }?.values as? [CGFloat])
+    let start = try #require(positions.first?.pointValue)
+    let end = try #require(positions.last?.pointValue)
+    let dy = end.y - start.y
+    var travellingFrames = 0
+    for (point, width) in zip(positions, widths) {
+      let progress = (point.pointValue.y - start.y) / dy
+      if progress > 0.02 && progress < 0.98 {
+        travellingFrames += 1
+        #expect(abs(width - bar.frame.height) < 0.01)
+      }
+    }
+    #expect(travellingFrames >= 12)
+  }
+}

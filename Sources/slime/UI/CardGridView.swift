@@ -96,15 +96,16 @@ final class CardGridView: NSView {
       let dy = target.midY - oldFrame.midY
       let distance = hypot(dx, dy)
       let stops: [(time: CGFloat, width: CGFloat)] = [
-        (0, oldFrame.width), (0.15, min(52, max(oldFrame.width, 44))),
-        (0.4, 4), (0.5, 4), (0.78, 38), (1, target.width),
+        (0, oldFrame.width), (0.075, min(52, max(oldFrame.width, 44))),
+        (0.225, 4), (0.725, 4), (0.875, 38), (1, target.width),
       ]
       let samples = (0...40).map { step -> (width: CGFloat, position: NSValue) in
         let t = CGFloat(step) / 40
-        let progress = min(t / 0.78, 1)
-        let travel = 1 - pow(1 - progress, 3)
+        // Finish shrinking before departure; unfold only after arrival.
+        let progress = min(max((t - 0.225) / 0.5, 0), 1)
+        let travel = progress * progress * (3 - 2 * progress)
         // A single small rebound stays bounded even when wrapping several rows.
-        let rebound = t > 0.6 ? pow(sin(.pi * (t - 0.6) / 0.4), 2) * min(6, distance * 0.025) : 0
+        let rebound = t > 0.725 ? pow(sin(.pi * (t - 0.725) / 0.275), 2) * min(6, distance * 0.025) : 0
         let end = stops.indices.dropFirst().first { t <= stops[$0].time } ?? stops.count - 1
         let from = stops[end - 1], to = stops[end]
         let phase = (t - from.time) / (to.time - from.time)

@@ -42,6 +42,9 @@ final class PanelController {
   init() {
     panel.onKey = { [weak self] event in self?.key(event) }
     panel.onResignKey = { [weak self] in self?.panelResignedKey() }
+    // 缩略图抓完 → 就地把卡片刷新一遍（spec §5.3）。面板没开着就什么都不用做：
+    // 下次 show() 的 rerank 自然读到新缓存。
+    WindowThumbnails.onChange = { [weak self] in self?.refreshThumbnails() }
   }
 
   // MARK: - 外部入口
@@ -135,6 +138,13 @@ final class PanelController {
 
   /// 面板当前布局。rerank 之后重建，`resizeAndPosition` 和 moveSelection 都读它。
   private var gridLayout = GridLayout(count: 0)
+
+  /// 缩略图到货：重赋 `rows` —— windowID 序列没变，`CardGridView` 走「就地更新
+  /// 内容」那条路径（不重建、不动选中、不闪），卡片自己会去读新图。
+  private func refreshThumbnails() {
+    guard panel.isVisible else { return }
+    panel.content.gridView.rows = rows
+  }
 
   /// 按轴算新的选中。纯计算 —— internal 而不是 private：PanelLayoutTests 直接
   /// 验算，免去驱动真面板发按键。

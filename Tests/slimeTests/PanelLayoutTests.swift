@@ -214,3 +214,30 @@ private func label(of card: CardView) -> String? {
   grid.highlightColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
   #expect(highlight.layer?.borderColor == NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor)
 }
+
+// spec §6 / §12：没有缩略图（没权限、抓失败、台前调度搁置）时卡片必须退回
+// app 图标，不能是空白。卡片尺寸也不变 —— 混排时不该有两种卡形。
+@Test @MainActor func cardFallsBackToTheAppIconWhenThereIsNoThumbnail() throws {
+  let chrome = window("Chrome", "GitHub", id: 909)
+  let card = CardView(window: chrome)
+  card.frame = NSRect(x: 0, y: 0, width: 160, height: 120)
+  card.layoutSubtreeIfNeeded()
+
+  let thumb = try #require(card.subviews.compactMap { $0 as? NSImageView }.first)
+  // 测试进程里没有抓过任何图 → 缩略图缓存必然是空的。
+  #expect(WindowThumbnails.image(for: chrome) == nil)
+  #expect(thumb.image === AppIcons.icon(for: chrome))
+}
+
+// 缩略图区在上、标题在下，两者不重叠（spec §5.4：图区 + 间隙 + 标题）。
+@Test @MainActor func cardLaysTheThumbnailAboveTheTitle() throws {
+  let card = CardView(window: window("Chrome", "GitHub", id: 910))
+  card.frame = NSRect(x: 0, y: 0, width: 160, height: 120)
+  card.layoutSubtreeIfNeeded()
+
+  let thumb = try #require(card.subviews.compactMap { $0 as? NSImageView }.first)
+  let label = try #require(card.subviews.compactMap { $0 as? NSTextField }.first)
+  #expect(thumb.frame.height == 100)                       // 120 − 16 标题 − 4 间隙
+  #expect(thumb.frame.maxY <= label.frame.minY)            // flipped：y 向下
+  #expect(label.frame.maxY <= card.bounds.maxY)
+}

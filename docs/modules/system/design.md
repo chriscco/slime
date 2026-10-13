@@ -2,13 +2,14 @@
 
 ## 职责
 
-五个文件，把 spec §7 的数据流和 §8 的红线落到代码：
+系统边界：
 
 | 文件 | 管什么 |
 |---|---|
 | `WindowEnumerator.swift` | 有哪些窗口：`CGWindowList` 定集合，AX 取标题/最小化（`AXWindows` 是和激活层共用的 AX 读取/匹配） |
-| `WindowCache.swift` | 快照 + 后台刷新 + app 级 MRU + 当前窗口排除 |
-| `WindowActivator.swift` | 取消最小化 → `kAXRaiseAction` → unhide + activate |
+| `WindowCache.swift` | 快照 + 后台刷新 + app 级 MRU + 当前窗口末尾排序 |
+| `WindowActivator.swift` | 激活窗口；唯一匹配目标后 AX close button press 并确认消失 |
+| `Settings.swift` / `AppIcons.swift` | 持久化偏好、双语文案 / 应用图标缓存 |
 | `WindowThumbnails.swift` | 窗口缩略图：按 `windowID` 缓存 / 后台抓取 / 快照边界清理（见下节） |
 | `EventTap.swift` | `CGEvent ↔ Event`、吞放、状态机宿主、被禁重开与兜底 |
 
@@ -40,7 +41,7 @@
 - **有图、在屏上的**（`refresh`）：刷新 —— 可见窗口的内容会变，图得跟得上。
   **不阻塞首帧**（`onChange` 就地换卡片）。
 
-**降级链**：实时抓的图 → 落盘的「见它的最近一次」→ app 图标。抓不到的窗口
+**降级链**：实时抓的图 → 同窗口落盘的「见它的最近一次」→ UI 通用小窗口占位 + app 图标。抓不到的窗口
 （其他 Space / 最小化 / 台前调度搁置）停在第二 / 第三级 —— 那张图是它在屏时的
 最近一次，也是平台自己的行为（系统给最小化窗口显示的就是它上一次的样子）。
 
@@ -75,14 +76,14 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 ```
 
 - **EventTap 的状态只在 tap 线程访问**，没有共享、没有锁。主线程只在 `start()` 里经 semaphore 读一次启动结果（这就是 `@unchecked Sendable` 的边界）。
-- 主线程 ← tap 的通信只有单向发布：`DispatchQueue.main`（严格 FIFO，保证打字顺序）。反过来不通信 —— panel 不需要让 tap 知道任何事，**lingering 下 tap 不参与键盘**。
+- tap → 主线程 FIFO 发布 effects；主线程的取消/启停/关闭完成经 CFRunLoopPerformBlock 回 tap 线程。主线程先递增 deliveryRevision，旧 effects 到达时丢弃；tap 收到命令后同步 revision 和状态。所有打开的会话均由 tap 接管，AppKit 不重复 reduce。
 - 枚举与激活的 AX 段在后台/全局队列；快照整体替换发布回主线程。
 
 ## 数据结构
 
 - `Window`（Core）：不可变值类型；快照是不可变数组，发布时整体替换 —— 天然无锁（红线 8）。
 - `AXWindows.Entry`：一个 app 的某个 AX 窗口的元素 + frame + 标题 + 子类型（`subrole`，真窗口是 `AXStandardWindow`）+ 最小化。
-- `WindowCache.snapshot`：MRU 序、滤掉 `frontWindowID`（当前窗口）的列表。
+- `WindowCache.snapshot`：包含全部窗口；MRU 序后将 `frontWindowID`（当前窗口）移到末尾，默认仍选另一个窗口。发布枚举时按当前 frontmost app 的 PID 取其第一个在屏窗口，不能取跨屏 CG 列表的首项；app 切换立即纠正当前窗口身份。
 
 ## 流程
 
@@ -95,17 +96,15 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 | 非本进程 | 面板自己的窗口 |
 | app 是 `.regular` | 菜单栏 app / 系统服务的「窗口」不是切换目标 |
 | **frame 与任一显示器范围相交** | 显示器范围外的窗口不可能是用户可见的窗口 —— Chromium 经 AX 的助手条报 @x=-1920；台前调度条带 / 其他 Space 的窗口 frame 都在屏内，不会误伤（红线 7 禁的是按尺寸，这不是尺寸） |
-| **在屏上 或 有 AX 对应物** | 系统会给每个 app 生一批幽灵窗口（菜单栏条 1470×33/1920×30、缓存窗 500×500@(0,456)/1×1/64×64、helper 窗），它们既不在屏上、也不在 `kAXWindows` 里。不滤掉面板会被同一 app 的十几行空标题刷屏、没有窗口的 app 也会出现（issue #21，252 候选里滤到 6 个真窗口） |
-| **不是助手条**（AX 匹配到 `AXUnknown` 且无标题 → 否决） | Chromium 把菜单栏 / 工具栏条经 AX 报成窗口：`subrole=AXUnknown`、无标题，但 onscreen / matched / known 三条正面证据全命中，只有应用自己声明的「非标准 + 无标题」能拦 —— 用户窗口不可能是这样（用户实测 Chrome 3 窗口显示 7 行） |
+| **当前 AX 对应物、有效在屏证据或仍有效的 known 缓存** | AX 可读且 CG 明确返回空标题时，不能只靠 onscreen 收录 Chromium 工具栏宿主；离屏旧缓存只有 CG 标题不可读取、标题非空、已由标准 AX 验证或已知最小化时才保留。没有录屏权限时标题为 nil，沿用原有降级。 |
+| **不是助手条**（AXUnknown + 空标题） | 当轮 AX 否决优先于在屏状态和缓存。 |
+| **app 未明确报告无窗口** | AX 窗口列表完整读取为空，且 main 返回 noValue，清掉 app 的残留 CG 表面和 known 条目，但不能清掉刚由一次明确的单窗关闭保留下来的兄弟窗口；超时、unsupported 或部分读取失败不能当成空列表。 |
 
-然后按 pid 分组，一次建 AX app element → 读全部 AX 窗口（`kAXWindows` + `kAXMainWindow`）→ 按 frame（近似）匹配出标题/最小化 → 组装 `[Window]`（front-to-back 序）。
+按 pid 读取 AX 快照（`kAXWindows` + `kAXMainWindow`），在屏优先、同可见状态下有 CG 标题的表面优先，按 frame 近似匹配，标题相同者优先。每个 AX element 最多认领一个 CG 窗口；按元素身份补 main，不把不同但同位置的窗口合并。AX 至少报告一个标准窗口时，同 PID 的非空 CG 标题也允许恢复未知离屏窗口；AX 缺失或明确无窗口时，不单凭标题发现后台表面。
 
-三个细节：
+known 表保存最近标题、最小化状态和可选 `axVerified`（标准 AX 窗口验证）。旧版本缓存缺少该字段仍可解码，但不伪造验证。被拒绝和消失的条目不写回，从而自动清掉历史误收；无需用户清缓存。已验证的无标题窗口可跨 Space 保留。缓存仍只能覆盖访问过的窗口；无录屏权限时，CG 标题无法帮助区分辅助表面，降级路径可能多收窗口。
 
-- **known 表（见过的窗口）**：通过过滤的窗口写进跨次持有的 known 表 —— `kAXWindows` 只暴露当前 Space 的窗口，所以一个 app 的其他窗口只要不在屏上就会消失（issue #23）。known 表记住「见过一次」的窗口（含最后的标题/最小化状态），用户访问过的 Space 里的窗口留档，之后离屏也仍在列表里。幽灵窗口永远进不了表（它们从不在屏上、从不在 AX 里）；助手条也进不了（在已知证据之前就被否决）—— 用户现有的多余行会在下一次枚举自愈回真实窗口数。表按「这一轮出现过的 id」重建 —— 窗口消失即自然修剪，防 id 复用误判（残留风险：id 被复用的一瞬可能误判一次，见 decision.md）。
-
-- **一个 AX 窗口只认领一个 CGWindow**（在屏优先）：系统会给真窗口生一份同 frame 的**孪生幽灵**，不加这一步会多出整行重复。认错孪生无损 —— 激活是按 frame 重新匹配 AX 的（见下）。
-- **`kAXMainWindow` 不受 Space 过滤**（`kAXWindows` 只给当前 Space）：其他 Space 上每个 app 的前台窗口靠它进列表，标题也靠它。
+真机回归：用户两屏 Chrome 3 个、飞书红色关闭后 0 个；旧表含 Chrome 5 项、飞书 2 项。授权应用的只读诊断调用实际 enumerate 后返回 Chrome 3 / 飞书 0；AX 对飞书报告空列表和 main noValue。没有按 app 名或尺寸特殊过滤。
 
 **刷新**：`refresh()` 在后台枚举 + 按 MRU 排序，回主线程对 generation 后整体替换；对不上丢弃（红线 5）。
 
@@ -115,8 +114,8 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 
 1. `tapDisabledByTimeout` / `ByUserInput` → 立刻重开（红线 2）；连续到阈值进入兜底（红线 3）。
 2. `flagsChanged` → 修饰键按下/松开；`keyDown` → keycode 翻译成 `Event`。
-3. 非 lingering：`reduce` → 发布到主线程；吞放按「Effect 里有 `swallow` 才吞」。
-4. lingering：无脑放行，只盯 `modifierDown` —— 收到就回 `armed` 重新接管。
+3. 启用且未降级时，全部状态走 `reduce`；会话内无法翻译的 keyDown 吞掉。
+4. 按键 autorepeat 不发第二次 closeWindow；只吞与已吞 keyDown 配对的 keyUp。取消/停用使旧 effects 失效。
 
 ## 接口
 
@@ -124,7 +123,7 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 - `WindowCache`（`@MainActor`）：`start()` / `refresh()` / `noteActivated(_:)` / `snapshot` / `onChange`
 - `WindowActivator.activate(_:)`（异步，不阻塞调用方）
 - `WindowThumbnails.warm(_:)` / `image(for:) -> CGImage?` / `onChange`（见「缩略图」一节）
-- `EventTap.init(onEffects:onDegraded:)` / `start() throws`
+- `EventTap.init(onEffects:onDegraded:)` / `start() throws` / `configure(enabled:)` / `cancelSession()` / `completeClose()`
 
 ## 正确性假设
 
@@ -137,7 +136,8 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 
 ## 已知限制
 
-- **holding 期间未翻译成 Event 的按键一律吞**（功能键、第三方 keyUp）。会话里键盘归我们；会话外（idle/armed）全部放行（红线 3）。副作用：⌘Tab 会话里 F5 之类不会透给应用。
+- **打开会话期间未翻译成 Event 的 keyDown 一律吞**（如功能键）。会话里键盘归我们；会话外（idle/armed）全部放行（红线 3）。副作用：⌘Tab 会话里 F5 之类不会透给应用。
+- **会话中的普通修饰键字母组合仍用于过滤**：除已定义的专用快捷键外，⌘C/⌘Q 等会被翻译成 `.char("c")` / `.char("q")` 并吞掉，不会执行目标应用的复制/退出。这是既有会话语义；快捷键冲突策略留待后续版本评估。
 - AX 匹配是同帧/标题启发式，不是精确的窗口身份（公开 API 没有 window id → AX element 的映射）。同名同位置的窗口可能张冠李戴 —— 代价是标题/最小化状态，不是激活目标。
 - **从没访问过的其他 Space 窗口进不来**：`kAXWindows` 只暴露当前 Space；免空间过滤的公开 API 只有主窗口/焦点窗口；剩下的靠 known 表「访问过就记住」。应用刚启动（known 为空）时，隐藏 Space 里的窗口要等用户去过那个 Space 才进列表 —— 同类工具为补上这块改用了私有 WindowServer API（spec §3 把那条路列为非目标，代价记在 decision.md）。
 - 台前调度条带里的窗口如果 frame 对不上、标题也可能丢（只能显示 app 名）。
@@ -145,3 +145,17 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 - Electron/Chromium 的**非主窗口**标题可能拿不到（`AXManualAccessibility` 在本机实测对 Chrome 返回 attribute unsupported、Electron 类 5 秒后仍 0 个窗口）；主窗口标题经 `kAXMainWindow` 正常。
 - `WindowCache` 的观察者活到进程退出，没有 stop/清理路径（0.0.1 用不到）。
 - 安全输入（密码框）开着时系统不给 tap 发事件，⌘+Tab 自动走原生行为（红线 9，预期行为不是 bug）。
+
+
+## 关闭窗口（0.0.5）
+
+`WindowActivator.close` 在 detached task 读取同 PID 的实时 CG/AX 集合。优先两侧唯一 frame；台前调度改变 CG 几何时，允许非空实时标题在有效 CG 表面和标准 AX 窗口两侧均唯一的匹配。CG 候选复用枚举的显示器边界，不按尺寸过滤。读取关闭按钮后重新读取两侧，核验 CG 身份/位置及 AX 元素身份，再 AXPress；不依赖缓存标题。每个 AX element 设 1 秒超时。
+
+AXPress 成功不等于关闭成功：最多轮询 20 次、间隔 100ms（不含 AX 耗时）。CG id 消失、目标 AX 元素失效，或 CG 已离屏且 app 明确报告无窗口，才返回 closed。查询失败返回 failed，等待保存确认返回 stillOpen，歧义/无按钮返回 unavailable。绝不 quit/terminate，不替用户回应保存对话框。
+cache.noteClosed 递增 generation 使在途旧枚举失效，清除目标与 known 并发布新快照。UI 的 session generation 单独防止旧关闭结果影响新会话。登录项 API 直接位于 SettingsWindowController，此处不增加只有一个调用方的包装层。
+
+## 单窗关闭与部分 AX 列表
+
+关闭开始时捕获未过滤的同应用窗口列表，确认后交给 `noteClosed`，即使在途刷新已清空缓存也能恢复兄弟窗口。`noteClosed` 为目标留下可选 `closed` 缓存标记，为同 PID 的其他已知窗口留下 `survivedClose`。CG 仍存在时保留标记，避免目标残留表面被标题恢复路径重新收录；目标再次在屏或匹配 AX 时允许重新打开。兄弟窗口在 AX 空列表下继续沿用缓存，匹配到 AX 后解除保护；CG 消失时随正常枚举清理。字段可选，兼容旧缓存和应用重启。
+
+限制：尚未重新获得 AX 对应物的受保护窗口，若后来从应用自身关闭且 CG 表面继续保留，可能延迟清理；精确解决需窗口级 AX 生命周期观察，不能用 app 的当前 Space 空列表冒充单窗关闭证据。

@@ -30,7 +30,7 @@ import Testing
   #expect(settings.glassStyle == .regular)
   #expect(settings.glassStrength == Settings.defaultGlassStrength)
   #expect(settings.highlightColor == Settings.defaultHighlightColor)
-  #expect(settings.glassCornerRadius == 12)
+  #expect(settings.glassCornerRadius == 20)
 }
 
 @Test func glassStrengthIsClampedToZeroThroughOne() {
@@ -51,4 +51,24 @@ import Testing
   #expect(abs(srgb.redComponent - 0.969) < 0.01)
   #expect(abs(srgb.greenComponent - 0.510) < 0.01)
   #expect(abs(srgb.blueComponent - 0.106) < 0.01)
+}
+
+@Test func generalSettingsDefaultToEnabledUngroupedAndEnglishAndPersist() throws {
+  let suite = "slime.tests.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  #expect(settings.isEnabled)
+  #expect(!settings.groupByApp)
+  #expect(settings.language == .english)
+  #expect(settings.text("Settings", "设置") == "Settings")
+  settings.isEnabled = false
+  settings.groupByApp = true
+  settings.language = .chinese
+  let reloaded = Settings(defaults: defaults)
+  #expect(!reloaded.isEnabled)
+  #expect(reloaded.groupByApp)
+  #expect(reloaded.text("Settings", "设置") == "设置")
+  defaults.set("unsupported", forKey: "language")
+  #expect(settings.language == .english)
 }

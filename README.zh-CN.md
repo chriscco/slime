@@ -4,8 +4,7 @@ macOS 窗口切换器。比系统自带的切换器多两样东西：**打字即
 
 **[English →](README.md)**
 
-> **当前版本：0.0.1。** 主链路已经能天天用。0.0.2（卡片网格、液态玻璃面板、
-> 设置页）正在 [PR #29](https://github.com/chriscco/slime/pull/29) 上做。
+> **当前版本：0.0.5。** 固定五列、圆角预览、可选应用分组、重新设计的设置页，以及 `⌘D` 关闭窗口。
 
 ## 手势
 
@@ -18,19 +17,32 @@ macOS 窗口切换器。比系统自带的切换器多两样东西：**打字即
 | `↑` `↓` `←` `→` | 移动选中。 |
 | 直接打字 | 实时模糊过滤 —— `ghb` 能命中 `Chrome — GitHub`。 |
 | `Enter` | 切到选中项。**最小化的窗口也能切过去。** |
+| `⌘D` | 关闭选中窗口并播放 CRT 预览动画，不退出应用。 |
+| `⌘,` | 打开设置；松开 Option 后仍可使用。 |
 | `Esc` | 关闭面板，且不改变当前窗口。 |
 
-列表按 MRU 排序，最近用过的窗口排在最前。
+列表按应用级 MRU 排序；开启分组后每个应用独立分区。
 
 slime 没有 Dock 图标，也不会出现在系统原生的 `⌘+Tab` 列表里。你不叫它，它就不出现。
 
 它列的是**每个 app 的每一个窗口**，而不是一个 app 一条 —— 所以你能直接跳到想要
 的那个窗口，不用先切到 app 再在它的窗口之间循环。
 
+## 设置
+
+从菜单栏或面板内 `⌘,` 打开。通用包含总开关、应用分组、登录启动和 English / 简体中文；
+默认英文（包括升级用户），保留已有外观偏好。外观页保留玻璃样式、强度、颜色和面板圆角；
+快捷键页展示固定绑定；关于页显示实际版本及仓库链接。
+
+关闭总开关立即恢复系统 `⌘Tab`，菜单栏入口保留。登录启动读取 macOS 实际状态，可能需要在系统设置批准。
+
+`⌘D` 仅请求关闭选中窗口；匹配不唯一时拒绝操作。保存确认或失败时恢复预览并说明原因，
+不会退出应用，也不会代替用户回应保存对话框。系统开启“减少动态效果”时使用淡出替代 CRT 收缩闪烁。
+
 ## 系统要求
 
-- **0.0.1 需要 macOS 14+。** 0.0.2 会抬到 **macOS 26** —— 它用
-  `NSGlassEffectView` 渲染面板，更早的系统没有这个类。
+- **macOS 26+**，面板使用 `NSGlassEffectView`。
+- **屏幕录制权限**用于预览。没有有效预览或同窗口缓存时，显示带应用图标的通用小窗口占位。
 - **需要辅助功能权限。** slime 通过辅助功能 API 读窗口列表，并且要拦截你按下的
   按键，所以必须由 macOS 授权。
 - **零第三方依赖。**
@@ -64,7 +76,7 @@ rebuild 不会掉权限。跳过这一步，你一天要勾几十次那个复选
 3. **退出 slime 再重新打开。** 权限只对新启动的进程生效 —— 每个人都会在这里
    踩一次坑。
 
-如果 slime 装不上事件监听，它会报错并退出，而不是静默地留在后台。如果运行中
+如果 slime 装不上事件监听，它会报错并关闭接管，菜单栏设置仍可使用。授权后重启并在设置中重新启用。如果运行中
 macOS 把 tap 禁掉了，slime 会停止拦截、退回系统原生 `⌘+Tab` —— **宁可切换器
 失效，也不能让用户的键盘坏掉。**
 
@@ -84,17 +96,16 @@ scripts/test
 ```
 Sources/slime/
   App/      main.swift, AppDelegate.swift, Permission.swift
-  Core/     纯逻辑 —— Window, Search, Trigger。只依赖 Foundation，不 import AppKit。
+  Core/     纯逻辑 —— Window, Search, Trigger, GridLayout。只依赖 Foundation，不 import AppKit。
   System/   EventTap, WindowEnumerator, WindowCache, WindowActivator
-  UI/       PanelWindow, PanelController
+  UI/       面板、卡片、预览、设置
 Tests/slimeTests/     swift-testing
 docs/       specs / plans / modules / templates
 scripts/    build-app, test, setup-signing, hooks
 ```
 
 `Core/` 刻意不能 import AppKit、CoreGraphics、ApplicationServices。
-它是这个项目里唯一能被单测的层；一旦系统 API 进得去，这个项目就变成
-「只能靠手点来验证」—— 那等于放弃测试。
+纯状态/布局测试不依赖系统权限；另有 AppKit 控件及异步生命周期测试。真实 AX、登录项和动画观感仍需原生验收。
 
 ## 参与开发
 

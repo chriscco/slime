@@ -47,3 +47,46 @@ private func pids(_ windows: [Window]) -> [pid_t] { windows.map(\.pid) }
   #expect(WindowCache.sort([], byMRU: []).isEmpty)
   #expect(pids(WindowCache.sort([window(pid: 7, id: 70)], byMRU: [])) == [7])
 }
+
+@Test func frontWindowMustBelongToTheFrontmostAppAcrossDisplays() {
+  let incognito = Window(pid: 10, windowID: 1, appName: "Chrome", title: "Incognito", isMinimized: false)
+  let warp = Window(pid: 20, windowID: 2, appName: "Warp", title: "Terminal", isMinimized: false)
+  let windows = [incognito, warp] // CG order is not application focus across displays.
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: 20) == 2)
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: 10) == 1)
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: 30) == nil)
+  #expect(WindowCache.frontWindowID(in: windows, frontmostPID: nil) == nil)
+}
+
+@Test @MainActor func snapshotKeepsCurrentWindowAndClosingOnlyRemovesItsTarget() throws {
+  let suite = "slime.cache-all.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let cache = WindowCache(defaults: defaults)
+  let windows = [window(pid: 20, id: 1), window(pid: 20, id: 2), window(pid: 20, id: 3)]
+  cache.apply(windows, frontWindowID: 1, known: [:], generation: 0)
+  cache.noteActivated(windows[2])
+  #expect(cache.snapshot.map(\.windowID) == [1, 2, 3])
+  cache.noteClosed(windows[1])
+  #expect(cache.snapshot.map(\.windowID) == [1, 3])
+  let data = try #require(defaults.data(forKey: "cache.knownWindows"))
+  let stored = try JSONDecoder().decode([StoredKnownWindow].self, from: data)
+  let known = Dictionary(uniqueKeysWithValues: stored.map { ($0.id, $0.entry) })
+  let candidates = windows.map {
+    WindowCandidate(windowID: $0.windowID, pid: $0.pid, appName: $0.appName,
+      onscreen: false, matched: nil, helper: false, cgTitle: $0.title,
+      axAvailable: true, appHasNoWindows: true)
+  }
+  #expect(WindowEnumerator.select(candidates, known: known).windows.map(\.windowID) == [1, 3])
+}
+
+@Test @MainActor func closePreservesSiblingsEvenIfAnInFlightRefreshDroppedThem() throws {
+  let suite = "slime.cache-close-race.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let cache = WindowCache(defaults: defaults)
+  let windows = [window(pid: 20, id: 1), window(pid: 20, id: 2), window(pid: 20, id: 3)]
+  cache.apply([], frontWindowID: nil, known: [:], generation: 0)
+  cache.noteClosed(windows[1], preserving: windows)
+  #expect(cache.snapshot.map(\.windowID) == [1, 3])
+}

@@ -9,11 +9,10 @@ import AppKit
 /// 替换 —— 天然无锁，不共享可变状态（红线 8）。
 @MainActor
 final class WindowCache {
-  /// MRU 排序、含当前窗口的完整列表。面板读 `snapshot`（滤掉当前窗口）。
+  /// MRU 排序、含当前窗口的完整列表。面板读 `snapshot`（当前窗口排在末尾）。
   private var all: [Window] = []
 
-  /// 当前窗口的 id：列表不含它（spec §7 —— 切到自己没有意义，滤掉之后
-  /// index 0 天然是「上一个用过的窗口」）。
+  /// 当前窗口仍显示，放在末尾，让默认选中仍指向另一个窗口。
   private(set) var frontWindowID: UInt32?
 
   /// app 级 MRU，最近被激活的 app 在最前。
@@ -61,8 +60,10 @@ final class WindowCache {
   /// 快照更新后的回调 —— 面板还开着时静默刷新用。
   var onChange: (([Window]) -> Void)?
 
-  /// 面板要渲染的列表：MRU 序，不含当前窗口。
-  var snapshot: [Window] { all.filter { $0.windowID != frontWindowID } }
+  /// 面板显示全部窗口；当前窗口放在末尾，保留快速切换的默认目标。
+  var snapshot: [Window] {
+    all.filter { $0.windowID != frontWindowID } + all.filter { $0.windowID == frontWindowID }
+  }
 
   /// 这一轮枚举到的所有窗口（含当前窗口）。给缩略图缓存用 —— 它的清理边界
   /// 是「窗口关没关」，不是「面板显不显示」（见 AppDelegate 的 onChange）。
@@ -81,16 +82,12 @@ final class WindowCache {
     let previous = known
     queue.async { [weak self] in
       let result = WindowEnumerator.enumerate(known: previous)
-      // front-to-back 的第一个**在屏**窗口就是当前窗口（本进程的窗口不在枚举
-      // 结果里）。必须额外看 `isOnscreen`：隐藏 / 最小化的窗口不渲染、也可能
-      // 排在 z 序最前 —— 实测一个隐藏的 TextEdit 窗口被当成了 frontWindowID，
-      // 后果是（1）真正的当前窗口留在列表里（切到自己没有意义），（2）它的
-      // 缩略图按「不在列表里」被判过期删掉 —— 用户切走之后只能看到 app 图标。
-      let front = result.windows.first { $0.isOnscreen }?.windowID
       let sorted = Self.sort(result.windows, byMRU: mru)
       let updatedKnown = result.known
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
+          let front = Self.frontWindowID(in: result.windows,
+            frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
           self?.apply(sorted, frontWindowID: front, known: updatedKnown, generation: gen)
         }
       }
@@ -108,7 +105,28 @@ final class WindowCache {
     onChange?(snapshot)
   }
 
-  private func apply(
+  func noteClosed(_ window: Window, preserving siblings: [Window] = []) {
+    generation += 1
+    all.removeAll { $0.windowID == window.windowID }
+    for sibling in siblings where sibling.pid == window.pid && sibling.windowID != window.windowID {
+      if !all.contains(where: { $0.windowID == sibling.windowID }) { all.append(sibling) }
+    }
+    all = Self.sort(all, byMRU: mruPids)
+    var closed = known[window.windowID] ?? KnownWindow(
+      appName: window.appName, title: window.title, minimized: window.isMinimized)
+    closed.closed = true
+    known[window.windowID] = closed
+    for sibling in all where sibling.pid == window.pid {
+      var info = known[sibling.windowID] ?? KnownWindow(
+        appName: sibling.appName, title: sibling.title, minimized: sibling.isMinimized)
+      info.survivedClose = true
+      known[sibling.windowID] = info
+    }
+    Self.saveKnown(known, to: defaults)
+    onChange?(snapshot)
+  }
+
+  func apply(
     _ windows: [Window], frontWindowID: UInt32?, known: [UInt32: KnownWindow], generation: Int
   ) {
     guard generation == self.generation else { return }
@@ -141,10 +159,16 @@ final class WindowCache {
   private func noteFrontApp(_ pid: pid_t) {
     mruPids.removeAll { $0 == pid }
     mruPids.insert(pid, at: 0)
-    // 前台窗口是哪个不知道（没经过我们的激活链路）：先不动 frontWindowID，
-    // 下一次枚举校准；最坏是面板第一帧多列/漏列一个窗口，几十毫秒后静默修正。
+    // Drop another app's exclusion immediately; preserve an explicit noteActivated target.
+    if !all.contains(where: { $0.windowID == frontWindowID && $0.pid == pid }) {
+      frontWindowID = Self.frontWindowID(in: all, frontmostPID: pid)
+    }
     all = Self.sort(all, byMRU: mruPids)
     onChange?(snapshot)
+  }
+
+  nonisolated static func frontWindowID(in windows: [Window], frontmostPID: pid_t?) -> UInt32? {
+    windows.first { $0.isOnscreen && $0.pid == frontmostPID }?.windowID
   }
 
   /// MRU 排序：app 按 MRU 名次，没进过 MRU 的 app 按它在窗口列表里第一次出现的
@@ -155,8 +179,6 @@ final class WindowCache {
   /// 已有的那个」）—— 这是对「只有 Core 能单测」的一处有意偏离，见
   /// docs/modules/system/decision.md。
   ///
-  /// shortcut: 排序聚拢只保证同一 app 的窗口相邻，不做视觉分组（app 之间加标题 /
-  ///           间隔）—— 相邻了还是分不清哪几扇窗属于同一个 app 时再做
   nonisolated static func sort(_ windows: [Window], byMRU mru: [pid_t]) -> [Window] {
     var rank: [pid_t: Int] = [:]
     for (index, pid) in mru.enumerated() { rank[pid] = index }

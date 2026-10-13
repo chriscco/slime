@@ -1,165 +1,167 @@
 import CoreGraphics
 import Foundation
 
-/// `CGEvent ↔ Event` 的翻译、吞放、状态机宿主（spec §5 / §6）。
-///
-/// 线程模型（红线 1）：状态机跑在自己线程的 run loop 上，事件回调里只有
-/// 状态机和吞放 —— 没有 AX 调用、不读磁盘、不等锁。要动 UI / 系统的 Effect
-/// 全部异步送回主线程。
-///
-/// lingering 下这一层几乎关闭（spec §6）：键盘走 AppKit 响应链，tap 只盯
-/// 「修饰键按下」—— 收到就回 armed 重新接管，其余无脑放行。
-/// 最危险的代码，在最不需要工作的时候是关的。
-///
-/// `@unchecked Sendable` 的理由：状态只在 tap 线程访问；主线程只在 `start()`
-/// 里经 semaphore 握手读一次启动结果。没有共享可变状态、没有锁。
+/// State lives on the tap run loop. Main-actor controls enqueue changes there;
+/// revision-gated deliveries discard effects queued before dismissal/disable.
+/// @unchecked Sendable: the run-loop reference is published once by start's
+/// semaphore; mutable keyboard state is only accessed on that run loop.
 final class EventTap: @unchecked Sendable {
-  enum StartError: Error {
-    case creationFailed
-    case timedOut
-  }
-
-  /// 连续被系统禁掉几次就进兜底（红线 3）。健康时禁一次、重开就够；
-  /// 连续 3 次说明系统持续不给机会 —— 别再赌用户的键盘。
-  private static let disableLimit = 3
-
-  /// UI 级 Effect 的执行者，在主线程被调用。
+  enum StartError: Error { case creationFailed, timedOut }
   private let onEffects: @MainActor (State, [Effect]) -> Void
-  /// 进兜底模式的通知（红线 3：提示用户）。
   private let onDegraded: @MainActor () -> Void
-
   private let ready = DispatchSemaphore(value: 0)
+  private var runLoop: CFRunLoop?
+  private var startError: StartError?
+  @MainActor private var deliveryRevision = 0
 
-  // ── 以下只在 tap 线程访问 ──────────────────────────────────────────
+  private var revision = 0
   private var state: State = .idle
+  private var enabled = true
+  private var degraded = false
   private var tap: CFMachPort?
   private var consecutiveDisables = 0
-  private var degraded = false
+  private var swallowedKeys: Set<Int64> = []
 
-  // ── 只在构造和 start() 之间（主线程）访问 ──────────────────────────
-  private var startError: StartError?
-
-  init(
-    onEffects: @escaping @MainActor (State, [Effect]) -> Void,
-    onDegraded: @escaping @MainActor () -> Void
-  ) {
+  init(onEffects: @escaping @MainActor (State, [Effect]) -> Void,
+       onDegraded: @escaping @MainActor () -> Void) {
     self.onEffects = onEffects
     self.onDegraded = onDegraded
   }
 
-  /// 起专用线程装 tap。建不起来抛错 —— spec §9：报错并退出，
-  /// 不要静默地在后台运行一个没用的进程。
   func start() throws {
-    let thread = Thread { [self] in install() }
+    let accepted = DispatchSemaphore(value: 0)
+    let thread = Thread { [self] in install(accepted: accepted) }
     thread.name = "slime.event-tap"
     thread.qualityOfService = .userInteractive
     thread.start()
-
     guard ready.wait(timeout: .now() + 2) == .success else { throw StartError.timedOut }
     if let error = startError { throw error }
+    accepted.signal()
   }
 
-  private func install() {
-    // 只关心键盘；鼠标不碰（0.0.1 面板不支持点选）。
-    let mask: CGEventMask =
-      (1 << CGEventType.keyDown.rawValue)
-      | (1 << CGEventType.keyUp.rawValue)
-      | (1 << CGEventType.flagsChanged.rawValue)
+  @MainActor func configure(enabled: Bool) {
+    reset(enabled: enabled)
+  }
 
+  @MainActor func cancelSession() { reset(enabled: nil) }
+
+  @MainActor func completeClose() {
+    let expectedRevision = deliveryRevision
+    let finish: @Sendable () -> Void = { [self] in
+      guard revision == expectedRevision else { return }
+      process(.closeFinished, isKeyDown: false)
+    }
+    if let runLoop {
+      CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, finish)
+      CFRunLoopWakeUp(runLoop)
+    } else { finish() }
+  }
+
+  @MainActor private func reset(enabled: Bool?) {
+    deliveryRevision += 1
+    let nextRevision = deliveryRevision
+    let change: @Sendable () -> Void = { [self] in
+      revision = nextRevision
+      state = .idle
+      if let enabled {
+        self.enabled = enabled
+        if enabled {
+          degraded = false
+          consecutiveDisables = 0
+          if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+        }
+      }
+      swallowedKeys.removeAll()
+    }
+    if let runLoop {
+      CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, change)
+      CFRunLoopWakeUp(runLoop)
+    } else {
+      // Before installation (and in tests) there is no worker owning this state.
+      change()
+    }
+  }
+
+  private func install(accepted: DispatchSemaphore) {
+    let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
+      | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
     guard let tap = CGEvent.tapCreate(
-      tap: .cgSessionEventTap,
-      place: .headInsertEventTap,
-      options: .defaultTap,
-      eventsOfInterest: mask,
-      callback: Self.callback,
+      tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+      eventsOfInterest: mask, callback: Self.callback,
       userInfo: Unmanaged.passUnretained(self).toOpaque()
     ) else {
       startError = .creationFailed
       ready.signal()
       return
     }
-
     self.tap = tap
+    runLoop = CFRunLoopGetCurrent()
     let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-    CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-    CGEvent.tapEnable(tap: tap, enable: true)
-
+    CFRunLoopAddSource(runLoop, source, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: false)
     ready.signal()
+    // No callbacks run until start() accepts the installation. A late startup
+    // must not leave an orphan tap swallowing keys after the caller reports failure.
+    guard accepted.wait(timeout: .now() + 2) == .success else {
+      CFMachPortInvalidate(tap)
+      return
+    }
+    CGEvent.tapEnable(tap: tap, enable: true)
     CFRunLoopRun()
   }
 
   private static let callback: CGEventTapCallBack = { _, type, event, userInfo in
     guard let userInfo else { return Unmanaged.passUnretained(event) }
-    let tap = Unmanaged<EventTap>.fromOpaque(userInfo).takeUnretainedValue()
-    return tap.handle(type: type, event: event)
+    return Unmanaged<EventTap>.fromOpaque(userInfo).takeUnretainedValue()
+      .handle(type: type, event: event)
   }
 
-  /// 返回 nil 表示吞掉事件，不返回则放行。
   private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-    // 红线 2：回调超时后系统会直接禁掉 tap，不重开的每一刻 ⌘+Tab 都在
-    // 全系统范围内失效。收到必须立刻重开。
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       if type == .tapDisabledByTimeout {
         consecutiveDisables += 1
-        if consecutiveDisables >= Self.disableLimit {
-          degrade()
+        if consecutiveDisables >= 3 {
+          degraded = true
+          state = .idle
+          DispatchQueue.main.async { [onDegraded] in onDegraded() }
           return Unmanaged.passUnretained(event)
         }
       }
-      if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+      if let tap, !degraded { CGEvent.tapEnable(tap: tap, enable: true) }
       return Unmanaged.passUnretained(event)
     }
-
-    // 能正常处理事件 = 系统是健康的，连续计数清零。
     consecutiveDisables = 0
-
-    if degraded { return Unmanaged.passUnretained(event) }
-
-    let translated = Self.translate(type: type, event: event)
-
-    // spec §6：lingering 时键盘走 AppKit 响应链，tap 只盯「修饰键按下」。
-    if case .lingering = state {
-      if let translated, case .modifierDown = translated {
-        transition(translated)
-      }
-      return Unmanaged.passUnretained(event)
+    guard enabled, !degraded else { return Unmanaged.passUnretained(event) }
+    let code = event.getIntegerValueField(.keyboardEventKeycode)
+    if type == .keyUp {
+      return swallowKeyUp(keycode: code) ? nil : Unmanaged.passUnretained(event)
     }
-
-    guard let translated else {
-      // 没翻译成 Event 的按键（功能键、keyUp……）：holding 期间吞 ——
-      // 会话里键盘归我们（按住 ⌘Tab 时按 ⌘Q、F5 不该透到应用），
-      // 其他状态放行。见 docs/modules/system/design.md。
-      if case .holding = state { return nil }
-      return Unmanaged.passUnretained(event)
-    }
-
-    let effects = transition(translated)
-    // 放行是默认：只有 Effect 明确要吞才吞（红线 3）。
-    return effects.contains(.swallow) ? nil : Unmanaged.passUnretained(event)
+    let swallow = process(Self.translate(type: type, event: event),
+      isKeyDown: type == .keyDown,
+      isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
+    if swallow, type == .keyDown { noteSwallowedKeyDown(code) }
+    return swallow ? nil : Unmanaged.passUnretained(event)
   }
 
-  /// 跑纯状态机，把（状态, Effect）发布到主线程执行。返回 Effect 供吞放判断
-  /// （lingering 分支不需要 —— 那里一律放行）。
+  // Called only on the tap run loop, or before installation in tests.
+  func noteSwallowedKeyDown(_ keycode: Int64) { swallowedKeys.insert(keycode) }
+
+  func swallowKeyUp(keycode: Int64) -> Bool { swallowedKeys.remove(keycode) != nil }
+
+  /// The same event path is exercised without installing a global tap in tests.
   @discardableResult
-  private func transition(_ event: Event) -> [Effect] {
+  func process(_ event: Event?, isKeyDown: Bool = true, isRepeat: Bool = false) -> Bool {
+    guard enabled, !degraded else { return false }
+    guard let event else { return isKeyDown && state.isSessionOpen }
+    if event == .closeWindow, isRepeat { return state.isSessionOpen }
     let (next, effects) = reduce(state, event)
     state = next
-    // 必须走 DispatchQueue.main：它严格 FIFO，保证 appendQuery 的顺序 ——
-    // 打字乱序不能接受；Task { @MainActor } 不保证跨 Task 的执行顺序。
-    DispatchQueue.main.async { [onEffects] in
-      MainActor.assumeIsolated { onEffects(next, effects) }
+    let delivery = revision
+    DispatchQueue.main.async { [self] in
+      guard delivery == deliveryRevision else { return }
+      onEffects(next, effects)
     }
-    return effects
-  }
-
-  private func degrade() {
-    // 红线 3：宁可功能失效，不能让用户没法切 app。停止参与 ——
-    // 不重开 tap、之后一律放行、不吞任何事件；通知用户。
-    degraded = true
-    state = .idle
-    DispatchQueue.main.async { [onDegraded] in
-      MainActor.assumeIsolated { onDegraded() }
-    }
+    return effects.contains(.swallow)
   }
 
   // MARK: - 翻译（CGEvent → Event）
@@ -187,11 +189,12 @@ final class EventTap: @unchecked Sendable {
         keyCode: Int(keyCode),
         shift: flags.contains(.maskShift),
         commandOrOption: flags.contains(.maskCommand) || flags.contains(.maskAlternate),
-        character: character(event)
+        character: character(event),
+        command: flags.contains(.maskCommand)
       )
 
     default:
-      return nil  // keyUp：状态机不感知；进 holding 时按上面的兜底吞
+      return nil  // keyUp 在 handle 中按已吞 keyDown 配对，不进入状态机
     }
   }
 
@@ -214,16 +217,14 @@ final class EventTap: @unchecked Sendable {
   }
 }
 
-/// keyCode → Event 的按键表。两个事件源（EventTap 的 CGEvent、PanelWindow 的
-/// NSEvent）共用它 —— spec §6 的两个事件源一个状态机，语义必须一致，
-/// 靠两张各写各的表是保不住的。
+/// keyCode → Event 的按键表，由 EventTap 统一翻译全部面板会话。
 ///
 /// shortcut: 快捷键硬编码成 ⌘Tab / ⌥Tab（和这里的 keyCode 一起），被某个
 /// app 冲突烦到时再做可配置 —— 那时硬编码要改成一张可读的绑定表。
 enum KeyTable {
   /// `character` 传 keyboard-layout 感知、且「忽略修饰键」后的字符。
   static func event(
-    keyCode: Int, shift: Bool, commandOrOption: Bool, character: Character?
+    keyCode: Int, shift: Bool, commandOrOption: Bool, character: Character?, command: Bool = false
   ) -> Event? {
     switch keyCode {
     case 48:
@@ -242,6 +243,8 @@ enum KeyTable {
       return .arrow(axis: .horizontal, step: -1)  // ←
     case 124:
       return .arrow(axis: .horizontal, step: 1)  // →
+    case 2 where command:
+      return .closeWindow
     case 3 where commandOrOption:
       return .focusSearch  // ⌘F / ⌥F（spec §2 第 6 条：两种模式都要）
     case 43 where commandOrOption:

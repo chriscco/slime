@@ -1,53 +1,32 @@
 # Panel · 设计
 
-## 职责
+## 职责与边界
 
-`UI/PanelWindow`（nonactivating 高层级面板 + 视图）+ `UI/PanelController`（搜索框文本、卡片网格、高亮、显示/隐藏、lingering 键盘）。
+`PanelWindow` 是 nonactivating 浮动面板；`PanelController` 维护查询、真实窗口身份、选择与会话 generation。键盘只由 EventTap 驱动，面板不运行第二个 reducer。枚举和 AX 由 System 层负责。
 
-**不负责**：吞放事件（EventTap）、枚举与 MRU（WindowCache）、真正切窗口（WindowActivator）；这些通过 Effect 和回调交出去。
+## 布局与渲染（0.0.5）
 
-## 数据结构
+- `GridLayout`：固定五列，200×160pt 卡片、12pt 间隔、20pt padding、52pt 搜索区。未分组 0–5 项为 1088×252pt；超过三行滚动。屏幕可用宽度减 40pt 后不足时缩小预览，标题字号不变；总高也不超过屏幕可用高减 40pt。
+- 分组开启时按结果中 app 首次出现排序，组内保留搜索排名。每组另起行，28pt 图标/名称标题；高度按内容增长至三行卡片的可视上限，更多滚动。`rowStarts` 描述实际占用的行，方向键不会落入空槽或标题。
+- `PanelContentView`：搜索展示、关闭状态提示、滚动网格、空态。先确定窗口尺寸和布局，再 render；document 宽度由 scroll view 传入。
+- `CardGridView` 按 windowID 复用视图。高亮为 13% 同色底（14pt 圆角）和 32×4pt 下划线；同行从 presentation layer 当前位置向新目标移动 300ms，连续采样位置和宽度曲线，宽度先伸展（上限 52pt）再收回 32pt；同一选择的异步刷新不打断在途动画，快速重定向不累加伸长，跨行（包括跨行的首尾循环）直接显示在目标位置，无飞行、形变或回弹，底色独立淡化 160ms。Reduce Motion 直接更新选中。
+- `WindowPreviewView` 对 aspect-fit 后的实际图片区域做 10pt 圆角裁切，含纵向图。优先真实图及同窗口缓存；无图绘制通用小窗口、静态示意线和 app 图标。标题保持真实内容，tooltip/辅助功能说明不可预览。
+- 面板固定暗色 appearance，与既有黑底遮罩保持文字对比度；设置窗口遵循系统外观。面板默认圆角 20pt，用户已有偏好保留。
 
-- `PanelWindow: NSPanel`：`.nonactivatingPanel + .borderless`，覆写 `canBecomeKey`（无边框窗口默认拒绝 key 状态），`level = .floating`，`collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]`。
-- `PanelContentView`：搜索行 + `NSScrollView` + 空态标签；手动 `layout()`，document view 的宽度经 `gridView.setContentWidth(scrollView.contentSize.width)` 传下去。搜索行是无框的「放大镜 + 文本」pill（白 8%、圆角 8、无硬边），空查询显示占位「输入以过滤」（`setSearchText`，次要色），有查询显示查询（主色）。
-- `CardGridView`（document view）：手动排卡片；`HighlightView`（**设定色** 2.5pt 轮廓 + 8% 同色填充、圆角 12，贴合卡片尺寸）是它 `positioned: .below` 的普通子视图，跟着滚动走；选中的动画由 `setSelection(_:animated:)` 用 `animator()` 驱动。颜色由面板 `show()` 时推入（`CardGridView.highlightColor`），不是动态色，所以没有 `viewDidChangeEffectiveAppearance` 重解析。`rows` 赋值按身份收敛：windowID 序列一致不重建，变了复用存活 `CardView`、只增删新增 / 消失的。
-- `CardView`：单张卡片 —— 上面**窗口缩略图**（`WindowThumbnails.image(for:)` 给 `CGImage?`，进视图前在**这里**转成 `NSImage` —— `System/` 不碰 AppKit；抓不到就是 `AppIcons.icon(for:)`）、窗口标题在下（标题为空时退回 app 名）；缩略图按长宽比缩放整窗可见、不裁切；静态配置在 `init`，图 / 标题经 `update(window:)` 就地刷新（刷新复用不重造）。
-- `GridLayout`（`Core/`，纯数学）：列数（最多 4）、行数、可见排数（最多 3）、卡片 160×120、`origin(of:)`、`panelWidth` / `panelHeight`（面板尺寸）、`contentHeight`（document view 的完整高度，滚得到第 4 排以后）、`shouldAnimate(from:to:)`。
-- `PanelController` 的展示层账本：`query`（与搜索框显示一致）、`selection`（循环取模、身份跟随）、`phase`（纯状态机镜像，用于喂 lingering 的 `reduce`）。
+## 会话和关闭
 
-## 流程
+show/hide 推进 session generation；缩略图等待最长 300ms，旧等待回调不能打开新/已结束的会话。外部失焦、停用由 dismiss 同时取消 tap 会话。
 
-**显示**（Effect `showPanel`）：清空 query/selection → 用当前快照 rank → 渲染 → 定位（鼠标所在屏幕的中间）→ 推玻璃参数与高亮色（设置只在 `show()` 读一次：`applyGlassSettings` / `gridView.highlightColor`）→ `makeKeyAndOrderFront` → 通知 AppDelegate 后台重枚举。**第一帧就是完整网格**（spec §7 的缓存策略）。
+⌘D 捕获窗口和相邻窗口身份，进入 closing；后台关闭和预览动画并行，二者完成后才移除卡片。动画只作用预览快照：画面垂直收缩并提亮，独立的 2pt 发光横线水平收成点，4pt 亮点短闪和余辉消失，总长 560ms；画面、横线、亮点分别动画，避免把光晕也压成硬边矩形；Reduce Motion 为 120ms 淡出。
 
-**排版**：`reloadRows` 重建 `GridLayout`（列数/行数随结果）→ `CardGridView` 排卡片；`resizeAndPosition` 用 `gridLayout.panelWidth` / `panelHeight` 定窗口大小（空态宽度收下限，不窄于空态文字）。
+closing 期间缓存快照仍更新，但不重排可见卡片；禁止导航和再次关闭。关闭确认后通知 cache 删除目标，再选后邻居（末项选前邻居）；失败恢复预览和目标，并显示原因。Esc/设置/停用可结束会话；旧任务仍可维护 cache，但不能修改新会话的选择、动画或键盘状态。
 
-**高亮**：`moveSelection(axis:step:)` —— ↑↓ 按排循环（首排 ↑ 绕到末排同一列，末排缺列时收到最后一个格子）、Tab / ←→ 循环取模恒为一格；跨行超过一排时直接跳（不斜穿面板，spec §10），否则 `HighlightView` 平滑滑动到目标卡。
+## 接口和验证
 
-**键入**：`appendQuery` / `deleteQueryChar` 更新 `query` 与搜索框文本 → 重新 rank → 选中归零（纯状态表语义）。
+`handle(state:effects:)`、`setWindows(_:)`、`dismiss()`；`onActivate/onRefresh/onOpenSettings/onClosed/onCloseFinished/onCancelSession` 接外部边界。关闭函数可注入异步结果，测试通过真实 controller 验证确认、恢复和会话隔离。GridLayout/PanelLayout 测试验证尺寸、导航、身份复用、纵向图片圆角。
 
-**刷新**（`setWindows`，面板还开着时）：重新 rank，选中按身份修回 —— 还在就跟随它的新位置；消失了回第 0 行；没有了就空态。渲染按身份收敛：windowID 序列不变时视图纹丝不动，变了才复用重排（消除唤出面板时全量重建的闪烁，issue #35）。
-
-**lingering 键盘**：`PanelWindow.keyDown` 用 `KeyTable`（与 EventTap 共用）翻译成 `Event` → `reduce(phase, event)` → 执行 Effect；未翻译的键交给 `super`。
-
-## 接口
-
-- `PanelController.handle(state:effects:)`（EventTap 的主线程发布口）
-- `PanelController.setWindows(_:)`（cache.onChange）
-- `PanelController.onActivate: (Window) -> Void`、`onRefresh: () -> Void`、`onOpenSettings: (() -> Void)?`
-- `PanelWindow.onKey`、`onResignKey`
-
-## 正确性假设
-
-- **面板成为 key 而不激活 slime**（`.nonactivatingPanel` 的契约）。打破的症状：切换器一出现，前台 app 的菜单栏就易主、输入焦点被抢 —— 这是 spec §4 的硬约束，manual 验收里专门盯。
-- **所有键盘事件都会到达 `PanelWindow.keyDown`**。0.0.1 的搜索框是只读的，没有 field editor 抢按键；`phase` 为 `.idle` 时 reduce 是恒等放行，最多无效不会坏。
-- **document view 的宽度来自 scroll view**（`setContentWidth`，不为 0 时）—— 宽度为 0 时卡片 frame 宽度为负、什么都画不出来（0.0.1 的 issue #15，回归测试钉在 `PanelLayoutTests`）。
-- **选中永远指向合法卡片或空态**：`moveSelection` 有 guard，`rerank` 把选中收进范围 —— 空态时 Enter/release 都不做事（spec §7）。
-- **卡片的 identity 是 windowID**：刷新后跟随的是窗口不是位置。同名同位置的窗口极少，跟随窗口的行为比跟随位置正确。
+真实原生空白窗口 AX 关闭及下划线连续帧采样已通过；实际键盘动态观感、五列相较旧 240×176 的辨识度仍需真机验收；离屏渲染不能验证玻璃合成、系统焦点或动画手感。
 
 ## 已知限制
 
-- 搜索框是**只读展示**，文本只经 Effect 更新 —— 输入法（IME）在 0.0.1 的面板里不可用。spec §3 的拼音搜索本来就是非目标；ASCII 打字不受影响。
-- `focusSearchField` 在 0.0.1 是幂等的（键盘只有搜索框一个落点），实现成一次视觉脉冲给 ⌘F 一个可观察回执。点选卡片、多焦点不在本版范围。
-- 面板不支持鼠标点选（spec §3 非目标）；resignKey（用户点了别的窗口）直接藏着走。
-- 缩略图只按窗口状态（枚举完成）刷新，不随时间过期 —— 「认出这是哪个窗口」够用（spec §3 非目标）。
-- 面板尺寸由 `GridLayout` 决定：一排最多 4 张、最多 3 排可见，其余滚动；不做自适应文案宽度。
+搜索框仅展示 Effect 更新的文本，不支持 IME；不做鼠标选窗。缩略图随窗口快照更新，不承诺实时视频。五列的新尺寸仍是待真机校准提案，详见 0.0.5 spec。

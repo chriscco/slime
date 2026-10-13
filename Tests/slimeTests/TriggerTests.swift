@@ -221,15 +221,11 @@ private func expect(
     .idle, [.swallow, .cancel, .hidePanel])
 }
 
-@Test func lingeringModifierDownStartsNewGesture() {
-  // lingering 时按 ⌘/⌥ = 新手势。要关面板：不关的话状态是 armed/idle，
-  // 却没有主人驱动那个还挂着的窗口 —— 规格状态表没写这格，取舍记在 decision.md。
-  expect(
-    from: .lingering(query: "sla", selection: 2), on: .modifierDown(.cmd),
-    .armed(.cmd), [.passThrough, .hidePanel])
-  expect(
-    from: .lingering(query: "sla", selection: 2), on: .modifierDown(.opt),
-    .armed(.opt), [.passThrough, .hidePanel])
+@Test func lingeringModifierDownPreservesSession() {
+  for modifier in [Modifier.cmd, .opt] {
+    expect(from: .lingering(query: "sla", selection: 2), on: .modifierDown(modifier),
+      .lingering(query: "sla", selection: 2), [.passThrough])
+  }
 }
 
 @Test func lingeringModifierUpIsIgnored() {
@@ -272,17 +268,14 @@ private func expect(
   #expect(enterEffects == [.swallow, .activate, .hidePanel])
 }
 
-@Test func lingeringThenNewTabStartsFreshSession() {
-  // ⌥Tab 起 → 松 ⌥归留 → 按 ⌘（新手势）→ Tab → 新会话 query 归零。
-  var (state, _) = reduce(.idle, .modifierDown(.opt))
-  (state, _) = reduce(state, .tab(shift: false))
-  (state, _) = reduce(state, .char("x"))
-  (state, _) = reduce(state, .modifierUp(.opt))
-  (state, _) = reduce(state, .modifierDown(.cmd))
-
-  let (fresh, effects) = reduce(state, .tab(shift: false))
-  #expect(fresh == .holding(.cmd, query: "", selection: 0))
-  #expect(effects == [.swallow, .showPanel(.cmd)])
+@Test func lingeringThenCommandTabContinuesSession() {
+  var state = State.idle
+  for event in [Event.modifierDown(.opt), .tab(shift: false), .char("x"),
+                .modifierUp(.opt), .modifierDown(.cmd), .tab(shift: false)] {
+    state = reduce(state, event).0
+  }
+  #expect(state == .lingering(query: "x", selection: 1))
+  #expect(reduce(state, .modifierUp(.cmd)).0 == state)
 }
 
 // MARK: - ⌘,（spec §9）
@@ -301,4 +294,37 @@ private func expect(
   // 面板还没开（armed）：⌘, 是别人的快捷键，原样放行。
   expect(from: .armed(.cmd), on: .openSettings, .armed(.cmd), [.passThrough])
   expect(from: .idle, on: .openSettings, .idle, [.passThrough])
+}
+
+@Test func optionTabThenCommandKeepsPanelAndAllowsSettings() {
+  var state = State.idle
+  for event in [Event.modifierDown(.opt), .tab(shift: false), .modifierUp(.opt)] {
+    state = reduce(state, event).0
+  }
+  let (held, effects) = reduce(state, .modifierDown(.cmd))
+  #expect(held == state)
+  #expect(!effects.contains(.hidePanel))
+  let (ended, settings) = reduce(held, .openSettings)
+  #expect(ended == .idle)
+  #expect(settings.contains(.openSettings))
+}
+
+@Test func closeWindowKeepsSessionOpenEvenAfterReleasingCommand() {
+  let (closing, effects) = reduce(.holding(.cmd, query: "doc", selection: 2), .closeWindow)
+  #expect(closing == .closing(query: "doc", selection: 2))
+  #expect(effects == [.swallow, .closeWindow])
+  #expect(reduce(closing, .modifierUp(.cmd)).0 == closing)
+  #expect(reduce(.idle, .closeWindow).1 == [.passThrough])
+}
+
+@Test func closingBlocksInputButAllowsEscapeAndSettings() {
+  let state = State.closing(query: "draft", selection: 2)
+  for event in [Event.closeWindow, .char("x"), .tab(shift: false), .enter] {
+    #expect(reduce(state, event).0 == state)
+    #expect(reduce(state, event).1 == [.swallow])
+  }
+  #expect(reduce(state, .modifierUp(.cmd)).0 == state)
+  #expect(reduce(state, .closeFinished).0 == .lingering(query: "draft", selection: 2))
+  #expect(reduce(state, .escape).0 == .idle)
+  #expect(reduce(state, .openSettings).1 == [.swallow, .openSettings])
 }

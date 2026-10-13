@@ -14,13 +14,12 @@ struct Settings {
   }
 
   static let cornerRadiusRange: ClosedRange<Double> = 0...40
-  static let defaultCornerRadius: Double = 12
+  static let defaultCornerRadius: Double = 20
 
   /// 玻璃浓度（spec §7）：0 = 完全看不到面板后面的内容，1 = 完全透明。
   /// 实数上它是遮罩层的 alpha 的补数（`alpha = 1 − strength`），面板自己换算。
   static let strengthRange: ClosedRange<Double> = 0...1
   /// 默认给偏透明的值，但留出可见余量：1.0 时滑块到底、没有任何变化可看。
-  /// shortcut: 0.7 是提案值，对着真机看玻璃定 —— 人工验收清单里那一条。
   static let defaultGlassStrength: Double = 0.2
 
   /// 高亮线条的颜色（spec §8）。**固定默认值，不跟系统主题色** —— 绑系统意味着
@@ -33,6 +32,29 @@ struct Settings {
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+  }
+
+  enum Language: String, CaseIterable {
+    case english = "en", chinese = "zh-Hans"
+  }
+
+  var isEnabled: Bool {
+    get { defaults.object(forKey: "enabled") == nil || defaults.bool(forKey: "enabled") }
+    nonmutating set { defaults.set(newValue, forKey: "enabled") }
+  }
+
+  var groupByApp: Bool {
+    get { defaults.bool(forKey: "groupByApp") }
+    nonmutating set { defaults.set(newValue, forKey: "groupByApp") }
+  }
+
+  var language: Language {
+    get { defaults.string(forKey: "language").flatMap(Language.init(rawValue:)) ?? .english }
+    nonmutating set { defaults.set(newValue.rawValue, forKey: "language") }
+  }
+
+  func text(_ english: String, _ chinese: String) -> String {
+    language == .chinese ? chinese : english
   }
 
   var glassStyle: GlassStyle {
@@ -107,4 +129,9 @@ struct Settings {
     static let highlightColor = "highlight.color"
     static let glassCornerRadius = "glass.cornerRadius"
   }
+}
+
+/// Resolve at display time so changing the preference updates existing surfaces.
+func localized(_ english: String, _ chinese: String) -> String {
+  Settings().text(english, chinese)
 }

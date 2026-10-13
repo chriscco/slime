@@ -5,25 +5,16 @@ import Testing
 // 网格数学（spec §5.1）。off-by-one 全藏在这一层，而且只能靠肉眼发现 ——
 // 这是本任务存在的全部理由。
 
-@Test func emptyGridHasNoColumnsOrRows() {
-  let l = GridLayout(count: 0)
-  #expect(l.columns == 0)
-  #expect(l.rows == 0)
-  #expect(l.visibleRows == 0)
-  // 负间隙的回归：count == 0 时 (columns - 1) 是 -1，少写一个 max(0,…)
-  // 面板就会比空态文字还窄。断言用公式（尺寸是调参值，不是行为）。
-  #expect(l.panelWidth == 2 * l.padding)
-  // 没有卡片时没有网格高度：面板只剩 2×padding + headerHeight。
-  #expect(l.panelHeight == 2 * l.padding + l.headerHeight)
-  #expect(l.contentHeight == 0)
-}
-
-@Test func upToMaxColumnsCardsStayInOneRow() {
-  for n in 1...GridLayout.maxColumns {
-    let l = GridLayout(count: n)
-    #expect(l.columns == n)
-    #expect(l.rows == 1)
+@Test func zeroThroughFiveWindowsKeepThePanelSize() {
+  let full = GridLayout(count: 5)
+  #expect(full.columns == 5)
+  for count in 0...5 {
+    let layout = GridLayout(count: count)
+    #expect(layout.panelWidth == full.panelWidth)
+    #expect(layout.panelHeight == full.panelHeight)
+    #expect(layout.columns == 5)
   }
+  #expect(GridLayout(count: 0).contentHeight == 0)
 }
 
 @Test func cardAfterAFullRowWrapsToTheSecondRow() {
@@ -53,18 +44,6 @@ import Testing
       == Double(l.rows) * l.cardHeight + Double(l.rows - 1) * l.gap)
 }
 
-@Test func singleResultShrinksThePanelToOneColumn() {
-  // Review Focus 3：搜索缩到 1 张 → 不能留 3 个空槽位。
-  let one = GridLayout(count: 1)
-  let full = GridLayout(count: GridLayout.maxColumns)
-  #expect(one.columns == 1)
-  #expect(one.panelWidth == 2 * one.padding + one.cardWidth)
-  #expect(
-    full.panelWidth
-      == 2 * full.padding + Double(GridLayout.maxColumns) * full.cardWidth
-        + Double(GridLayout.maxColumns - 1) * full.gap)
-}
-
 @Test func originsRunInReadingOrderAndWrap() {
   let l = GridLayout(count: 2 * GridLayout.maxColumns)  // 3 列 × 2 排
   let last = GridLayout.maxColumns - 1
@@ -76,11 +55,11 @@ import Testing
   #expect(l.origin(of: last + 1).y == l.cardHeight + l.gap)
 }
 
-@Test func sameRowAndAdjacentRowMovesAnimate() {
+@Test func onlySameRowMovesSlide() {
   let l = GridLayout(count: 12)
   #expect(l.shouldAnimate(from: 0, to: 1))
-  #expect(l.shouldAnimate(from: GridLayout.maxColumns - 1, to: GridLayout.maxColumns))  // 换行，只跨一排
-  #expect(l.shouldAnimate(from: GridLayout.maxColumns + 1, to: 0))
+  #expect(!l.shouldAnimate(from: GridLayout.maxColumns - 1, to: GridLayout.maxColumns))  // 换行，只跨一排
+  #expect(!l.shouldAnimate(from: GridLayout.maxColumns + 1, to: 0))
 }
 
 @Test func tailToHeadWrapDoesNotAnimate() {
@@ -107,4 +86,34 @@ import Testing
   let l = GridLayout(count: 12)                // 4 列 × 3 排可见 = 最宽最高的一档
   #expect(l.panelWidth <= 1366 - 40)
   #expect(l.panelHeight <= 768 - 120)          // 菜单栏 + Dock 的余量
+}
+
+@Test func groupsHaveHeadersAndOnlyOccupiedRowsAreNavigable() {
+  let layout = GridLayout(count: 8, groupStarts: [0, 2])
+  #expect(layout.rowStarts == [0, 2, 7])
+  #expect(layout.origin(of: 0).y == 28)
+  #expect(layout.origin(of: 2).x == 0)
+  #expect(layout.origin(of: 2).y > layout.origin(of: 0).y + layout.cardHeight)
+  #expect(layout.origin(of: 7).x == 0)
+  #expect(layout.contentHeight == layout.origin(of: 7).y + layout.cardHeight)
+  #expect(layout.movedSelection(from: 1, axis: .vertical, step: 1) == 3)
+  #expect(layout.movedSelection(from: 6, axis: .vertical, step: 1) == 7)
+  #expect(layout.movedSelection(from: 7, axis: .vertical, step: 1) == 0)
+}
+
+@Test func fiveColumnsFitNarrowScreensWithoutShrinkingTextHeight() {
+  let layout = GridLayout(count: 5, availableWidth: 800)
+  #expect(layout.panelWidth <= 800)
+  #expect(layout.columns == 5)
+  #expect(layout.cardWidth < 200)
+  #expect(layout.cardHeight > layout.cardWidth / 1.6)
+}
+
+@Test func groupedHeadersGrowTheViewportBeforeTheScrollLimit() {
+  for starts in [[0], [0, 1]] {
+    let layout = GridLayout(count: starts.count, groupStarts: starts)
+    #expect(layout.gridHeight == layout.contentHeight)
+  }
+  let manyGroups = GridLayout(count: 8, groupStarts: Array(0..<8))
+  #expect(manyGroups.gridHeight == GridLayout(count: 15).gridHeight)
 }

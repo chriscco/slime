@@ -5,9 +5,8 @@ A macOS window switcher with two things the system's own switcher doesn't do:
 
 **[中文说明 →](README.zh-CN.md)**
 
-> **Status: 0.0.1.** Usable daily on the main path. 0.0.2 — card grid, Liquid Glass
-> panel, settings window — is in progress on
-> [PR #29](https://github.com/chriscco/slime/pull/29).
+> **Version: 0.0.5.** A five-column panel with rounded previews, optional app groups,
+> redesigned settings, and window closing with `⌘D`.
 
 ## Gestures
 
@@ -20,9 +19,11 @@ A macOS window switcher with two things the system's own switcher doesn't do:
 | `↑` `↓` `←` `→` | Move the selection. |
 | Type anything | Live fuzzy filter — `ghb` matches `Chrome — GitHub`. |
 | `Enter` | Switch to the selection. Works on minimized windows too. |
+| `⌘D` | Close the selected window with a CRT preview animation; the app stays running. |
+| `⌘,` | Open settings. Also works after releasing Option. |
 | `Esc` | Close without switching. |
 
-The list is sorted MRU, so the window you used most recently is first.
+The list uses app-level MRU ordering. With grouping enabled, each app starts its own section.
 
 slime has no Dock icon and does not appear in the system's own `⌘+Tab` list. It
 stays out of the way until you ask for it.
@@ -31,10 +32,25 @@ It also lists **every window of every app**, not one entry per app — so you ca
 jump straight to the window you want instead of landing on an app and then
 cycling through its windows.
 
+## Settings
+
+Open Settings from the menu bar or with `⌘,` while the panel is open.
+General contains the enable switch, app grouping, launch at login, and English / 简体中文.
+English is the default, including upgrades; existing appearance preferences are preserved.
+Appearance keeps the glass style, strength, accent color, and panel corners. Shortcuts
+lists the fixed bindings; About shows the bundle version and repository link.
+
+Turning slime off restores native `⌘Tab` without removing the menu bar item.
+Login items use macOS status and may require approval in System Settings.
+
+`⌘D` only requests closing the selected window. Ambiguous targets are refused;
+a save prompt or failure restores the preview with an explanation. It never quits
+an app or responds to a save prompt. Reduce Motion replaces the CRT effect with a fade.
+
 ## Requirements
 
-- **macOS 14+** for 0.0.1. 0.0.2 raises the floor to **macOS 26** — it renders the
-  panel with `NSGlassEffectView`, which does not exist in earlier releases.
+- **macOS 26+** (the panel uses `NSGlassEffectView`).
+- **Screen Recording permission** enables previews. Without a preview or same-window cache, slime shows an app icon inside a generic mini-window.
 - **Accessibility permission.** slime reads the window list through the
   Accessibility API and intercepts the keys you press, so macOS has to grant it.
 - **No third-party dependencies.**
@@ -71,8 +87,8 @@ that checkbox dozens of times a day.
 3. **Quit slime and open it again.** The permission only applies to newly started
    processes. This trips everyone up exactly once.
 
-If slime cannot install its event tap it shows an error and quits rather than
-sitting silently in the background. If macOS disables the tap while slime is
+If slime cannot install its event tap it shows an error and turns interception off;
+the menu bar settings remain available. After granting Accessibility, restart and enable slime in Settings. If macOS disables the tap while slime is
 running, slime stops intercepting and lets the native `⌘+Tab` take over — the
 switcher degrading is always preferable to the keyboard breaking.
 
@@ -93,17 +109,17 @@ unit-testable without a human pressing keys.
 ```
 Sources/slime/
   App/      main.swift, AppDelegate.swift, Permission.swift
-  Core/     pure logic — Window, Search, Trigger. Foundation only, no AppKit.
+  Core/     pure logic — Window, Search, Trigger, GridLayout. Foundation only, no AppKit.
   System/   EventTap, WindowEnumerator, WindowCache, WindowActivator
-  UI/       PanelWindow, PanelController
+  UI/       panel, cards, previews, settings
 Tests/slimeTests/     swift-testing
 docs/       specs / plans / modules / templates
 scripts/    build-app, test, setup-signing, hooks
 ```
 
 `Core/` deliberately cannot import AppKit, CoreGraphics, or ApplicationServices.
-It is the only layer that can be unit-tested, and letting system APIs in there
-turns the project into one you can only verify by clicking around.
+Pure state/layout tests need no OS permissions. Additional AppKit tests cover controls
+and asynchronous lifecycle; real AX, login items and visual motion still require native checks.
 
 ## Contributing
 

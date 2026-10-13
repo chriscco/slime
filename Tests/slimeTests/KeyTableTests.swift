@@ -49,3 +49,10 @@ import Testing
     KeyTable.event(keyCode: 43, shift: false, commandOrOption: false, character: ","))
   #expect(bare == .char(","))
 }
+
+@Test func closeShortcutRequiresCommandNotOption() {
+  #expect(KeyTable.event(keyCode: 2, shift: false, commandOrOption: true,
+    character: "d", command: true) == .closeWindow)
+  #expect(KeyTable.event(keyCode: 2, shift: false, commandOrOption: true,
+    character: "d", command: false) == .char("d"))
+}

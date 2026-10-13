@@ -10,6 +10,9 @@ struct KnownWindow: Sendable, Equatable, Codable {
   var title: String
   var minimized: Bool
   var axVerified: Bool? = nil
+  var closed: Bool? = nil
+  // shortcut: retain unseen siblings until AX sees them again; external closes with retained CG surfaces need per-window AX observation.
+  var survivedClose: Bool? = nil
 }
 
 /// 纯过滤的输入形状：一个候选窗口的系统信息。
@@ -26,6 +29,7 @@ struct WindowCandidate: Sendable {
   var cgTitle: String? = nil
   var axAvailable: Bool = false
   var appHasNoWindows: Bool = false
+  var appHasWindows: Bool = false
 }
 
 /// 一次枚举的产物 + 更新后的「见过」表（调用方跨次持有并传回来）。
@@ -127,7 +131,8 @@ enum WindowEnumerator {
           helper: match.map { AXWindows.isHelper(subrole: $0.subrole, title: $0.title) } ?? false,
           cgTitle: window.title,
           axAvailable: snapshots[window.pid]?.available ?? false,
-          appHasNoWindows: snapshots[window.pid]?.hasNoWindows ?? false
+          appHasNoWindows: snapshots[window.pid]?.hasNoWindows ?? false,
+          appHasWindows: snapshots[window.pid]?.entries.contains { $0.subrole == kAXStandardWindowSubrole } ?? false
         )
       },
       known: previous
@@ -140,19 +145,27 @@ enum WindowEnumerator {
   ) -> WindowEnumeration {
     var result = WindowEnumeration()
     for candidate in candidates {
-      guard !candidate.helper, !candidate.appHasNoWindows else { continue }
+      guard !candidate.helper else { continue }
 
       // known 条目要 app 名对得上才算数（windowID 只在一次开机内稳定）。
       let remembered = known[candidate.windowID].flatMap {
         $0.appName == candidate.appName ? $0 : nil
       }
+      if remembered?.closed == true, !candidate.onscreen, candidate.matched == nil {
+        result.known[candidate.windowID] = remembered
+        continue
+      }
+      // Closing one window can empty the current-Space AX list without closing its siblings.
+      guard !candidate.appHasNoWindows || remembered?.survivedClose == true else { continue }
       let titled = candidate.cgTitle.map { !$0.isEmpty } ?? false
       // Onscreen alone admits Chromium toolbar hosts. A readable AX snapshot plus
       // an explicitly empty CG title needs stronger evidence, including for old caches.
       let visible = candidate.onscreen && !(candidate.axAvailable && candidate.cgTitle == "")
       let retained = remembered != nil && (candidate.cgTitle == nil || titled
         || remembered?.axVerified == true || remembered?.minimized == true)
-      guard visible || candidate.matched != nil || retained else { continue }
+      // A partial AX list must not make lost cache entries permanently unrecoverable.
+      let discoverable = titled && candidate.appHasWindows
+      guard visible || candidate.matched != nil || retained || discoverable else { continue }
 
       var info =
         candidate.matched
@@ -161,6 +174,8 @@ enum WindowEnumerator {
       if titled, candidate.matched?.title.isEmpty != false, let title = candidate.cgTitle {
         info.title = title
       }
+      info.closed = nil
+      info.survivedClose = candidate.matched == nil ? remembered?.survivedClose : nil
       result.known[candidate.windowID] = info
       result.windows.append(
         Window(

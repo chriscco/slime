@@ -216,3 +216,40 @@ private let displays: [CGRect] = [
   ], known: [:])
   #expect(result.windows.isEmpty)
 }
+
+@Test func partialAXListCanRecoverTitledWindowsAfterTheirCacheWasPruned() {
+  let candidates = [38027, 462, 2180].map { id in
+    WindowCandidate(windowID: UInt32(id), pid: 676, appName: "Google Chrome",
+      onscreen: false, matched: nil, helper: false, cgTitle: "Page \(id)",
+      axAvailable: true, appHasWindows: true)
+  }
+  let result = WindowEnumerator.select(candidates, known: [:])
+  #expect(result.windows.map(\.windowID) == [38027, 462, 2180])
+  #expect(result.known.count == 3)
+}
+
+@Test func closingOneWindowDoesNotInvalidateItsOffSpaceSiblings() {
+  let known = Dictionary(uniqueKeysWithValues: (1...4).map { id in
+    (UInt32(id), KnownWindow(appName: "App", title: "Window \(id)", minimized: false,
+      closed: id == 4, survivedClose: id != 4))
+  })
+  let candidates = (1...4).map { id in
+    WindowCandidate(windowID: UInt32(id), pid: 1, appName: "App", onscreen: false,
+      matched: nil, helper: false, cgTitle: "Window \(id)", axAvailable: true, appHasNoWindows: true)
+  }
+  let afterClose = WindowEnumerator.select(candidates, known: known)
+  #expect(afterClose.windows.map(\.windowID) == [1, 2, 3])
+  #expect(afterClose.known[4]?.closed == true)
+  var accessibleAgain = candidates
+  for i in accessibleAgain.indices {
+    accessibleAgain[i].appHasNoWindows = false
+    accessibleAgain[i].appHasWindows = true
+  }
+  let refreshed = WindowEnumerator.select(accessibleAgain, known: afterClose.known)
+  #expect(refreshed.windows.map(\.windowID) == [1, 2, 3])
+  accessibleAgain[3] = WindowCandidate(windowID: 4, pid: 1, appName: "App", onscreen: true,
+    matched: KnownWindow(appName: "App", title: "Reopened", minimized: false), helper: false)
+  let reopened = WindowEnumerator.select(accessibleAgain, known: refreshed.known)
+  #expect(reopened.windows.map(\.windowID) == [1, 2, 3, 4])
+  #expect(reopened.known[4]?.closed == nil)
+}

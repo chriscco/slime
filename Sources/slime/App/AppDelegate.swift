@@ -62,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     panel.onCancelSession = { [weak tap] in tap?.cancelSession() }
     panel.onCloseFinished = { [weak tap] in tap?.completeClose() }
-    panel.onClosed = { [weak cache] window in cache?.noteClosed(window) }
+    panel.onClosed = { [weak cache] window, siblings in cache?.noteClosed(window, preserving: siblings) }
     panel.onRefresh = { [weak cache] in cache?.refresh() }
     panel.onOpenSettings = { [weak self] in self?.settingsWindow.show() }
     cache.onChange = { [weak cache, weak panel] windows in

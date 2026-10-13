@@ -21,6 +21,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     rebuild()
     NSApp.activate()
     window.makeKeyAndOrderFront(nil)
+    window.orderFrontRegardless()
   }
 
   func refresh() { if window != nil { rebuild() } }
@@ -31,6 +32,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
     self.window = window
     window.isReleasedWhenClosed = false
+    window.level = .floating
+    window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+    window.titlebarAppearsTransparent = true
+    window.backgroundColor = .windowBackgroundColor
     window.delegate = self
     window.contentView = content
     window.center()
@@ -40,10 +45,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     body.orientation = .vertical
     body.alignment = .leading
     body.spacing = 0
-    let backdrop = NSVisualEffectView()
-    backdrop.material = .sidebar
-    backdrop.blendingMode = .behindWindow
-    backdrop.state = .active
+    let backdrop = NSView()
+    backdrop.wantsLayer = true
+    backdrop.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
     for view in [backdrop, sidebar, body] {
       view.translatesAutoresizingMaskIntoConstraints = false
       content.addSubview(view)
@@ -80,26 +84,36 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     for (index, name) in names.enumerated() {
       let button = NSButton(title: name, target: self, action: #selector(selectSection(_:)))
       button.tag = index
-      button.bezelStyle = .accessoryBarAction
+      button.isBordered = false
+      let item = NSView()
+      item.wantsLayer = true
+      item.layer?.cornerRadius = 8
+      item.layer?.backgroundColor = (section == index
+        ? NSColor.controlAccentColor.withAlphaComponent(0.12) : .clear).cgColor
+      button.font = .systemFont(ofSize: 13, weight: section == index ? .semibold : .regular)
+      button.contentTintColor = section == index ? .controlAccentColor : .secondaryLabelColor
       button.setButtonType(.pushOnPushOff)
       button.state = section == index ? .on : .off
       button.image = NSImage(systemSymbolName: symbols[index], accessibilityDescription: nil)
       button.imagePosition = .imageLeading
       button.alignment = .left
-      sidebar.addArrangedSubview(button)
-      button.widthAnchor.constraint(equalTo: sidebar.widthAnchor).isActive = true
-      button.heightAnchor.constraint(equalToConstant: 34).isActive = true
+      button.translatesAutoresizingMaskIntoConstraints = false
+      item.addSubview(button)
+      sidebar.addArrangedSubview(item)
+      NSLayoutConstraint.activate([
+        item.widthAnchor.constraint(equalTo: sidebar.widthAnchor),
+        item.heightAnchor.constraint(equalToConstant: 36),
+        button.leadingAnchor.constraint(equalTo: item.leadingAnchor, constant: 12),
+        button.trailingAnchor.constraint(equalTo: item.trailingAnchor, constant: -12),
+        button.topAnchor.constraint(equalTo: item.topAnchor),
+        button.bottomAnchor.constraint(equalTo: item.bottomAnchor),
+      ])
     }
-    let heading = label(names[section], size: 24, weight: .semibold)
-    body.addArrangedSubview(heading)
-    body.setCustomSpacing(8, after: heading)
-    let summaries = [text("Make slime feel at home on your Mac.", "让 slime 更符合你的使用习惯。"),
-      text("Simple surfaces. Clear focus.", "简洁的界面，清晰的焦点。"),
-      text("Everything you need, at your fingertips.", "常用操作，尽在指尖。"),
-      text("A quieter way to switch windows.", "更轻巧的窗口切换方式。")]
-    let subtitle = label(summaries[section], size: 12, secondary: true)
-    body.addArrangedSubview(subtitle)
-    body.setCustomSpacing(24, after: subtitle)
+    if section != 3 {
+      let heading = label(names[section], size: 24, weight: .semibold)
+      body.addArrangedSubview(heading)
+      body.setCustomSpacing(24, after: heading)
+    }
     switch section {
     case 0: general()
     case 1: appearance()
@@ -176,11 +190,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   }
 
   private func about() {
-    let icon = NSImageView(image: NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "slime")!)
-    icon.contentTintColor = settings.highlightColor
-    icon.setFrameSize(NSSize(width: 54, height: 54))
-    body.addArrangedSubview(icon)
-    icon.heightAnchor.constraint(equalToConstant: 54).isActive = true
     let name = label("slime", size: 36, weight: .semibold)
     body.addArrangedSubview(name)
     body.setCustomSpacing(10, after: name)
@@ -190,7 +199,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     body.addArrangedSubview(versionLabel)
     body.setCustomSpacing(22, after: versionLabel)
     let github = NSButton(title: text("View on GitHub ↗", "在 GitHub 查看 ↗"), target: self, action: #selector(openGitHub))
-    github.bezelStyle = .rounded
+    github.isBordered = false
+    github.contentTintColor = .linkColor
     body.addArrangedSubview(github)
   }
 

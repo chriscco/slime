@@ -9,11 +9,10 @@ import AppKit
 /// 替换 —— 天然无锁，不共享可变状态（红线 8）。
 @MainActor
 final class WindowCache {
-  /// MRU 排序、含当前窗口的完整列表。面板读 `snapshot`（滤掉当前窗口）。
+  /// MRU 排序、含当前窗口的完整列表。面板读 `snapshot`（当前窗口排在末尾）。
   private var all: [Window] = []
 
-  /// 当前窗口的 id：列表不含它（spec §7 —— 切到自己没有意义，滤掉之后
-  /// index 0 天然是「上一个用过的窗口」）。
+  /// 当前窗口仍显示，放在末尾，让默认选中仍指向另一个窗口。
   private(set) var frontWindowID: UInt32?
 
   /// app 级 MRU，最近被激活的 app 在最前。
@@ -61,8 +60,10 @@ final class WindowCache {
   /// 快照更新后的回调 —— 面板还开着时静默刷新用。
   var onChange: (([Window]) -> Void)?
 
-  /// 面板要渲染的列表：MRU 序，不含当前窗口。
-  var snapshot: [Window] { all.filter { $0.windowID != frontWindowID } }
+  /// 面板显示全部窗口；当前窗口放在末尾，保留快速切换的默认目标。
+  var snapshot: [Window] {
+    all.filter { $0.windowID != frontWindowID } + all.filter { $0.windowID == frontWindowID }
+  }
 
   /// 这一轮枚举到的所有窗口（含当前窗口）。给缩略图缓存用 —— 它的清理边界
   /// 是「窗口关没关」，不是「面板显不显示」（见 AppDelegate 的 onChange）。
@@ -104,15 +105,28 @@ final class WindowCache {
     onChange?(snapshot)
   }
 
-  func noteClosed(_ window: Window) {
+  func noteClosed(_ window: Window, preserving siblings: [Window] = []) {
     generation += 1
     all.removeAll { $0.windowID == window.windowID }
-    known.removeValue(forKey: window.windowID)
+    for sibling in siblings where sibling.pid == window.pid && sibling.windowID != window.windowID {
+      if !all.contains(where: { $0.windowID == sibling.windowID }) { all.append(sibling) }
+    }
+    all = Self.sort(all, byMRU: mruPids)
+    var closed = known[window.windowID] ?? KnownWindow(
+      appName: window.appName, title: window.title, minimized: window.isMinimized)
+    closed.closed = true
+    known[window.windowID] = closed
+    for sibling in all where sibling.pid == window.pid {
+      var info = known[sibling.windowID] ?? KnownWindow(
+        appName: sibling.appName, title: sibling.title, minimized: sibling.isMinimized)
+      info.survivedClose = true
+      known[sibling.windowID] = info
+    }
     Self.saveKnown(known, to: defaults)
     onChange?(snapshot)
   }
 
-  private func apply(
+  func apply(
     _ windows: [Window], frontWindowID: UInt32?, known: [UInt32: KnownWindow], generation: Int
   ) {
     guard generation == self.generation else { return }

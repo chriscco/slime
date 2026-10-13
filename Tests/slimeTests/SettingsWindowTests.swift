@@ -45,3 +45,25 @@ import Testing
   #expect(settings.groupByApp)
   #expect(changes == 2)
 }
+
+@Test @MainActor func settingsStayAboveOrdinaryWindowsOnTheCurrentSpace() {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  #expect(window.level == .floating)
+  #expect(window.collectionBehavior.contains(.moveToActiveSpace))
+  #expect(window.collectionBehavior.contains(.fullScreenAuxiliary))
+}
+
+@Test @MainActor func aboutContainsOnlyNameVersionAndRepository() throws {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  let about = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.tag == 3 && $0.action != nil })
+  NSApp.sendAction(try #require(about.action), to: about.target, from: about)
+  let labels = descendants(window.contentView!).compactMap { $0 as? NSTextField }.map(\.stringValue)
+  #expect(labels.count == 2)
+  #expect(labels.contains("slime"))
+  #expect(!descendants(window.contentView!).contains { $0 is NSVisualEffectView })
+}

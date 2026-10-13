@@ -30,7 +30,6 @@ final class CardGridView: NSView {
   private let highlight = HighlightView()
   private var cards: [CardView] = []
   private var headings: [NSView] = []
-  private var departingUnderline: CALayer?
   private var contentWidth: CGFloat = 0
   override var isFlipped: Bool { true }
 
@@ -62,8 +61,6 @@ final class CardGridView: NSView {
        layer.animation(forKey: "selection") != nil,
        !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return }
     let oldFrame = layer.presentation()?.frame ?? highlight.frame
-    departingUnderline?.removeFromSuperlayer()
-    departingUnderline = nil
     layer.removeAllAnimations()
     CATransaction.begin()
     CATransaction.setDisableActions(true)
@@ -95,19 +92,29 @@ final class CardGridView: NSView {
       motion.duration = 0.3
       layer.add(motion, forKey: "selection")
     } else {
-      let old = CALayer()
-      old.frame = oldFrame
-      old.cornerRadius = 2
-      old.backgroundColor = highlightColor.cgColor
-      self.layer?.addSublayer(old)
-      departingUnderline = old
-      let out = CABasicAnimation(keyPath: "opacity")
-      out.fromValue = 1; out.toValue = 0; out.duration = 0.12
-      old.opacity = 0
-      old.add(out, forKey: "out")
-      let fade = CABasicAnimation(keyPath: "opacity")
-      fade.fromValue = 0; fade.toValue = 1; fade.duration = 0.12
-      layer.add(fade, forKey: "selection")
+      let samples = (0...40).map { step -> (width: CGFloat, position: NSValue) in
+        let t = CGFloat(step) / 40
+        let travel = t * t * (3 - 2 * t)
+        let shrink = min(t / 0.3, 1)
+        let grow = max((t - 0.7) / 0.3, 0)
+        let width = t < 0.5
+          ? oldFrame.width + (4 - oldFrame.width) * shrink * shrink * (3 - 2 * shrink)
+          : 4 + (target.width - 4) * grow * grow * (3 - 2 * grow)
+        let center = NSPoint(x: oldFrame.midX + (target.midX - oldFrame.midX) * travel,
+                             y: oldFrame.midY + (target.midY - oldFrame.midY) * travel)
+        return (width, NSValue(point: NSPoint(
+          x: center.x + (layer.anchorPoint.x - 0.5) * width,
+          y: center.y + (layer.anchorPoint.y - 0.5) * target.height)))
+      }
+      let flight = CAKeyframeAnimation(keyPath: "position")
+      flight.values = samples.map(\.position)
+      let morph = CAKeyframeAnimation(keyPath: "bounds.size.width")
+      morph.values = samples.map(\.width)
+      for animation in [flight, morph] { animation.duration = 0.4 }
+      let motion = CAAnimationGroup()
+      motion.animations = [flight, morph]
+      motion.duration = 0.4
+      layer.add(motion, forKey: "selection")
     }
   }
 

@@ -64,7 +64,7 @@ private actor CloseGate {
   let panel = controller(gate)
   var completed = false
   var observedClose = false
-  panel.onClosed = { _ in observedClose = true }
+  panel.onClosed = { _, _ in observedClose = true }
   panel.onCloseFinished = { completed = true }
   panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
   try await Task.sleep(for: .milliseconds(30))

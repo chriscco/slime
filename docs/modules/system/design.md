@@ -7,7 +7,7 @@
 | 文件 | 管什么 |
 |---|---|
 | `WindowEnumerator.swift` | 有哪些窗口：`CGWindowList` 定集合，AX 取标题/最小化（`AXWindows` 是和激活层共用的 AX 读取/匹配） |
-| `WindowCache.swift` | 快照 + 后台刷新 + app 级 MRU + 当前窗口排除 |
+| `WindowCache.swift` | 快照 + 后台刷新 + app 级 MRU + 当前窗口末尾排序 |
 | `WindowActivator.swift` | 激活窗口；唯一匹配目标后 AX close button press 并确认消失 |
 | `Settings.swift` / `AppIcons.swift` | 持久化偏好、双语文案 / 应用图标缓存 |
 | `WindowThumbnails.swift` | 窗口缩略图：按 `windowID` 缓存 / 后台抓取 / 快照边界清理（见下节） |
@@ -83,7 +83,7 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 
 - `Window`（Core）：不可变值类型；快照是不可变数组，发布时整体替换 —— 天然无锁（红线 8）。
 - `AXWindows.Entry`：一个 app 的某个 AX 窗口的元素 + frame + 标题 + 子类型（`subrole`，真窗口是 `AXStandardWindow`）+ 最小化。
-- `WindowCache.snapshot`：MRU 序、滤掉 `frontWindowID`（当前窗口）的列表。发布枚举时按当前 frontmost app 的 PID 取其第一个在屏窗口，不能取跨屏 CG 列表的首项；app 切换立即清除其他 app 的排除项。
+- `WindowCache.snapshot`：包含全部窗口；MRU 序后将 `frontWindowID`（当前窗口）移到末尾，默认仍选另一个窗口。发布枚举时按当前 frontmost app 的 PID 取其第一个在屏窗口，不能取跨屏 CG 列表的首项；app 切换立即纠正当前窗口身份。
 
 ## 流程
 
@@ -98,9 +98,9 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 | **frame 与任一显示器范围相交** | 显示器范围外的窗口不可能是用户可见的窗口 —— Chromium 经 AX 的助手条报 @x=-1920；台前调度条带 / 其他 Space 的窗口 frame 都在屏内，不会误伤（红线 7 禁的是按尺寸，这不是尺寸） |
 | **当前 AX 对应物、有效在屏证据或仍有效的 known 缓存** | AX 可读且 CG 明确返回空标题时，不能只靠 onscreen 收录 Chromium 工具栏宿主；离屏旧缓存只有 CG 标题不可读取、标题非空、已由标准 AX 验证或已知最小化时才保留。没有录屏权限时标题为 nil，沿用原有降级。 |
 | **不是助手条**（AXUnknown + 空标题） | 当轮 AX 否决优先于在屏状态和缓存。 |
-| **app 未明确报告无窗口** | AX 窗口列表完整读取为空，且 main 返回 noValue，清掉 app 的残留 CG 表面和 known 条目；超时、unsupported 或部分读取失败不能当成空列表。 |
+| **app 未明确报告无窗口** | AX 窗口列表完整读取为空，且 main 返回 noValue，清掉 app 的残留 CG 表面和 known 条目，但不能清掉刚由一次明确的单窗关闭保留下来的兄弟窗口；超时、unsupported 或部分读取失败不能当成空列表。 |
 
-按 pid 读取 AX 快照（`kAXWindows` + `kAXMainWindow`），在屏优先、同可见状态下有 CG 标题的表面优先，按 frame 近似匹配，标题相同者优先。每个 AX element 最多认领一个 CG 窗口；按元素身份补 main，不把不同但同位置的窗口合并。CG 非空标题仅补充匹配/已见窗口的信息，不单凭有标题收录未知离屏表面。
+按 pid 读取 AX 快照（`kAXWindows` + `kAXMainWindow`），在屏优先、同可见状态下有 CG 标题的表面优先，按 frame 近似匹配，标题相同者优先。每个 AX element 最多认领一个 CG 窗口；按元素身份补 main，不把不同但同位置的窗口合并。AX 至少报告一个标准窗口时，同 PID 的非空 CG 标题也允许恢复未知离屏窗口；AX 缺失或明确无窗口时，不单凭标题发现后台表面。
 
 known 表保存最近标题、最小化状态和可选 `axVerified`（标准 AX 窗口验证）。旧版本缓存缺少该字段仍可解码，但不伪造验证。被拒绝和消失的条目不写回，从而自动清掉历史误收；无需用户清缓存。已验证的无标题窗口可跨 Space 保留。缓存仍只能覆盖访问过的窗口；无录屏权限时，CG 标题无法帮助区分辅助表面，降级路径可能多收窗口。
 
@@ -152,3 +152,9 @@ known 表保存最近标题、最小化状态和可选 `axVerified`（标准 AX 
 
 AXPress 成功不等于关闭成功：最多轮询 20 次、间隔 100ms（不含 AX 耗时）。CG id 消失、目标 AX 元素失效，或 CG 已离屏且 app 明确报告无窗口，才返回 closed。查询失败返回 failed，等待保存确认返回 stillOpen，歧义/无按钮返回 unavailable。绝不 quit/terminate，不替用户回应保存对话框。
 cache.noteClosed 递增 generation 使在途旧枚举失效，清除目标与 known 并发布新快照。UI 的 session generation 单独防止旧关闭结果影响新会话。登录项 API 直接位于 SettingsWindowController，此处不增加只有一个调用方的包装层。
+
+## 单窗关闭与部分 AX 列表
+
+关闭开始时捕获未过滤的同应用窗口列表，确认后交给 `noteClosed`，即使在途刷新已清空缓存也能恢复兄弟窗口。`noteClosed` 为目标留下可选 `closed` 缓存标记，为同 PID 的其他已知窗口留下 `survivedClose`。CG 仍存在时保留标记，避免目标残留表面被标题恢复路径重新收录；目标再次在屏或匹配 AX 时允许重新打开。兄弟窗口在 AX 空列表下继续沿用缓存，匹配到 AX 后解除保护；CG 消失时随正常枚举清理。字段可选，兼容旧缓存和应用重启。
+
+限制：尚未重新获得 AX 对应物的受保护窗口，若后来从应用自身关闭且 CG 表面继续保留，可能延迟清理；精确解决需窗口级 AX 生命周期观察，不能用 app 的当前 Space 空列表冒充单窗关闭证据。

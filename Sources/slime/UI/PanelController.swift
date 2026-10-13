@@ -6,7 +6,7 @@ final class PanelController {
   var onActivate: ((Window) -> Void)?
   var onRefresh: (() -> Void)?
   var onOpenSettings: (() -> Void)?
-  var onClosed: ((Window) -> Void)?
+  var onClosed: ((Window, [Window]) -> Void)?
   var onCloseFinished: (() -> Void)?
   var onCancelSession: (() -> Void)?
   let panel = PanelWindow()
@@ -136,6 +136,7 @@ final class PanelController {
     guard !closing else { return }
     guard rows.indices.contains(selection) else { onCloseFinished?(); return }
     let target = rows[selection]
+    let siblings = windows.filter { $0.pid == target.pid }
     let neighbors = Array(rows.dropFirst(selection + 1)) + rows.prefix(selection).reversed()
     let generation = session
     let preview = panel.content.gridView.card(for: target.windowID)?.preview
@@ -147,7 +148,7 @@ final class PanelController {
       await preview?.animateClose()
       let outcome = await result
       guard let self else { return }
-      if outcome == .closed { self.onClosed?(target) }
+      if outcome == .closed { self.onClosed?(target, siblings) }
       guard self.session == generation, self.phase.isSessionOpen else { return }
       self.closing = false
       preview?.restore()

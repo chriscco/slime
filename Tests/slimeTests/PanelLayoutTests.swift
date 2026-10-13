@@ -323,9 +323,16 @@ private func label(of card: CardView) -> String? {
     #expect(widths.last == 32)
     #expect(widths[1] > 32)
     grid.setSelection(5, animated: true)
-    #expect(bar.layer?.animation(forKey: "selection") is CABasicAnimation)
+    let flight = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
+    let flightWidth = try #require(flight.animations?.compactMap { $0 as? CAKeyframeAnimation }
+      .first { $0.keyPath == "bounds.size.width" }?.values as? [CGFloat])
+    #expect(flightWidth.first == 32)
+    #expect(flightWidth.min() == 4)
+    #expect(flightWidth.last == 32)
+    grid.setSelection(0, animated: true)
+    #expect(bar.layer?.animation(forKey: "selection") is CAAnimationGroup)
   }
-  grid.setSelection(0, animated: false)
+  grid.setSelection(1, animated: false)
   #expect(bar.layer?.animation(forKey: "selection") == nil)
 }
 

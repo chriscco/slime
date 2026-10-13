@@ -17,7 +17,7 @@
 
 ## 设置
 
-720×510pt 原生 AppKit 窗口，侧栏 General/Appearance/Shortcuts/About。Settings 注入 UserDefaults 供测试；未选语言（包括升级用户）默认英文。现有颜色/玻璃/圆角偏好保留，新默认面板圆角 20pt。
+720×510pt 原生 AppKit 窗口，纯色扁平侧栏 General/Appearance/Shortcuts/About，无毛玻璃或按钮边框，选中项用淡色背景。窗口使用 floating 层级、moveToActiveSpace/fullScreenAuxiliary，并显式 orderFrontRegardless，避免非激活面板退出后设置落在其他窗口后。About 仅名称、版本与仓库链接。Settings 注入 UserDefaults 供测试；未选语言（包括升级用户）默认英文。现有颜色/玻璃/圆角偏好保留，新默认面板圆角 20pt。
 
 登录项直接使用 ServiceManagement 的 SMAppService.mainApp，不复制一份真假状态到 defaults。窗口成为 key 时重读状态；注册/注销期间禁用控件；需要批准、找不到 app、调用失败分别显示系统状态或错误。默认不注册。About 从 bundle 读取版本并链接项目仓库。
 

@@ -7,7 +7,9 @@ import Foundation
 
 /// 卡片网格的几何（spec §5.1）。纯函数，UI 层拿它算 frame。
 public struct GridLayout: Equatable, Sendable {
-  public static let maxColumns = 5
+  /// 一排最多 4 张。缩略图是横向的（窗口接近 16:10），卡片从 112×92 涨到
+  /// 160×120 后面板会变宽 —— 4 列满排 700pt，1366×768 上放得下（spec §5.4）。
+  public static let maxColumns = 4
 
   public let count: Int
   public let columns: Int
@@ -25,8 +27,8 @@ public struct GridLayout: Equatable, Sendable {
   //           被嫌弃时再做可配置（spec §14）
   public init(
     count: Int,
-    cardWidth: Double = 112,
-    cardHeight: Double = 92,
+    cardWidth: Double = 160,
+    cardHeight: Double = 120,
     gap: Double = 12,
     padding: Double = 12,
     headerHeight: Double = 46,
@@ -75,7 +77,7 @@ public struct GridLayout: Equatable, Sendable {
 
   /// 位移没跨行、或只跨一排 → 动画；跨更多排 → 直接跳。
   ///
-  /// 只判「首尾回绕」不够：5 列网格里 ↑ 在首排往上走会绕到末排，
+  /// 只判「首尾回绕」不够：4 列网格里 ↑ 在首排往上走会绕到末排，
   /// 那种斜穿同样难看。按行距判一条规则覆盖两种情况。
   ///
   /// shortcut: 按行距判（跨 >1 排就跳），没做「按像素距离 / 按方向」的更细的

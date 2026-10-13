@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -27,6 +28,27 @@ import Testing
 
   let settings = Settings(defaults: defaults)
   #expect(settings.glassStyle == .regular)
-  #expect(settings.glassTint == nil)
+  #expect(settings.glassStrength == Settings.defaultGlassStrength)
+  #expect(settings.highlightColor == Settings.defaultHighlightColor)
   #expect(settings.glassCornerRadius == 12)
+}
+
+@Test func glassStrengthIsClampedToZeroThroughOne() {
+  // 同圆角：值可能是旧版本写的、或者被人手动改过。0 = 完全看不到背后，
+  // 1 = 完全透明（spec §2 第 7 条）。
+  #expect(Settings.clampStrength(-0.5) == 0)
+  #expect(Settings.clampStrength(2) == 1)
+  #expect(Settings.clampStrength(0.5) == 0.5)
+  #expect(Settings.clampStrength(.nan) == 0)
+  #expect(Settings.clampStrength(.infinity) == 1)
+  #expect(Settings.clampStrength(-.infinity) == 0)
+}
+
+@Test func defaultHighlightColorIsTheMeasuredOrange() throws {
+  // spec §8：不绑系统主题色，用实测过的那个橙（对着近黑面板底、2.5pt 线条
+  // 验过对比度）。换颜色要重测一轮 —— 这条测试就是「别顺手改掉」的提示。
+  let srgb = try #require(Settings.defaultHighlightColor.usingColorSpace(.sRGB))
+  #expect(abs(srgb.redComponent - 0.969) < 0.01)
+  #expect(abs(srgb.greenComponent - 0.510) < 0.01)
+  #expect(abs(srgb.blueComponent - 0.106) < 0.01)
 }

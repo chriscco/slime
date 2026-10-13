@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
     start()
+    // 屏幕录制走另一条路：没它也能用，所以不拦启动、不退出。
+    // 系统弹窗只在第一次出现（拒绝后 CGRequestScreenCaptureAccess 静默返回 false），
+    // 但这条提示每次启动都会出现，直到用户在系统设置里勾上 —— 文案里写明要重启。
+    Self.beginScreenRecordingOnboarding()
   }
 
   // MARK: - 启动
@@ -45,9 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       cache?.noteActivated(window)
     }
     panel.onRefresh = { [weak cache] in cache?.refresh() }
-    // 图标预热挂在这里：onChange 在 MainActor.assumeIsolated 里触发，天然在主线程。
+    panel.onOpenSettings = { [weak self] in self?.settingsWindow.show() }
+    // 图标与缩略图的预热挂在这里：onChange 在 MainActor.assumeIsolated 里触发，
+    // 天然在主线程。`WindowThumbnails.warm` 只是把后台抓取发出去 —— 首次唤出
+    // 面板时缓存已经就绪（除了「启动后 100ms 内就按 ⌘Tab」那种情况，那时先显示
+    // 图标、抓完由 onChange 就地换成缩略图）。
     cache.onChange = { [weak panel] windows in
       AppIcons.warm(windows)
+      WindowThumbnails.warm(windows)
       panel?.setWindows(windows)
     }
 
@@ -103,6 +112,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       alert("slime 需要辅助功能权限", message)
       NSApp.terminate(nil)
     }
+  }
+
+  /// 屏幕录制（spec §6）。**不退出、不拦启动** —— 没权限时 slime 照常切换窗口，
+  /// 只是卡片显示 app 图标。跟辅助功能那条引导的唯一区别就在这。
+  private static func beginScreenRecordingOnboarding() {
+    guard !Permission.hasScreenRecording else { return }
+    let granted = Permission.requestScreenRecording()
+    alert(
+      "开启窗口缩略图",
+      granted
+        ? "屏幕录制权限已开启。请重启 slime —— 权限只对新启动的进程生效。"
+        : """
+          没给屏幕录制权限也能正常切换窗口，只是卡片会显示 app 图标，而不是窗口缩略图。
+
+          想要缩略图：在「系统设置 → 隐私与安全性 → 屏幕录制」里勾上 slime，然后重启它。
+          """)
   }
 
   /// tap 连续被系统禁掉（红线 3 的兜底已在 EventTap 生效）——

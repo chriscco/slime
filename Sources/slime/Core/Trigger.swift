@@ -37,6 +37,7 @@ public enum Event: Equatable, Sendable {
   /// step: -1 前一格 / +1 后一格。垂直方向由面板层乘以列数。
   case arrow(axis: Axis, step: Int)
   case focusSearch                             // ⌘F / ⌥F
+  case openSettings                            // ⌘, / ⌥,
   case enter, escape
 }
 
@@ -47,6 +48,7 @@ public enum Effect: Equatable, Sendable {
   case appendQuery(Character), deleteQueryChar
   case focusSearchField
   case activate, cancel
+  case openSettings
 }
 
 /// 状态转移。`Effect` 里**没有 `swallow` 就默认放行** —— 保底原则：
@@ -150,6 +152,10 @@ private func panelStep(_ event: Event, query: String, selection: Int) -> PanelSt
       effects: [.swallow, .moveSelection(axis: axis, step: step)])
   case .focusSearch:
     return .update(query: query, selection: selection, effects: [.swallow, .focusSearchField])
+  case .openSettings:
+    // 面板开着时 ⌘, = 开设置。会话结束（同回车 / Esc）—— 面板由 Effect 的
+    // 执行者藏起来，状态机不管「怎么藏」。
+    return .finish(effects: [.swallow, .openSettings])
   case .enter:
     return .finish(effects: [.swallow, .activate, .hidePanel])
   case .escape:

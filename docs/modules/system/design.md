@@ -2,16 +2,45 @@
 
 ## 职责
 
-四个文件，把 spec §7 的数据流和 §8 的红线落到代码：
+五个文件，把 spec §7 的数据流和 §8 的红线落到代码：
 
 | 文件 | 管什么 |
 |---|---|
 | `WindowEnumerator.swift` | 有哪些窗口：`CGWindowList` 定集合，AX 取标题/最小化（`AXWindows` 是和激活层共用的 AX 读取/匹配） |
 | `WindowCache.swift` | 快照 + 后台刷新 + app 级 MRU + 当前窗口排除 |
 | `WindowActivator.swift` | 取消最小化 → `kAXRaiseAction` → unhide + activate |
+| `WindowThumbnails.swift` | 窗口缩略图：按 `windowID` 缓存 / 后台抓取 / 快照边界清理（见下节） |
 | `EventTap.swift` | `CGEvent ↔ Event`、吞放、状态机宿主、被禁重开与兜底 |
 
 **不负责**：渲染与选中（UI 层）、启动流程与权限（App 层）。
+
+## 缩略图（`WindowThumbnails`，2026-10-12 新增）
+
+**职责**：按 `windowID` 缓存 `CGImage`、后台抓取、按快照边界清理。**不碰 AppKit 视图**。
+
+**接口**：`warm(_ windows: [Window])`（对齐一份快照：丢不在里面的、补抓还没有的，
+挂 `WindowCache.onChange`）、`image(for:) -> CGImage?`（转成 `NSImage` 在 UI 边界 ——
+`CardView` 做，这一层不 import AppKit）、`onChange: (() -> Void)?`、
+`looksLikeWindowRender(_:) -> Bool`。
+
+**线程**：缓存 / `pending` / `live` / `onChange` 全在主线程；抓取走 `Task.detached`
+（不是 `Task {}` —— 后者从 MainActor 上下文继承隔离，等于把 IPC 放回主线程，红线 4）；
+结果经 `MainActor.run` 回主线程发布。抓取带并发（`withTaskGroup`），20 扇窗串行
+就是 400ms。
+
+**降级链**：实时抓的图 → 上一张好图（缓存）→ app 图标。抓取不实时刷新的窗口
+（台前调度搁置）停在第二 / 第三级。
+
+**判据**（`looksLikeWindowRender`，spec §16 选的方案 (a)）：缩到 32×32 采样，
+四角必须不透明、至少两种量化颜色。对着实测到的两种坏法：斜的透视条带（四角空）、
+全白（一种颜色）。两个实现细节都来自实测：
+
+- 抓取时 `config.ignoreShadowsSingleWindow = true` —— 默认的 shadow framing 会把
+  阴影一起抓进来（窗口从抓取边界内缩），关掉抓出来的才是窗口本身。实测（320pt 宽
+  抓图）：不开时四角 alpha = 0（圆角外是空的）。
+- 四角采样**内缩 2px** —— 真窗口的圆角本身就是透明的，采最外圈会把**每一扇真窗口
+  都判否**。实测（320pt 宽抓图，32×32 采样）：(0,0) 的 alpha = 0，内缩 2px 后
+  = 255（不透明）。内缩不会放过斜条带 —— 它的四角在 x ∈ [10, 22] 之外仍是空的。
 
 ## 线程模型
 
@@ -75,6 +104,7 @@ PanelController             CGEventTap 回调                 激活的 AX 段
 - `WindowEnumerator.enumerate() -> [Window]`（需在后台线程调）
 - `WindowCache`（`@MainActor`）：`start()` / `refresh()` / `noteActivated(_:)` / `snapshot` / `onChange`
 - `WindowActivator.activate(_:)`（异步，不阻塞调用方）
+- `WindowThumbnails.warm(_:)` / `image(for:) -> CGImage?` / `onChange`（见「缩略图」一节）
 - `EventTap.init(onEffects:onDegraded:)` / `start() throws`
 
 ## 正确性假设

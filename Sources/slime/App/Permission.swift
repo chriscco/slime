@@ -1,6 +1,7 @@
 // @preconcurrency：kAXTrustedCheckOptionPrompt 是导入的全局 var（UnsafePointer），
 // 严格并发下会被判成共享可变状态 —— 它是文档化的只读常量键，这里显式降级。
 @preconcurrency import ApplicationServices
+import CoreGraphics
 import Foundation
 
 /// 辅助功能权限的检查与引导（spec §9）。
@@ -40,4 +41,13 @@ enum Permission {
       completion(false)
     }
   }
+
+  /// 屏幕录制是第二项 TCC（spec §6）：和辅助功能**同性质** —— 绑代码签名
+  /// （CLAUDE.md 第五条）、授权后要重启 slime 才生效。**没它 slime 照常可用**，
+  /// 只是卡片退回 app 图标。这条降级是硬要求，不是「最好能」。
+  static var hasScreenRecording: Bool { CGPreflightScreenCaptureAccess() }
+
+  /// 触发系统弹窗并返回结果。授权对运行中的进程通常还不生效 —— 只能靠文案说清。
+  @discardableResult
+  static func requestScreenRecording() -> Bool { CGRequestScreenCaptureAccess() }
 }

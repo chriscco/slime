@@ -111,12 +111,28 @@ final class WindowCache {
     onChange?(snapshot)
   }
 
-  /// MRU 排序：app 按 MRU 名次；app 内、以及不在 MRU 里的 app，保持
-  /// CGWindowList 的 front-to-back 顺序。同分靠显式下标保稳定。
-  /// nonisolated：纯函数，要在后台线程排完再回主线程。
-  private nonisolated static func sort(_ windows: [Window], byMRU mru: [pid_t]) -> [Window] {
+  /// MRU 排序：app 按 MRU 名次，没进过 MRU 的 app 按它在窗口列表里第一次出现的
+  /// 位置排在后面；app 内保持 CGWindowList 的 front-to-back 顺序。
+  ///
+  /// `nonisolated static`（不是 private）是为了 `WindowCacheSortTests` 能直接测。
+  /// 4 行的改动不值得为它搬进 `Core/`（CLAUDE.md 第六条「加文件之前先问能不能并进
+  /// 已有的那个」）—— 这是对「只有 Core 能单测」的一处有意偏离，见
+  /// docs/modules/system/decision.md。
+  ///
+  /// shortcut: 排序聚拢只保证同一 app 的窗口相邻，不做视觉分组（app 之间加标题 /
+  ///           间隔）—— 相邻了还是分不清哪几扇窗属于同一个 app 时再做
+  nonisolated static func sort(_ windows: [Window], byMRU mru: [pid_t]) -> [Window] {
     var rank: [pid_t: Int] = [:]
     for (index, pid) in mru.enumerated() { rank[pid] = index }
+    // 没名次的 app 也得拿到**不重复**的名次：全给 Int.max 就名次并列，并列退回
+    // 窗口列表的 z 序 → 同一个 app 的窗口在列表里交错（冷启动必然如此，
+    // mruPids 是空的）。按首现位置依次编号。
+    var next = mru.count
+    for window in windows where rank[window.pid] == nil {
+      rank[window.pid] = next
+      next += 1
+    }
+    // `sorted` 不保证稳定：名次相同的窗口（同一个 app 内）靠原下标定序。
     return windows.enumerated()
       .sorted { a, b in
         let ra = rank[a.element.pid] ?? Int.max

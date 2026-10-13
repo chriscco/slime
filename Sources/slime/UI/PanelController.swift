@@ -14,6 +14,8 @@ final class PanelController {
   var onActivate: ((Window) -> Void)?
   /// showPanel 时回调 —— AppDelegate 触发后台重枚举（spec §7 数据流）。
   var onRefresh: (() -> Void)?
+  /// 面板里按 ⌘, 开设置 —— AppDelegate 负责把设置窗口叫到前面。
+  var onOpenSettings: (() -> Void)?
 
   private let panel = PanelWindow()
   /// 玻璃参数的来源。只在 show() 里读一次（spec §8）。
@@ -40,6 +42,9 @@ final class PanelController {
   init() {
     panel.onKey = { [weak self] event in self?.key(event) }
     panel.onResignKey = { [weak self] in self?.panelResignedKey() }
+    // 缩略图抓完 → 就地把卡片刷新一遍（spec §5.3）。面板没开着就什么都不用做：
+    // 下次 show() 的 rerank 自然读到新缓存。
+    WindowThumbnails.onChange = { [weak self] in self?.refreshThumbnails() }
   }
 
   // MARK: - 外部入口
@@ -89,6 +94,11 @@ final class PanelController {
         activateSelection()
       case .cancel:
         break  // 不切窗口；hidePanel 已负责藏起来，列表下次打开自然重建
+      case .openSettings:
+        // 显式藏一次：设置窗口 makeKeyAndOrderFront 后面板会 resignKey 自动
+        // 藏起来（0.0.2 §8 的既有行为），但那是副作用不是承诺。
+        hide()
+        onOpenSettings?()
       }
     }
   }
@@ -107,6 +117,7 @@ final class PanelController {
     // 只在显示时读一次，不做观察者：设置窗口一旦成为 key，面板就 resignKey
     // 藏起来了，「面板开着时改设置」这个场景不存在（spec §8）。
     panel.applyGlassSettings(settings)
+    panel.content.gridView.highlightColor = settings.highlightColor
     panel.makeKeyAndOrderFront(nil)
     // 同时后台重枚举，回来静默更新。
     onRefresh?()
@@ -127,6 +138,13 @@ final class PanelController {
 
   /// 面板当前布局。rerank 之后重建，`resizeAndPosition` 和 moveSelection 都读它。
   private var gridLayout = GridLayout(count: 0)
+
+  /// 缩略图到货：重赋 `rows` —— windowID 序列没变，`CardGridView` 走「就地更新
+  /// 内容」那条路径（不重建、不动选中、不闪），卡片自己会去读新图。
+  private func refreshThumbnails() {
+    guard panel.isVisible else { return }
+    panel.content.gridView.rows = rows
+  }
 
   /// 按轴算新的选中。纯计算 —— internal 而不是 private：PanelLayoutTests 直接
   /// 验算，免去驱动真面板发按键。

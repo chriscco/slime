@@ -64,34 +64,34 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(content.gridView.frame.width == content.scrollView.contentSize.width)
 }
 
-@Test @MainActor func sixthCardWrapsToTheSecondRowAtTheLeftEdge() {
+@Test @MainActor func fifthCardWrapsToTheSecondRowAtTheLeftEdge() {
   let content = PanelContentView()
   content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
-  content.gridView.rows = (1...6).map { window("Chrome", "W\($0)", id: UInt32($0)) }
+  content.gridView.rows = (1...5).map { window("Chrome", "W\($0)", id: UInt32($0)) }
   content.layoutSubtreeIfNeeded()
 
   #expect(content.gridView.layout.rows == 2)
   let cards = content.gridView.subviews.compactMap { $0 as? CardView }
-  #expect(cards.count == 6)
-  // 第 6 张换行：第 5 张还在第一排，第 6 张 y 变大（flipped 文档视图 y 向下）、
+  #expect(cards.count == 5)
+  // 第 5 张换行：第 4 张还在第一排，第 5 张 y 变大（flipped 文档视图 y 向下）、
   // x 回到排首。
-  #expect(cards[4].frame.minY == cards[0].frame.minY)
-  #expect(cards[5].frame.minY > cards[4].frame.minY)
-  #expect(cards[5].frame.minX == cards[0].frame.minX)
+  #expect(cards[3].frame.minY == cards[0].frame.minY)
+  #expect(cards[4].frame.minY > cards[3].frame.minY)
+  #expect(cards[4].frame.minX == cards[0].frame.minX)
 }
 
 // 键盘移动的集成：GridLayout + 轴语义。真按键的移动全走这个纯函数
 // （PanelController.moveSelection 里只有它 + 高亮刷新）。
 @Test @MainActor func upFromTheFirstRowWrapsToTheLastRow() {
-  // 6 个窗口 = 两排：首排 ↑ 应与「同一列的上一排」循环等价 → 末排（count − 1），
-  // 而不是 0 − 5 的普通索引取模（那样恒在首排漂移）。
-  let six = GridLayout(count: 6)
-  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: six) == 5)
-  #expect(PanelController.movedSelection(from: 5, axis: .vertical, step: 1, layout: six) == 0)
+  // 5 个窗口 = 两排（4 列）：首排 ↑ 应与「同一列的上一排」循环等价 → 第 4 格，
+  // 而不是 0 − 4 的普通索引取模（那样恒在首排漂移）。
+  let five = GridLayout(count: 5)
+  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: five) == 4)
+  #expect(PanelController.movedSelection(from: 4, axis: .vertical, step: 1, layout: five) == 0)
 
-  // 11 个窗口 = 三排：↑ 到末排第一格；⇧Tab 只退一格。
+  // 11 个窗口 = 三排：↑ 到末排第一格（第 2 排 × 4 列）；→ 只退一格。
   let eleven = GridLayout(count: 11)
-  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: eleven) == 10)
+  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: eleven) == 8)
   #expect(PanelController.movedSelection(from: 3, axis: .horizontal, step: 1, layout: eleven) == 4)
 
   // 任何 (count, selection, 轴, 方向) 组合都落在 0..<count —— 不允许负索引
@@ -198,4 +198,46 @@ private func label(of card: CardView) -> String? {
   // 面板控制器负责 emptyLabel 的显隐；这里只钉住默认状态是「隐藏」——
   // 列表面板出现的路径上，空态由 reloadRows 显式打开。
   #expect(content.emptyLabel.isHidden)
+}
+
+// spec §8：线条加粗到 2.5。2.5 是提案值，但「不能悄悄回到 2」值得钉住。
+@Test @MainActor func highlightOutlineIsThickerThanTheOldTwoPoints() throws {
+  let grid = CardGridView()
+  let highlight = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  #expect(highlight.layer?.borderWidth == 2.5)
+}
+
+@Test @MainActor func highlightColorIsPushedInFromTheOutside() throws {
+  // 高亮拿不到 Settings —— 面板 show() 时推一次（不做观察者，同 0.0.2 §8）。
+  let grid = CardGridView()
+  let highlight = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  grid.highlightColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+  #expect(highlight.layer?.borderColor == NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor)
+}
+
+// spec §6 / §12：没有缩略图（没权限、抓失败、台前调度搁置）时卡片必须退回
+// app 图标，不能是空白。卡片尺寸也不变 —— 混排时不该有两种卡形。
+@Test @MainActor func cardFallsBackToTheAppIconWhenThereIsNoThumbnail() throws {
+  let chrome = window("Chrome", "GitHub", id: 909)
+  let card = CardView(window: chrome)
+  card.frame = NSRect(x: 0, y: 0, width: 160, height: 120)
+  card.layoutSubtreeIfNeeded()
+
+  let thumb = try #require(card.subviews.compactMap { $0 as? NSImageView }.first)
+  // 测试进程里没有抓过任何图 → 缩略图缓存必然是空的。
+  #expect(WindowThumbnails.image(for: chrome) == nil)
+  #expect(thumb.image === AppIcons.icon(for: chrome))
+}
+
+// 缩略图区在上、标题在下，两者不重叠（spec §5.4：图区 + 间隙 + 标题）。
+@Test @MainActor func cardLaysTheThumbnailAboveTheTitle() throws {
+  let card = CardView(window: window("Chrome", "GitHub", id: 910))
+  card.frame = NSRect(x: 0, y: 0, width: 160, height: 120)
+  card.layoutSubtreeIfNeeded()
+
+  let thumb = try #require(card.subviews.compactMap { $0 as? NSImageView }.first)
+  let label = try #require(card.subviews.compactMap { $0 as? NSTextField }.first)
+  #expect(thumb.frame.height == 100)                       // 120 − 16 标题 − 4 间隙
+  #expect(thumb.frame.maxY <= label.frame.minY)            // flipped：y 向下
+  #expect(label.frame.maxY <= card.bounds.maxY)
 }

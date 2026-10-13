@@ -145,7 +145,8 @@ chore(scripts): probe the toolchain in scripts/test
 
 **这个项目已经做出的、值得进 `decision.md` 的取舍**（写对应模块时补上）：
 选 Swift 而非 Rust；触发状态机做成纯函数；0.0.1 不做缩略图；用缓存快照而非
-AXObserver 增量更新。理由见 spec §4 / §6 / §7。
+AXObserver 增量更新；用公开 ScreenCaptureKit 而不是私有 SkyLight 抓缩略图；
+过期结果用窗口身份而不是 generation 计数。理由见 spec §4 / §6 / §7。
 
 ---
 
@@ -192,6 +193,9 @@ AXObserver 增量更新。理由见 spec §4 / §6 / §7。
   用自签证书签，让 designated requirement 稳定下来。**这不是可选项** ——
   它直接决定迭代速度。
 - **授权后要重启 app 才生效。** 改了权限行为没变，先想到这条，别去查代码。
+- **屏幕录制是第二项 TCC**（0.0.3 起）。和辅助功能一样绑代码签名、
+  授权后要重启 app 才生效。**没它 slime 必须照常可用** —— 卡片退回 app 图标，
+  不拦启动、不退出（这条是硬要求，见 spec §6）。
 - 本机开了代理（Clash Verge），代理地址 `http://127.0.0.1:7897`。终端里
   `git push` / `gh` / `curl` 连不上 GitHub 时，**先 export 再试**：
 
@@ -216,7 +220,7 @@ Sources/slime/
   App/        main.swift, AppDelegate.swift, Permission.swift
   Core/       Window.swift, Search.swift, Trigger.swift, GridLayout.swift
   System/     EventTap.swift, WindowEnumerator.swift, WindowCache.swift, WindowActivator.swift,
-              AppIcons.swift, Settings.swift
+              AppIcons.swift, Settings.swift, WindowThumbnails.swift
   UI/         PanelWindow.swift, PanelController.swift, CardGridView.swift, SettingsWindow.swift
 Tests/slimeTests/
 docs/         specs / modules / templates
@@ -228,9 +232,9 @@ scripts/      build-app, test, hooks/
 ```
 App/      →  UI, System, Core
 UI/       →  System, Core
-System/   →  Core, AppKit, CoreGraphics, ApplicationServices
+System/   →  Core, AppKit, CoreGraphics, ApplicationServices, ScreenCaptureKit
 Core/     →  Foundation, 标准库
-             ✗ 禁止 AppKit、CoreGraphics、ApplicationServices
+             ✗ 禁止 AppKit、CoreGraphics、ApplicationServices、ScreenCaptureKit
 ```
 
 **纯逻辑层 = `Core/`。** 它是这个项目里唯一能被单测的部分，禁令不是洁癖：
@@ -253,4 +257,4 @@ func reduce(_ state: State, _ event: Event) -> (State, [Effect])
 | `Sources/slime/System/` 下新增文件 | 真的出现了新的系统边界时 |
 | 分层守卫测试 | `Core/` 到第 4 个文件时补 —— **已补**：`Tests/slimeTests/LayeringTests.swift` 拦 Core/ 里 import AppKit / CoreGraphics / ApplicationServices |
 
-**源文件保持精简（0.0.2 时 17 个）。** 加文件之前先问：能不能并进已有的那个？
+**源文件保持精简（0.0.3 时 18 个）。** 加文件之前先问：能不能并进已有的那个？

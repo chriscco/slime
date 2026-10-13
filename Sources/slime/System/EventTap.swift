@@ -244,6 +244,8 @@ enum KeyTable {
       return .arrow(axis: .horizontal, step: 1)  // →
     case 3 where commandOrOption:
       return .focusSearch  // ⌘F / ⌥F（spec §2 第 6 条：两种模式都要）
+    case 43 where commandOrOption:
+      return .openSettings  // ⌘, / ⌥,（spec §9）。裸 `,` 掉进 default → .char(",")
     default:
       guard let character, !character.isControlLike else { return nil }
       return .char(character)

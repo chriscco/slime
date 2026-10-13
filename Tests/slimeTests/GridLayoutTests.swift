@@ -11,80 +11,86 @@ import Testing
   #expect(l.rows == 0)
   #expect(l.visibleRows == 0)
   // 负间隙的回归：count == 0 时 (columns - 1) 是 -1，少写一个 max(0,…)
-  // 面板就会比空态文字还窄（12 而不是 24）。
-  #expect(l.panelWidth == 24)
-  // 没有卡片时没有网格高度：面板只剩 padding 2×12 + headerHeight 46。
-  #expect(l.panelHeight == 70)
+  // 面板就会比空态文字还窄。断言用公式（尺寸是调参值，不是行为）。
+  #expect(l.panelWidth == 2 * l.padding)
+  // 没有卡片时没有网格高度：面板只剩 2×padding + headerHeight。
+  #expect(l.panelHeight == 2 * l.padding + l.headerHeight)
   #expect(l.contentHeight == 0)
 }
 
-@Test func upToFourCardsStayInOneRow() {
-  for n in 1...4 {
+@Test func upToMaxColumnsCardsStayInOneRow() {
+  for n in 1...GridLayout.maxColumns {
     let l = GridLayout(count: n)
     #expect(l.columns == n)
     #expect(l.rows == 1)
   }
 }
 
-@Test func fifthCardWrapsToTheSecondRow() {
-  let l = GridLayout(count: 5)
-  #expect(l.columns == 4)
+@Test func cardAfterAFullRowWrapsToTheSecondRow() {
+  let l = GridLayout(count: GridLayout.maxColumns + 1)
+  #expect(l.columns == GridLayout.maxColumns)
   #expect(l.rows == 2)
 }
 
 @Test func moreThanThreeRowsScrollsInsteadOfGrowing() {
-  // Review Focus 1：一个 app 开 20 个窗口 → 5 排，但只显示 3 排。
+  // Review Focus 1：一个 app 开 20 个窗口 → 多排，但只显示 3 排。
   let l = GridLayout(count: 20)
-  #expect(l.columns == 4)
-  #expect(l.rows == 5)
+  #expect(l.columns == GridLayout.maxColumns)
+  #expect(l.rows == (20 + GridLayout.maxColumns - 1) / GridLayout.maxColumns)
   #expect(l.visibleRows == 3)
   // 面板高度只看 visibleRows，不随 count 涨。
-  #expect(l.panelHeight == GridLayout(count: 11).panelHeight)
+  #expect(l.panelHeight == GridLayout(count: 3 * GridLayout.maxColumns).panelHeight)
 }
 
 @Test func documentViewIsTallerThanThePanelWhenRowsScroll() {
   // 面板高度只看 visibleRows，但文档视图要能滚到第 4 排以后 ——
   // 完整高度含全部 rows，否则第 4 排永远滚不到（spec §12）。
   let l = GridLayout(count: 20)
-  #expect(l.rows == 5)
+  #expect(l.rows == (20 + GridLayout.maxColumns - 1) / GridLayout.maxColumns)
   #expect(l.contentHeight > l.panelHeight)
-  #expect(l.contentHeight == 5 * 120 + 4 * 12)
+  #expect(
+    l.contentHeight
+      == Double(l.rows) * l.cardHeight + Double(l.rows - 1) * l.gap)
 }
 
 @Test func singleResultShrinksThePanelToOneColumn() {
   // Review Focus 3：搜索缩到 1 张 → 不能留 3 个空槽位。
   let one = GridLayout(count: 1)
-  let full = GridLayout(count: 4)
+  let full = GridLayout(count: GridLayout.maxColumns)
   #expect(one.columns == 1)
-  #expect(one.panelWidth == 24 + 160)          // 2*padding + 1*cardWidth
-  #expect(full.panelWidth == 24 + 4 * 160 + 3 * 12)
+  #expect(one.panelWidth == 2 * one.padding + one.cardWidth)
+  #expect(
+    full.panelWidth
+      == 2 * full.padding + Double(GridLayout.maxColumns) * full.cardWidth
+        + Double(GridLayout.maxColumns - 1) * full.gap)
 }
 
 @Test func originsRunInReadingOrderAndWrap() {
-  let l = GridLayout(count: 12)                // 4 列 × 3 排
+  let l = GridLayout(count: 2 * GridLayout.maxColumns)  // 3 列 × 2 排
+  let last = GridLayout.maxColumns - 1
   #expect(l.origin(of: 0).x == 0)
   #expect(l.origin(of: 0).y == 0)
-  #expect(l.origin(of: 3).x == 3 * 172)        // cardWidth 160 + gap 12
-  #expect(l.origin(of: 3).y == 0)
-  #expect(l.origin(of: 4).x == 0)              // 换行回左
-  #expect(l.origin(of: 4).y == 132)            // cardHeight 120 + gap 12
+  #expect(l.origin(of: last).x == Double(last) * (l.cardWidth + l.gap))
+  #expect(l.origin(of: last).y == 0)
+  #expect(l.origin(of: last + 1).x == 0)       // 换行回左
+  #expect(l.origin(of: last + 1).y == l.cardHeight + l.gap)
 }
 
 @Test func sameRowAndAdjacentRowMovesAnimate() {
   let l = GridLayout(count: 12)
   #expect(l.shouldAnimate(from: 0, to: 1))
-  #expect(l.shouldAnimate(from: 3, to: 4))     // 换行，只跨一排
-  #expect(l.shouldAnimate(from: 5, to: 0))
+  #expect(l.shouldAnimate(from: GridLayout.maxColumns - 1, to: GridLayout.maxColumns))  // 换行，只跨一排
+  #expect(l.shouldAnimate(from: GridLayout.maxColumns + 1, to: 0))
 }
 
 @Test func tailToHeadWrapDoesNotAnimate() {
   let l = GridLayout(count: 20)
-  #expect(!l.shouldAnimate(from: 19, to: 0))   // 第 4 排 → 第 0 排
+  #expect(!l.shouldAnimate(from: 19, to: 0))   // 末排 → 第 0 排
 }
 
 @Test func verticalWrapFromTheFirstRowDoesNotAnimate() {
-  // spec §6 点名的那个漏洞：↑ 在首排往上走绕到末排。20 张 = 5 排，
-  // 2 在第 0 排、17 在第 4 排 —— 跨 4 排，高亮不能斜穿面板。
+  // spec §6 点名的那个漏洞：↑ 在首排往上走绕到末排。20 张为多排，
+  // 2 在第 0 排、17 在末排 —— 跨多排，高亮不能斜穿面板。
   let l = GridLayout(count: 20)
   #expect(!l.shouldAnimate(from: 2, to: 17))
 }

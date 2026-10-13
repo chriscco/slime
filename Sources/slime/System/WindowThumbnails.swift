@@ -110,6 +110,10 @@ enum WindowThumbnails {
     config.width = Int(targetPixelWidth)
     config.height = max(1, Int(targetPixelWidth * frame.height / frame.width))
     config.showsCursor = false
+    // 默认会把窗口的 shadow framing 一起抓进来（窗口因此从抓取边界内缩），
+    // 关掉它，抓出来的图才是窗口本身 —— 圆角采样与长宽比都靠这条。
+    // 实测（320pt 宽抓取）：默认抓图四角 alpha = 0（圆角外是空的）。
+    config.ignoreShadowsSingleWindow = true
 
     // shortcut: 抓图走 SCK 公开 API，没用私有 SkyLight 的 CGSHWCaptureWindowList
     //           （它快 ~10ms 且能多抓一类 Chrome 窗口）—— 慢到感觉得出来时再说
@@ -147,8 +151,15 @@ enum WindowThumbnails {
       context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
       let bytes = buffer.bindMemory(to: UInt8.self)
 
-      for (x, y) in [(0, 0), (side - 1, 0), (0, side - 1), (side - 1, side - 1)]
-      where bytes[(y * side + x) * 4 + 3] < 250 {
+      // 四角采样**内缩 2px**：真窗口的圆角本身就是透明的，采到最外圈的像素
+      // 会把每一扇真窗口都判否。实测（320pt 宽抓图，32×32 采样）：
+      //   (0,0) 的 alpha = 0（圆角外）→ 内缩 2px 后 = 255（不透明）。
+      // 内缩不会放过「斜条带」——它的四角在 x ∈ [10, 22] 之外仍是空的。
+      let corner = 2
+      for (x, y) in [
+        (corner, corner), (side - 1 - corner, corner),
+        (corner, side - 1 - corner), (side - 1 - corner, side - 1 - corner),
+      ] where bytes[(y * side + x) * 4 + 3] < 250 {
         return false
       }
 

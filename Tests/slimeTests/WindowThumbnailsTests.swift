@@ -50,6 +50,22 @@ private func opaque(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CGColor {
       }))
 }
 
+@Test func aWindowWithTransparentRoundedCornersPasses() {
+  // 真窗口的**圆角本身就是透明的**：默认四角采样会把每一扇真窗口都判否
+  // （实测 320pt 宽抓图，(0,0) 的 alpha = 0，内缩 2px 后 = 255）。
+  // 所以四角采样内缩 2px —— 这条是那个修复的回归钉。
+  #expect(
+    WindowThumbnails.looksLikeWindowRender(
+      image { context in
+        context.setFillColor(opaque(0.15, 0.15, 0.17))
+        context.addPath(
+          CGPath(roundedRect: CGRect(x: 0, y: 0, width: 64, height: 64), cornerWidth: 8, cornerHeight: 8, transform: nil))
+        context.fillPath()
+        context.setFillColor(opaque(0.95, 0.95, 0.95))
+        context.fill(CGRect(x: 0, y: 48, width: 64, height: 16))
+      }))
+}
+
 @Test func anOrdinaryWindowRenderPasses() {
   // 真窗口：不透明 + 好多种颜色。深底 + 亮标题栏 + 一块内容。
   #expect(

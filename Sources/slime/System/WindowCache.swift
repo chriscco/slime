@@ -23,6 +23,9 @@ final class WindowCache {
   /// 结果回来对不上就扔。用户可能已经 Esc 关掉又重开了，旧结果不能覆盖新状态。
   private var generation = 0
 
+  private var refreshRequest: AXRequest?
+  private var refreshPending = false
+  private let enumerate: @Sendable ([UInt32: KnownWindow], AXRequest) -> WindowEnumeration
   private var observing = false
   private let queue = DispatchQueue(label: "slime.enumerate", qos: .userInitiated)
 
@@ -39,7 +42,11 @@ final class WindowCache {
   /// known 表的落盘键。不用 `Settings`：那是用户设置的封装，这是缓存。
   private static let knownKey = "cache.knownWindows"
 
-  init(defaults: UserDefaults = .standard) {
+  init(defaults: UserDefaults = .standard,
+       enumerate: @escaping @Sendable ([UInt32: KnownWindow], AXRequest) -> WindowEnumeration = {
+         WindowEnumerator.enumerate(known: $0, request: $1)
+       }) {
+    self.enumerate = enumerate
     self.defaults = defaults
     self.known = Self.loadKnown(from: defaults)
   }
@@ -77,18 +84,32 @@ final class WindowCache {
   /// 后台重新枚举。结果回来对 generation，对不上就丢（红线 5）。
   func refresh() {
     generation += 1
+    if let refreshRequest {
+      refreshRequest.cancel()
+      refreshPending = true
+      return
+    }
+    let request = AXRequest()
+    refreshRequest = request
+    let enumerate = enumerate
     let gen = generation
     let mru = mruPids
     let previous = known
     queue.async { [weak self] in
-      let result = WindowEnumerator.enumerate(known: previous)
+      let result = enumerate(previous, request)
       let sorted = Self.sort(result.windows, byMRU: mru)
       let updatedKnown = result.known
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
           let front = Self.frontWindowID(in: result.windows,
             frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
-          self?.apply(sorted, frontWindowID: front, known: updatedKnown, generation: gen)
+          guard let self else { return }
+          self.refreshRequest = nil
+          if request.isActive { self.apply(sorted, frontWindowID: front, known: updatedKnown, generation: gen) }
+          if self.refreshPending {
+            self.refreshPending = false
+            self.refresh()
+          }
         }
       }
     }
@@ -98,6 +119,7 @@ final class WindowCache {
   /// 刚离开的窗口不再被当成当前窗口，立刻回到列表（不等后台枚举）。
   func noteActivated(_ window: Window) {
     generation += 1  // 在途的枚举结果按旧 MRU 排的序，作废
+    refreshRequest?.cancel()
     mruPids.removeAll { $0 == window.pid }
     mruPids.insert(window.pid, at: 0)
     frontWindowID = window.windowID
@@ -107,6 +129,7 @@ final class WindowCache {
 
   func noteClosed(_ window: Window, preserving siblings: [Window] = []) {
     generation += 1
+    refreshRequest?.cancel()
     all.removeAll { $0.windowID == window.windowID }
     for sibling in siblings where sibling.pid == window.pid && sibling.windowID != window.windowID {
       if !all.contains(where: { $0.windowID == sibling.windowID }) { all.append(sibling) }

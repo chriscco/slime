@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import slime
@@ -150,4 +151,47 @@ private func window(_ id: UInt32, onscreen: Bool = true) -> Window {
     cached: [2], busy: [1, 2, 3], unrenderable: [])
   #expect(plan.needed.isEmpty)
   #expect(plan.refresh.isEmpty)
+}
+
+@Test @MainActor func diskThumbnailReadsRunOffTheMainThread() async {
+  let loaded = await WindowThumbnails.loadDiskImages([991], loader: { id in
+    #expect(!Thread.isMainThread)
+    #expect(id == 991)
+    return image { context in
+      context.setFillColor(opaque(0.2, 0.4, 0.6))
+      context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+    }
+  })
+  #expect(loaded[991]?.width == 64)
+}
+
+private actor DiskImageGate {
+  private var continuation: CheckedContinuation<[UInt32: CGImage], Never>?
+  private var started: CheckedContinuation<Void, Never>?
+  func load() async -> [UInt32: CGImage] {
+    await withCheckedContinuation { continuation = $0; started?.resume(); started = nil }
+  }
+  func waitUntilStarted() async {
+    if continuation != nil { return }
+    await withCheckedContinuation { started = $0 }
+  }
+  func finish(_ result: [UInt32: CGImage]) { continuation?.resume(returning: result); continuation = nil }
+}
+
+@Test @MainActor func lateDiskImagesCannotResurrectRemovedWindows() async throws {
+  let gate = DiskImageGate()
+  let target = window(999_991, onscreen: false)
+  var finished = false
+  WindowThumbnails.warm([target], diskLoader: { _ in await gate.load() },
+    captureImages: { _ in [:] }, pruneImages: { _ in })
+  await gate.waitUntilStarted()
+  WindowThumbnails.whenSettled { finished = true }
+  WindowThumbnails.warm([], diskLoader: { _ in [:] },
+    captureImages: { _ in [:] }, pruneImages: { _ in })
+  let thumbnail = image { $0.setFillColor(opaque(0.2, 0.4, 0.6)); $0.fill(CGRect(x: 0, y: 0, width: 64, height: 64)) }
+  await gate.finish([target.windowID: thumbnail])
+  for _ in 0..<100 where !finished { try await Task.sleep(for: .milliseconds(10)) }
+  #expect(WindowThumbnails.image(for: target) == nil)
+  #expect(finished)
+  #expect(!WindowThumbnails.hasPendingWork)
 }

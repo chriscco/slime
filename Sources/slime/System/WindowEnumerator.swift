@@ -43,7 +43,7 @@ struct WindowEnumeration: Sendable {
 /// 不能单独证明窗口关闭；只有列表为空且 main 明确无值时才清掉该 app。
 enum WindowEnumerator {
   /// 枚举一次。`known` 是上一次的「见过」表（跨次持有，见上）。
-  static func enumerate(known previous: [UInt32: KnownWindow]) -> WindowEnumeration {
+  static func enumerate(known previous: [UInt32: KnownWindow], request: AXRequest = AXRequest()) -> WindowEnumeration {
     let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
     guard let rawList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
     else { return WindowEnumeration() }
@@ -92,7 +92,8 @@ enum WindowEnumerator {
     var axInfo: [UInt32: AXWindows.Entry] = [:]
     var snapshots: [pid_t: AXWindows.Snapshot] = [:]
     for (pid, group) in Dictionary(grouping: raw, by: { $0.pid }) {
-      let snapshot = AXWindows.snapshot(pid: pid)
+      guard request.isActive else { return WindowEnumeration() }
+      let snapshot = AXWindows.snapshot(pid: pid, request: request)
       snapshots[pid] = snapshot
       let entries = snapshot.entries
       var claimed: Set<Int> = []
@@ -219,6 +220,44 @@ enum WindowEnumerator {
   }
 }
 
+/// Shared deadline and cancellation for synchronous AX calls. The lock protects
+/// cancellation only; callers never hold it while sending IPC or in the event tap.
+final class AXRequest: @unchecked Sendable {
+  private let lock = NSLock()
+  private var cancelled = false
+  private let deadline: ContinuousClock.Instant?
+
+  init(seconds: Double? = nil) {
+    deadline = seconds.map { ContinuousClock.now.advanced(by: .seconds($0)) }
+  }
+
+  func cancel() { lock.withLock { cancelled = true } }
+  var isActive: Bool {
+    !lock.withLock { cancelled } && (deadline.map { ContinuousClock.now < $0 } ?? true)
+  }
+
+  func pause(milliseconds: Int) async {
+    guard isActive else { return }
+    let delay = Duration.milliseconds(milliseconds)
+    let remaining = deadline.map { ContinuousClock.now.duration(to: $0) } ?? delay
+    if remaining > .zero { try? await Task.sleep(for: min(delay, remaining)) }
+  }
+
+  func prepare(_ element: AXUIElement) -> Bool {
+    guard isActive else { return false }
+    let remaining = deadline.map { ContinuousClock.now.duration(to: $0).components }
+    let seconds = remaining.map { Double($0.seconds) + Double($0.attoseconds) / 1e18 } ?? 1
+    guard seconds > 0 else { return false }
+    AXUIElementSetMessagingTimeout(element, Float(min(1, seconds)))
+    return true
+  }
+
+  func copy(_ element: AXUIElement, _ attribute: CFString, _ value: UnsafeMutablePointer<CFTypeRef?>) -> AXError {
+    guard prepare(element) else { return .cannotComplete }
+    return AXUIElementCopyAttributeValue(element, attribute, value)
+  }
+}
+
 /// 一个 app 的 AX 窗口快照。WindowEnumerator 和 WindowActivator 共用它来把
 /// CGWindow 和 AX element 对上 —— 「怎么算同一个窗口」两处必须一致。
 enum AXWindows {
@@ -252,62 +291,41 @@ enum AXWindows {
     let hasNoWindows: Bool
   }
 
-  static func read(pid: pid_t) -> [Entry] { snapshot(pid: pid).entries }
+  static func read(pid: pid_t, request: AXRequest = AXRequest()) -> [Entry] {
+    snapshot(pid: pid, request: request).entries
+  }
 
-  static func snapshot(pid: pid_t) -> Snapshot {
+  static func snapshot(pid: pid_t, request: AXRequest = AXRequest()) -> Snapshot {
     let app = AXUIElementCreateApplication(pid)
-    AXUIElementSetMessagingTimeout(app, Self.timeout)
-    let windows = readWindows(app)
-    var entries = windows.entries
-    var mainStatus = AXError.failure
-    let main = entry(of: app, kAXMainWindowAttribute as CFString, status: &mainStatus)
-    if let main, !entries.contains(where: { CFEqual($0.element, main.element) }) {
-      entries.append(main)
+    var value: CFTypeRef?
+    let status = request.copy(app, kAXWindowsAttribute as CFString, &value)
+    let windows = status == .success ? value as? [AXUIElement] : nil
+    var entries: [Entry] = []
+    if let windows {
+      for element in windows {
+        guard request.isActive else { break }
+        if let entry = entry(element, request: request) { entries.append(entry) }
+      }
     }
-    // An empty current-Space list alone does not prove closure. The main-window
-    // attribute must also explicitly report no value, not a timeout/unsupported error.
-    return Snapshot(entries: entries, available: windows.complete,
-      hasNoWindows: windows.complete && windows.entries.isEmpty && mainStatus == .noValue)
+    let complete = windows.map { entries.count == $0.count } ?? false
+    var main: CFTypeRef?
+    let mainStatus = request.copy(app, kAXMainWindowAttribute as CFString, &main)
+    if mainStatus == .success, let main, CFGetTypeID(main) == AXUIElementGetTypeID() {
+      let element = unsafeDowncast(main as AnyObject, to: AXUIElement.self)
+      if !entries.contains(where: { CFEqual($0.element, element) }),
+         let entry = entry(element, request: request) { entries.append(entry) }
+    }
+    return Snapshot(entries: entries, available: complete && request.isActive,
+      hasNoWindows: complete && windows?.isEmpty == true && mainStatus == .noValue)
   }
 
-  private static func readWindows(_ app: AXUIElement) -> (entries: [Entry], complete: Bool) {
-    var value: CFTypeRef?
-    guard
-      AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
-      let windows = value as? [AXUIElement]
-    else { return ([], false) }
-
-    let entries = windows.compactMap { element -> Entry? in
-      AXUIElementSetMessagingTimeout(element, Self.timeout)
-      guard let frame = Self.frame(of: element) else { return nil }
-      return Entry(
-        element: element,
-        frame: frame,
-        title: Self.string(of: element, kAXTitleAttribute) ?? "",
-        subrole: Self.string(of: element, kAXSubroleAttribute) ?? "",
-        minimized: Self.bool(of: element, kAXMinimizedAttribute) ?? false
-      )
-    }
-    return (entries, entries.count == windows.count)
-  }
-
-  private static func entry(of app: AXUIElement, _ attribute: CFString, status: inout AXError) -> Entry? {
-    var value: CFTypeRef?
-    status = AXUIElementCopyAttributeValue(app, attribute, &value)
-    guard
-      status == .success,
-      let ref = value, CFGetTypeID(ref) == AXUIElementGetTypeID()
-    else { return nil }
-    let element = unsafeDowncast(ref as AnyObject, to: AXUIElement.self)
-    AXUIElementSetMessagingTimeout(element, Self.timeout)
-    guard let frame = Self.frame(of: element) else { return nil }
-    return Entry(
-      element: element,
-      frame: frame,
-      title: Self.string(of: element, kAXTitleAttribute) ?? "",
-      subrole: Self.string(of: element, kAXSubroleAttribute) ?? "",
-      minimized: Self.bool(of: element, kAXMinimizedAttribute) ?? false
-    )
+  private static func entry(_ element: AXUIElement, request: AXRequest) -> Entry? {
+    guard let frame = frame(of: element, request: request) else { return nil }
+    let title = string(of: element, kAXTitleAttribute, request: request) ?? ""
+    let subrole = string(of: element, kAXSubroleAttribute, request: request) ?? ""
+    let minimized = bool(of: element, kAXMinimizedAttribute, request: request) ?? false
+    guard request.isActive else { return nil }
+    return Entry(element: element, frame: frame, title: title, subrole: subrole, minimized: minimized)
   }
 
   /// 把 CGWindow 和 AX 窗口对上：先按 frame 近似匹配；对不上（或没有 frame）
@@ -332,49 +350,49 @@ enum AXWindows {
       && abs(a.size.height - b.size.height) <= 2
   }
 
-  private static func frame(of element: AXUIElement) -> CGRect? {
-    guard let origin = Self.point(of: element, kAXPositionAttribute),
-          let size = Self.size(of: element, kAXSizeAttribute)
+  private static func frame(of element: AXUIElement, request: AXRequest) -> CGRect? {
+    guard let origin = Self.point(of: element, kAXPositionAttribute, request: request),
+          let size = Self.size(of: element, kAXSizeAttribute, request: request)
     else { return nil }
     return CGRect(origin: origin, size: size)
   }
 
-  private static func point(of element: AXUIElement, _ attribute: String) -> CGPoint? {
-    guard let value = Self.axValue(of: element, attribute) else { return nil }
+  private static func point(of element: AXUIElement, _ attribute: String, request: AXRequest) -> CGPoint? {
+    guard let value = Self.axValue(of: element, attribute, request: request) else { return nil }
     var point = CGPoint.zero
     guard AXValueGetValue(value, .cgPoint, &point) else { return nil }
     return point
   }
 
-  private static func size(of element: AXUIElement, _ attribute: String) -> CGSize? {
-    guard let value = Self.axValue(of: element, attribute) else { return nil }
+  private static func size(of element: AXUIElement, _ attribute: String, request: AXRequest) -> CGSize? {
+    guard let value = Self.axValue(of: element, attribute, request: request) else { return nil }
     var size = CGSize.zero
     guard AXValueGetValue(value, .cgSize, &size) else { return nil }
     return size
   }
 
-  private static func axValue(of element: AXUIElement, _ attribute: String) -> AXValue? {
+  private static func axValue(of element: AXUIElement, _ attribute: String, request: AXRequest) -> AXValue? {
     var value: CFTypeRef?
     guard
-      AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+      request.copy(element, attribute as CFString, &value) == .success,
       let ref = value, CFGetTypeID(ref) == AXValueGetTypeID()
     else { return nil }
     return unsafeDowncast(ref as AnyObject, to: AXValue.self)
   }
 
-  private static func string(of element: AXUIElement, _ attribute: String) -> String? {
+  private static func string(of element: AXUIElement, _ attribute: String, request: AXRequest) -> String? {
     var value: CFTypeRef?
     guard
-      AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+      request.copy(element, attribute as CFString, &value) == .success,
       let s = value as? String
     else { return nil }
     return s
   }
 
-  private static func bool(of element: AXUIElement, _ attribute: String) -> Bool? {
+  private static func bool(of element: AXUIElement, _ attribute: String, request: AXRequest) -> Bool? {
     var value: CFTypeRef?
     guard
-      AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+      request.copy(element, attribute as CFString, &value) == .success,
       let n = value as? Bool
     else { return nil }
     return n

@@ -90,3 +90,33 @@ private func pids(_ windows: [Window]) -> [pid_t] { windows.map(\.pid) }
   cache.noteClosed(windows[1], preserving: windows)
   #expect(cache.snapshot.map(\.windowID) == [1, 3])
 }
+
+private final class EnumerationGate: @unchecked Sendable {
+  let release = DispatchSemaphore(value: 0)
+  private let lock = NSLock()
+  private var requests: [AXRequest] = []
+  var count: Int { lock.withLock { requests.count } }
+  var firstCancelled: Bool { lock.withLock { requests.first?.isActive == false } }
+  func enumerate(_ known: [UInt32: KnownWindow], _ request: AXRequest) -> WindowEnumeration {
+    let first = lock.withLock { requests.append(request); return requests.count == 1 }
+    if first { _ = release.wait(timeout: .now() + 3) }
+    return WindowEnumeration(windows: [window(pid: 20, id: first ? 1 : 2)])
+  }
+}
+
+@Test @MainActor func repeatedRefreshesCancelObsoleteWorkAndCoalesceTheLatestRequest() async throws {
+  let suite = "slime.refresh.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let gate = EnumerationGate()
+  let cache = WindowCache(defaults: defaults, enumerate: { gate.enumerate($0, $1) })
+  cache.refresh()
+  for _ in 0..<100 where gate.count == 0 { try await Task.sleep(for: .milliseconds(10)) }
+  for _ in 0..<20 { cache.refresh() }
+  #expect(gate.count == 1)
+  #expect(gate.firstCancelled)
+  gate.release.signal()
+  for _ in 0..<100 where cache.snapshot.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+  #expect(gate.count == 2)
+  #expect(cache.snapshot.map(\.windowID) == [2])
+}

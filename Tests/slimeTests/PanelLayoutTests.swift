@@ -182,11 +182,11 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(label(of: before[0]) == "A2")
 }
 
-private func cardSubviews(of grid: CardGridView) -> [CardView] {
+@MainActor private func cardSubviews(of grid: CardGridView) -> [CardView] {
   grid.subviews.compactMap { $0 as? CardView }
 }
 
-private func label(of card: CardView) -> String? {
+@MainActor private func label(of card: CardView) -> String? {
   card.subviews.compactMap { $0 as? NSTextField }.first?.stringValue
 }
 
@@ -396,4 +396,39 @@ private func label(of card: CardView) -> String? {
     #expect(bar.frame == NSRect(x: target.frame.midX - 16, y: target.frame.maxY - 7, width: 32, height: 4))
     #expect(bar.layer?.animationKeys()?.isEmpty != false)
   }
+}
+
+@Test @MainActor func searchFocusShowsCaretAndTypingMovesIt() {
+  _ = NSApplication.shared
+  let controller = PanelController()
+  controller.handle(state: .lingering(query: "", selection: 0), effects: [])
+  controller.setWindows([])
+  let content = controller.panel.content
+  controller.handle(state: .lingering(query: "", selection: 0), effects: [.focusSearchField])
+  #expect(content.searchFocused)
+  #expect(!content.searchCaret.isHidden)
+  let start = content.searchCaret.frame.minX
+  controller.handle(state: .lingering(query: "abc", selection: 0), effects: [.appendQuery("a")])
+  #expect(content.searchCaret.frame.minX > start)
+  controller.dismiss()
+  #expect(!content.searchFocused)
+}
+
+@Test @MainActor func repeatingSearchFocusKeepsTheExistingCaretAnimation() {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+  content.setSearchFocused(true)
+  let marker = CABasicAnimation(keyPath: "position")
+  marker.duration = 1
+  content.searchCaret.layer?.add(marker, forKey: "caret")
+  content.setSearchFocused(true)
+  #expect(content.searchCaret.layer?.animation(forKey: "caret") != nil)
+}
+
+@Test @MainActor func typingThePlaceholderTextIsStillAQuery() {
+  let content = PanelContentView()
+  let placeholder = content.searchLabel.stringValue
+  content.setSearchText(placeholder)
+  #expect(content.searchBox.accessibilityValue() as? String == placeholder)
+  #expect(content.searchLabel.textColor == .labelColor)
 }

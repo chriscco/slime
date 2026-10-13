@@ -22,7 +22,7 @@ private actor CloseGate {
 
 @MainActor private func controller(_ gate: CloseGate) -> PanelController {
   _ = NSApplication.shared
-  let panel = PanelController(closeWindow: { await gate.close($0) })
+  let panel = PanelController(closeWindow: { window, _ in await gate.close(window) })
   panel.handle(state: .lingering(query: "", selection: 0), effects: [])
   panel.setWindows((1...3).map {
     Window(pid: 1, windowID: UInt32($0), appName: "Test", title: "Window \($0)", isMinimized: false)
@@ -33,12 +33,19 @@ private actor CloseGate {
 @Test @MainActor func closeWaitsForConfirmationAndSelectsNextNeighbor() async throws {
   let gate = CloseGate()
   let panel = controller(gate)
+  var prematurelyFinished = false
+  panel.onCloseFinished = { prematurelyFinished = true }
   panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
   panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
   await gate.waitUntilStarted()
   #expect(await gate.calls == 1)
+  #expect(!prematurelyFinished)
   #expect(panel.rows.map(\.windowID) == [1, 2, 3])
   #expect(panel.closing)
+  let card = try #require(panel.panel.content.gridView.card(for: 1))
+  #expect(card.layer?.backgroundColor == NSColor.clear.cgColor)
+  #expect(card.subviews.compactMap { $0 as? NSTextField }.first?.alphaValue == 0)
+  #expect(panel.panel.content.gridView.subviews.first { $0 is HighlightView }?.alphaValue == 0)
   await gate.finish(.closed)
   for _ in 0..<100 where panel.closing { try await Task.sleep(for: .milliseconds(20)) }
   #expect(panel.rows.map(\.windowID) == [2, 3])
@@ -51,10 +58,13 @@ private actor CloseGate {
   let panel = controller(gate)
   panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
   try await Task.sleep(for: .milliseconds(30))
-  await gate.finish(.stillOpen)
+  await gate.finish(.failed)
   for _ in 0..<100 where panel.closing { try await Task.sleep(for: .milliseconds(20)) }
   #expect(panel.rows.map(\.windowID) == [1, 2, 3])
   #expect(panel.selection == 0)
+  let card = try #require(panel.panel.content.gridView.card(for: 1))
+  #expect(card.subviews.compactMap { $0 as? NSTextField }.first?.alphaValue == 1)
+  #expect(panel.panel.content.gridView.subviews.first { $0 is HighlightView }?.alphaValue == 1)
   #expect(panel.panel.content.gridView.card(for: 1)?.preview.layer?.opacity == 1)
   #expect(!panel.panel.content.statusLabel.stringValue.isEmpty)
 }
@@ -108,4 +118,71 @@ private actor CloseGate {
   await gate.finish(.closed)
   for _ in 0..<100 where panel.closing { try await Task.sleep(for: .milliseconds(20)) }
   #expect(panel.rows[panel.selection].windowID == 4)
+}
+
+@Test @MainActor func inaccessibleCloseRevealsTargetAndDoesNotReopenPanel() async throws {
+  _ = NSApplication.shared
+  let gate = CloseGate()
+  var revealed: UInt32?
+  var cancelled = false
+  let panel = PanelController(closeWindow: { window, _ in await gate.close(window) }, revealWindow: { window, request in
+    #expect(request.isActive)
+    revealed = window.windowID
+    return true
+  })
+  panel.onCancelSession = { cancelled = true }
+  panel.handle(state: .lingering(query: "", selection: 0), effects: [])
+  panel.setWindows([Window(pid: 1, windowID: 7, appName: "Test", title: "Target", isMinimized: false)])
+  panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
+  await gate.finish(.unavailable)
+  for _ in 0..<100 where !cancelled { try await Task.sleep(for: .milliseconds(20)) }
+  #expect(revealed == 7)
+  #expect(cancelled)
+  #expect(!panel.panel.isVisible)
+  for _ in 0..<100 where await gate.calls < 2 { try await Task.sleep(for: .milliseconds(20)) }
+  #expect(await gate.calls == 2)
+}
+
+@Test @MainActor func cancellingCloseStopsItsRequestAndCannotStartAnotherUntilItReturns() async throws {
+  let gate = CloseGate()
+  let panel = PanelController(closeWindow: { window, request in
+    #expect(request.isActive)
+    let result = await gate.close(window)
+    #expect(!request.isActive)
+    return result
+  })
+  panel.handle(state: .lingering(query: "", selection: 0), effects: [])
+  panel.setWindows([Window(pid: 1, windowID: 7, appName: "Test", title: "Target", isMinimized: false)])
+  panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
+  await gate.waitUntilStarted()
+  panel.dismiss()
+  panel.handle(state: .lingering(query: "", selection: 0), effects: [])
+  panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
+  #expect(await gate.calls == 1)
+  await gate.finish(.failed)
+}
+
+@Test @MainActor func intentionalHandoffDoesNotCancelItsOwnRequestOrPressAgainForASheet() async throws {
+  _ = NSApplication.shared
+  var revealCount = 0
+  let gate = CloseGate()
+  let panel = PanelController(closeWindow: { window, _ in await gate.close(window) }, revealWindow: { _, request in
+    #expect(request.isActive)
+    revealCount += 1
+    return true
+  })
+  // orderOut may deliver resignKey synchronously or after cancelling the tap session.
+  var resigned = false
+  panel.onCancelSession = {
+    if !resigned { resigned = true; panel.panel.resignKey() }
+  }
+  panel.handle(state: .lingering(query: "", selection: 0), effects: [])
+  panel.setWindows([Window(pid: 1, windowID: 7, appName: "Test", title: "Target", isMinimized: false)])
+  panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
+  await gate.finish(.confirmationRequired)
+  for _ in 0..<100 where revealCount == 0 { try await Task.sleep(for: .milliseconds(20)) }
+  #expect(revealCount == 1)
+  #expect(await gate.calls == 1)
+  #expect(!panel.panel.isVisible)
+  panel.onCancelSession = nil
 }

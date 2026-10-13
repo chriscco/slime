@@ -94,6 +94,12 @@ final class PanelContentView: NSView {
   let searchBox = NSView()
   let searchIcon = NSImageView()
   let searchLabel = NSTextField(labelWithString: "")
+  let searchCaret = NSView()
+  private let searchClip = NSView()
+  private(set) var searchFocused = false
+  private var searchText = ""
+  var accentColor = Settings.defaultHighlightColor
+
   let scrollView = NSScrollView()
   let gridView = CardGridView()
   let emptyLabel = NSTextField(labelWithString: "")
@@ -120,7 +126,7 @@ final class PanelContentView: NSView {
     // 无框搜索行：半透明浅色 pill，没有硬边 —— 底下的玻璃面继续活着，
     // 不用 controlBackgroundColor 那种实心方块（用户实测：黑框很突兀）。
     searchBox.wantsLayer = true
-    searchBox.layer?.cornerRadius = 8
+    searchBox.layer?.cornerRadius = 10
     searchBox.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
     searchIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
     searchIcon.contentTintColor = .secondaryLabelColor
@@ -129,7 +135,16 @@ final class PanelContentView: NSView {
     searchLabel.lineBreakMode = .byTruncatingTail
     setSearchText("")
     searchBox.addSubview(searchIcon)
-    searchBox.addSubview(searchLabel)
+    searchClip.wantsLayer = true
+    searchClip.layer?.masksToBounds = true
+    searchBox.addSubview(searchClip)
+    searchClip.addSubview(searchLabel)
+    searchCaret.wantsLayer = true
+    searchCaret.layer?.cornerRadius = 1
+    searchCaret.isHidden = true
+    searchClip.addSubview(searchCaret)
+    searchBox.setAccessibilityRole(.textField)
+    searchBox.setAccessibilityLabel(localized("Search windows", "搜索窗口"))
 
     scrollView.drawsBackground = false
     scrollView.hasVerticalScroller = true
@@ -156,9 +171,36 @@ final class PanelContentView: NSView {
   /// 空查询显示占位提示（secondaryLabelColor），有查询显示查询文本
   /// （labelColor）。文本与纯状态机的 query 永远一致（design.md）。
   func setSearchText(_ text: String) {
+    let value = text.isEmpty ? Self.searchPlaceholder : text
+    guard searchText != text || searchLabel.stringValue != value else { return }
+    searchText = text
     let isEmpty = text.isEmpty
     searchLabel.stringValue = isEmpty ? Self.searchPlaceholder : text
     searchLabel.textColor = isEmpty ? .secondaryLabelColor : .labelColor
+    searchBox.setAccessibilityValue(text)
+    needsLayout = true
+  }
+
+  func setSearchFocused(_ focused: Bool) {
+    guard focused != searchFocused else { return }
+    searchFocused = focused
+    searchBox.layer?.borderWidth = focused ? 1 : 0
+    searchBox.layer?.borderColor = accentColor.withAlphaComponent(0.65).cgColor
+    searchBox.layer?.backgroundColor = (focused ? accentColor.withAlphaComponent(0.10)
+      : NSColor.white.withAlphaComponent(0.06)).cgColor
+    searchIcon.contentTintColor = focused ? accentColor : .secondaryLabelColor
+    searchCaret.layer?.backgroundColor = accentColor.cgColor
+    searchCaret.isHidden = !focused
+    searchCaret.layer?.removeAllAnimations()
+    if focused && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      let blink = CAKeyframeAnimation(keyPath: "opacity")
+      blink.values = [1, 1, 0, 0, 1]
+      blink.keyTimes = [0, 0.45, 0.5, 0.95, 1]
+      blink.duration = 1.2; blink.repeatCount = .infinity
+      searchCaret.layer?.add(blink, forKey: "blink")
+    }
+    needsLayout = true
+    layoutSubtreeIfNeeded()
   }
 
   func showStatus(_ message: String?) {
@@ -199,12 +241,28 @@ final class PanelContentView: NSView {
       height: Self.searchIconSide)
     searchLabel.sizeToFit()
     let textX = Self.searchLeadingInset + Self.searchIconSide + Self.searchIconGap
-    searchLabel.frame = NSRect(
-      x: textX,
-      y: (searchHeight - searchLabel.frame.height) / 2,
-      width: (searchBox.bounds.width - textX - Self.searchLeadingInset) * (statusLabel.stringValue.isEmpty ? 1 : 0.45),
-      height: searchLabel.frame.height
-    )
+    let available = max(0, (searchBox.bounds.width - textX - Self.searchLeadingInset)
+      * (statusLabel.stringValue.isEmpty ? 1 : 0.45))
+    searchClip.frame = NSRect(x: textX, y: 0, width: available, height: searchHeight)
+    let textWidth = ceil((searchText as NSString).size(withAttributes:
+      [.font: searchLabel.font ?? NSFont.systemFont(ofSize: 15)]).width)
+    let offset = min(0, available - textWidth - 6)
+    searchLabel.frame = NSRect(x: offset, y: (searchHeight - searchLabel.frame.height) / 2,
+      width: max(available, textWidth + 4), height: searchLabel.frame.height)
+    let oldPosition = searchCaret.layer?.presentation()?.position ?? searchCaret.layer?.position
+    let caretFrame = NSRect(x: max(0, offset + textWidth + 2),
+      y: (searchHeight - 18) / 2, width: 2, height: 18)
+    if searchCaret.frame != caretFrame {
+      searchCaret.frame = caretFrame
+      if searchFocused, let oldPosition, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        let move = CABasicAnimation(keyPath: "position")
+        move.fromValue = NSValue(point: oldPosition)
+        move.toValue = searchCaret.layer.map { NSValue(point: $0.position) }
+        move.duration = 0.09
+        move.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        searchCaret.layer?.add(move, forKey: "caret")
+      }
+    }
 
     statusLabel.frame = NSRect(x: searchBox.bounds.width * 0.48, y: (searchHeight - 16) / 2,
       width: searchBox.bounds.width * 0.52 - 10, height: 16)

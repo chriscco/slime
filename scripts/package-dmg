@@ -1,0 +1,52 @@
+#!/bin/sh
+# Build and inspect the same disk image that will be attached to the release.
+set -eu
+cd "$(dirname "$0")/.."
+CONFIG=release scripts/build-app
+app=build/slime.app
+plist="$app/Contents/Info.plist"
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
+case "$version" in *[!0-9.]*|'') echo 'Invalid bundle version' >&2; exit 1 ;; esac
+archs=$(lipo -archs "$app/Contents/MacOS/slime")
+case "$archs" in
+  arm64|x86_64) architecture=$archs ;;
+  'x86_64 arm64'|'arm64 x86_64') architecture=universal ;;
+  *) echo "Unsupported architecture: $archs" >&2; exit 1 ;;
+esac
+codesign --verify --deep --strict "$app"
+test -s "$app/Contents/Resources/slime.icns"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$plist")" = slime
+minimum=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist")
+# All slices must agree with the deployment target declared to LaunchServices.
+vtool -show-build "$app/Contents/MacOS/slime" | awk -v minimum="$minimum" '
+  $1 == "minos" { found++; if ($2 != minimum) bad = 1 }
+  END { exit (!found || bad) }'
+
+image="slime-$version-$architecture.dmg"
+stage=$(mktemp -d "$PWD/build/dmg-stage.XXXXXX")
+mount=$(mktemp -d "$PWD/build/dmg-mount.XXXXXX")
+mounted=false
+cleanup() {
+  if [ "$mounted" = true ]; then hdiutil detach "$mount" >/dev/null || return; fi
+  rm -rf "$stage"
+  rmdir "$mount"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+ditto "$app" "$stage/slime.app"
+ln -s /Applications "$stage/Applications"
+hdiutil create -volname "slime $version" -srcfolder "$stage" -format UDZO -ov "build/$image" >/dev/null
+hdiutil verify "build/$image" >/dev/null
+hdiutil attach "build/$image" -readonly -nobrowse -mountpoint "$mount" >/dev/null
+mounted=true
+test "$(readlink "$mount/Applications")" = /Applications
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$mount/slime.app/Contents/Info.plist")" = "$version"
+cmp "$plist" "$mount/slime.app/Contents/Info.plist"
+cmp "$app/Contents/MacOS/slime" "$mount/slime.app/Contents/MacOS/slime"
+cmp "$app/Contents/Resources/slime.icns" "$mount/slime.app/Contents/Resources/slime.icns"
+codesign --verify --deep --strict "$mount/slime.app"
+hdiutil detach "$mount" >/dev/null
+mounted=false
+(cd build && shasum -a 256 "$image" > "$image.sha256")
+printf 'Verified: build/%s\nChecksum: build/%s.sha256\n' "$image" "$image"
+printf 'Architecture: %s. Signature verification does not imply notarization.\n' "$archs"

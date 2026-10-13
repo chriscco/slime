@@ -7,7 +7,9 @@ import Foundation
 
 /// 卡片网格的几何（spec §5.1）。纯函数，UI 层拿它算 frame。
 public struct GridLayout: Equatable, Sendable {
-  public static let maxColumns = 5
+  /// 一排最多 4 张。缩略图是横向的（窗口接近 16:10），卡片从 112×92 涨到
+  /// 160×120 后面板会变宽 —— 4 列满排 700pt，1366×768 上放得下（spec §5.4）。
+  public static let maxColumns = 4
 
   public let count: Int
   public let columns: Int
@@ -25,8 +27,8 @@ public struct GridLayout: Equatable, Sendable {
   //           被嫌弃时再做可配置（spec §14）
   public init(
     count: Int,
-    cardWidth: Double = 112,
-    cardHeight: Double = 92,
+    cardWidth: Double = 160,
+    cardHeight: Double = 120,
     gap: Double = 12,
     padding: Double = 12,
     headerHeight: Double = 46,

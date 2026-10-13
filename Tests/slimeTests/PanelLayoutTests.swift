@@ -64,34 +64,34 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(content.gridView.frame.width == content.scrollView.contentSize.width)
 }
 
-@Test @MainActor func sixthCardWrapsToTheSecondRowAtTheLeftEdge() {
+@Test @MainActor func fifthCardWrapsToTheSecondRowAtTheLeftEdge() {
   let content = PanelContentView()
   content.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
-  content.gridView.rows = (1...6).map { window("Chrome", "W\($0)", id: UInt32($0)) }
+  content.gridView.rows = (1...5).map { window("Chrome", "W\($0)", id: UInt32($0)) }
   content.layoutSubtreeIfNeeded()
 
   #expect(content.gridView.layout.rows == 2)
   let cards = content.gridView.subviews.compactMap { $0 as? CardView }
-  #expect(cards.count == 6)
-  // 第 6 张换行：第 5 张还在第一排，第 6 张 y 变大（flipped 文档视图 y 向下）、
+  #expect(cards.count == 5)
+  // 第 5 张换行：第 4 张还在第一排，第 5 张 y 变大（flipped 文档视图 y 向下）、
   // x 回到排首。
-  #expect(cards[4].frame.minY == cards[0].frame.minY)
-  #expect(cards[5].frame.minY > cards[4].frame.minY)
-  #expect(cards[5].frame.minX == cards[0].frame.minX)
+  #expect(cards[3].frame.minY == cards[0].frame.minY)
+  #expect(cards[4].frame.minY > cards[3].frame.minY)
+  #expect(cards[4].frame.minX == cards[0].frame.minX)
 }
 
 // 键盘移动的集成：GridLayout + 轴语义。真按键的移动全走这个纯函数
 // （PanelController.moveSelection 里只有它 + 高亮刷新）。
 @Test @MainActor func upFromTheFirstRowWrapsToTheLastRow() {
-  // 6 个窗口 = 两排：首排 ↑ 应与「同一列的上一排」循环等价 → 末排（count − 1），
-  // 而不是 0 − 5 的普通索引取模（那样恒在首排漂移）。
-  let six = GridLayout(count: 6)
-  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: six) == 5)
-  #expect(PanelController.movedSelection(from: 5, axis: .vertical, step: 1, layout: six) == 0)
+  // 5 个窗口 = 两排（4 列）：首排 ↑ 应与「同一列的上一排」循环等价 → 第 4 格，
+  // 而不是 0 − 4 的普通索引取模（那样恒在首排漂移）。
+  let five = GridLayout(count: 5)
+  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: five) == 4)
+  #expect(PanelController.movedSelection(from: 4, axis: .vertical, step: 1, layout: five) == 0)
 
-  // 11 个窗口 = 三排：↑ 到末排第一格；⇧Tab 只退一格。
+  // 11 个窗口 = 三排：↑ 到末排第一格（第 2 排 × 4 列）；→ 只退一格。
   let eleven = GridLayout(count: 11)
-  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: eleven) == 10)
+  #expect(PanelController.movedSelection(from: 0, axis: .vertical, step: -1, layout: eleven) == 8)
   #expect(PanelController.movedSelection(from: 3, axis: .horizontal, step: 1, layout: eleven) == 4)
 
   // 任何 (count, selection, 轴, 方向) 组合都落在 0..<count —— 不允许负索引

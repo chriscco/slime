@@ -6,10 +6,16 @@ private actor CloseGate {
   private var continuation: CheckedContinuation<WindowCloseResult, Never>?
   private(set) var calls = 0
   private var earlyResult: WindowCloseResult?
+  private var started: CheckedContinuation<Void, Never>?
   func close(_ window: Window) async -> WindowCloseResult {
     calls += 1
+    started?.resume(); started = nil
     if let earlyResult { return earlyResult }
     return await withCheckedContinuation { continuation = $0 }
+  }
+  func waitUntilStarted() async {
+    guard calls == 0 else { return }
+    await withCheckedContinuation { started = $0 }
   }
   func finish(_ result: WindowCloseResult) { earlyResult = result; continuation?.resume(returning: result); continuation = nil }
 }
@@ -29,7 +35,7 @@ private actor CloseGate {
   let panel = controller(gate)
   panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
   panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
-  try await Task.sleep(for: .milliseconds(500))
+  await gate.waitUntilStarted()
   #expect(await gate.calls == 1)
   #expect(panel.rows.map(\.windowID) == [1, 2, 3])
   #expect(panel.closing)

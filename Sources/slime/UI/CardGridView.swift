@@ -145,6 +145,9 @@ final class CardView: NSView {
   private static let thumbGap: CGFloat = 4
   /// 文字左右的内边距。
   private static let labelSidePadding: CGFloat = 6
+  /// 高亮的 2.5pt 描边画在**单元格边界**上（见 highlightRect）—— 卡片内容
+  /// 再内缩这么多，描边就不会压在缩略图或底部标题上（用户实测：重叠）。
+  private static let contentInset: CGFloat = 7
 
   private let thumb = NSImageView()
   private let label = NSTextField(labelWithString: "")
@@ -188,12 +191,14 @@ final class CardView: NSView {
 
   override func layout() {
     super.layout()
+    let inset = Self.contentInset
     thumb.frame = NSRect(
-      x: 0, y: 0, width: bounds.width,
-      height: max(0, bounds.height - Self.labelHeight - Self.thumbGap))
+      x: inset, y: inset,
+      width: max(0, bounds.width - inset * 2),
+      height: max(0, bounds.height - Self.labelHeight - Self.thumbGap - inset * 2))
     label.frame = NSRect(
       x: Self.labelSidePadding,
-      y: bounds.height - Self.labelHeight,
+      y: bounds.height - Self.labelHeight - Self.contentInset,
       width: max(0, bounds.width - Self.labelSidePadding * 2),
       height: Self.labelHeight)
   }

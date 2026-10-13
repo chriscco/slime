@@ -22,6 +22,28 @@ enum WindowThumbnails {
   /// 有新图可显示时的回调（主线程）—— 面板就地把卡片刷新一遍。
   static var onChange: (() -> Void)?
 
+  /// 还有窗口在抓。面板用它决定「首帧要不要等抓完」（spec §5.3：不允许
+  /// 先图标、后换图的跳变）。
+  static var hasPendingWork: Bool { !pending.isEmpty }
+
+  private static var whenSettledCallback: (() -> Void)?
+
+  /// 这一批抓完（成或败都算）时在主线程调一次。已经有图 / 没有在飞的批次时
+  /// 立刻调 —— 语义是「现在这批的结果已经定了」。
+  static func whenSettled(_ body: @escaping () -> Void) {
+    guard !pending.isEmpty else {
+      body()
+      return
+    }
+    whenSettledCallback = body
+  }
+
+  private static func notifySettledIfIdle() {
+    guard pending.isEmpty, let callback = whenSettledCallback else { return }
+    whenSettledCallback = nil
+    callback()
+  }
+
   /// 缩略图的目标宽度（px）：卡片图区 160pt @2x。抓全分辨率是浪费 ——
   /// 一扇 1920×992 的 Chrome 在 2x 下是 30 MB。
   ///
@@ -60,6 +82,7 @@ enum WindowThumbnails {
   /// 上一批的窗口可能已经关了，塞回缓存就是「关掉的窗口还在显示」。
   private static func publish(_ captured: [UInt32: CGImage], ids: [UInt32]) {
     pending.subtract(ids)
+    notifySettledIfIdle()
     let fresh = captured.filter { live.contains($0.key) }
     guard !fresh.isEmpty else { return }
     for (id, image) in fresh { cache[id] = image }

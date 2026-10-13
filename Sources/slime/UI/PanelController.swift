@@ -118,9 +118,35 @@ final class PanelController {
     // 藏起来了，「面板开着时改设置」这个场景不存在（spec §8）。
     panel.applyGlassSettings(settings)
     panel.content.gridView.highlightColor = settings.highlightColor
-    panel.makeKeyAndOrderFront(nil)
+    presentWhenThumbnailsReady()
     // 同时后台重枚举，回来静默更新。
     onRefresh?()
+  }
+
+  /// 缩略图没抓完就先不上屏（有上限）：spec §5.3 不允许「先图标、后换图」的
+  /// 跳变。冷启动/刚重启后的第一次唤出会落在这里 —— 最多等
+  /// `warmUpDeadline` 秒，之后照常上屏（先图标），抓完由 `onChange` 就地换。
+  private static let warmUpDeadline = 0.3
+
+  private func presentWhenThumbnailsReady() {
+    guard WindowThumbnails.hasPendingWork else {
+      makePanelVisible()
+      return
+    }
+    var presented = false
+    let present = { [weak self] in
+      guard let self, !presented else { return }
+      presented = true
+      // 等的过程里用户可能已经松手（面板该只在 holding/lingering 时出现）。
+      guard self.phase.isSessionOpen else { return }
+      self.makePanelVisible()
+    }
+    WindowThumbnails.whenSettled(present)
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.warmUpDeadline) { present() }
+  }
+
+  private func makePanelVisible() {
+    panel.makeKeyAndOrderFront(nil)
   }
 
   private func hide() {
@@ -267,5 +293,14 @@ final class PanelController {
     // 列表为空（没有别的窗口）回车 / 松手都不做事（spec §7）；hidePanel 仍会藏起来。
     guard rows.indices.contains(selection) else { return }
     onActivate?(rows[selection])
+  }
+}
+
+private extension State {
+  /// 会话还开着（holding / lingering）—— 面板该出现的两个相位。
+  var isSessionOpen: Bool {
+    if case .holding = self { return true }
+    if case .lingering = self { return true }
+    return false
   }
 }

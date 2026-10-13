@@ -8,28 +8,48 @@ import ScreenCaptureKit
 /// 抓图是跨进程 IPC，**全在后台**（红线 4）—— 所以用 `Task.detached` 而不是
 /// `Task {}`：后者从 MainActor 上下文继承隔离，等于把 IPC 放回主线程。
 ///
+/// **有一半窗口抓不到**（用户实测的现象：面板里大部分卡片只有 app 图标）：
+/// 其他 Space、最小化、台前调度搁置的窗口在合成层没有被渲染，SCK 对它们要么报
+/// `-3811 音频/视频捕捉失败`、要么给斜条带 / 全白（spec §4.1）。这不是节流、
+/// 也不是并发引起的 —— 串行抓、隔 6 秒重试，失败的还是同一批。所以：
+///
+/// - 图**落盘**（Application Support/slime/thumbs，按 windowID）：窗口在**当前
+///   Space 出现过的那一次**抓到真图，之后长时间显示那一张 —— 正是 spec §4.5 的
+///   「缓存上一张好图 → app 图标」降级链。平台自己也这么做：系统给最小化窗口
+///   显示的就是它上一次的样子。
+/// - 抓不到的窗口**记进负缓存**（`unrenderable`），不在每次枚举里重试 ——
+///   否则它们永远算「正在抓」，把面板首帧拖满 `warmUpDeadline`，还白烧 IPC。
+/// - **在屏**的窗口每次枚举都刷新（可见 → 抓得到 → 内容会变）；刷新不阻塞首帧。
+///   所以缓存里那张图是「它在屏时的最近一次」。
+///
 /// 抓的为什么不是私有 SkyLight 的 `CGSHWCaptureWindowList`（快 ~10ms，还能多抓
 /// 一类 Chrome 窗口）：`dlopen` + 零文档 + 每次 macOS 升级赌一次，换 10ms 不值
 /// （spec §4.2 / §5.1；CLAUDE.md 第一条第 4 级优先平台原生能力）。
 @MainActor
 enum WindowThumbnails {
   private static var cache: [UInt32: CGImage] = [:]
-  /// 正在飞的窗口 —— 连续两次枚举之间不重复发 IPC。
+  /// 正在飞的**必备**图（内存里还没有图的窗口）—— 连续两次枚举之间不重复发 IPC。
+  /// 面板首帧等的是这一批（`hasPendingWork` / `whenSettled`）。
   private static var pending: Set<UInt32> = []
+  /// 正在飞的**刷新**图（有图、窗口在屏上）。不阻塞首帧：结果回来就地换卡片。
+  private static var refreshing: Set<UInt32> = []
   /// 当前快照里的窗口（`warm` 每次都重设）。
   private static var live: Set<UInt32> = []
+  /// 负缓存：抓过、失败了、**而且当时不在屏上**的窗口 —— 本来就没渲染，重试
+  /// 多少次都一样。等它真的在屏上（或关掉）时 `warm` 把条目清掉，再抓。
+  private static var unrenderable: Set<UInt32> = []
 
   /// 有新图可显示时的回调（主线程）—— 面板就地把卡片刷新一遍。
   static var onChange: (() -> Void)?
 
-  /// 还有窗口在抓。面板用它决定「首帧要不要等抓完」（spec §5.3：不允许
-  /// 先图标、后换图的跳变）。
+  /// 还有**没图的**窗口在抓。面板用它决定「首帧要不要等」（spec §5.3：不允许
+  /// 先图标、后换图的跳变）。刷新中的不算 —— 那些窗口本来就有图可显示。
   static var hasPendingWork: Bool { !pending.isEmpty }
 
   private static var whenSettledCallback: (() -> Void)?
 
-  /// 这一批抓完（成或败都算）时在主线程调一次。已经有图 / 没有在飞的批次时
-  /// 立刻调 —— 语义是「现在这批的结果已经定了」。
+  /// 这一批（`pending`，没图的）抓完 —— 成或败都算 —— 时在主线程调一次。
+  /// 没有在飞的批次时立刻调：语义是「现在这批的结果已经定了」。
   static func whenSettled(_ body: @escaping () -> Void) {
     guard !pending.isEmpty else {
       body()
@@ -44,7 +64,7 @@ enum WindowThumbnails {
     callback()
   }
 
-  /// 缩略图的目标宽度（px）：卡片图区 160pt @2x。抓全分辨率是浪费 ——
+  /// 缩略图的目标宽度（px）：卡片图区 240pt @2x 上下。抓全分辨率是浪费 ——
   /// 一扇 1920×992 的 Chrome 在 2x 下是 30 MB。
   ///
   /// `nonisolated`：`shot(of:)` 是 nonisolated 的（红线 4），读不到 MainActor
@@ -52,10 +72,66 @@ enum WindowThumbnails {
   /// 「main actor-isolated static property cannot be accessed from outside」。
   private nonisolated static let targetPixelWidth = 320.0
 
+  // MARK: - 落盘
+
+  /// 缩略图落盘目录。为什么要落盘见文件头：其他 Space 的窗口抓不到，只能靠
+  /// 「见过一次」的那张图，而它必须**跨 slime 重启存活** —— 不存的话用户看到的
+  /// 就是「大部分窗口只有 app 图标」。
+  ///
+  /// `nonisolated`：`save` / `load` / `pruneDisk` 都在后台跑（红线 4）。
+  private nonisolated static let thumbsDirectory: URL = {
+    let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+      .first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+    return base.appendingPathComponent("slime/thumbs", isDirectory: true)
+  }()
+
+  private nonisolated static func thumbURL(_ windowID: UInt32) -> URL {
+    thumbsDirectory.appendingPathComponent("\(windowID).png")
+  }
+
+  /// 用 PNG：无损、系统自带编解码（`CGImageDestination`），一扇窗 20–40 KB。
+  ///
+  /// shortcut: 每次抓到都重写一遍（一次 app 切换 ≈ 4 扇在屏窗）—— 真嫌费盘时
+  ///           再加「变了才写」的脏检查
+  private nonisolated static func save(_ windowID: UInt32, _ image: CGImage) {
+    // 目标目录可能不在（首次运行 / 用户清过 Application Support）。
+    try? FileManager.default.createDirectory(
+      at: thumbsDirectory, withIntermediateDirectories: true)
+    guard
+      let destination = CGImageDestinationCreateWithURL(
+        thumbURL(windowID) as CFURL, "public.png" as CFString, 1, nil)
+    else { return }
+    CGImageDestinationAddImage(destination, image, nil)
+    CGImageDestinationFinalize(destination)
+  }
+
+  private nonisolated static func load(_ windowID: UInt32) -> CGImage? {
+    guard
+      let data = try? Data(contentsOf: thumbURL(windowID)),
+      let source = CGImageSourceCreateWithData(data as CFData, nil)
+    else { return nil }
+    return CGImageSourceCreateImageAtIndex(source, 0, nil)
+  }
+
+  /// 清盘上不在这一轮快照里的图 —— 与内存同一条规则（spec §4.5：关掉的窗口
+  /// 不会被任何东西渲染）。关掉的窗口不在这份快照里（known 表在枚举里自然
+  /// 修剪），所以「见过一次」的图不会被误删，关掉的那个会被删。
+  private nonisolated static func pruneDisk(keeping survivors: Set<UInt32>) {
+    let files = (try? FileManager.default.contentsOfDirectory(
+      at: thumbsDirectory, includingPropertiesForKeys: nil)) ?? []
+    for file in files {
+      guard let id = UInt32(file.deletingPathExtension().lastPathComponent) else { continue }
+      if survivors.contains(id) { continue }
+      try? FileManager.default.removeItem(at: file)
+    }
+  }
+
+  // MARK: - 主线程
+
   static func image(for window: Window) -> CGImage? { cache[window.windowID] }
 
-  /// 让缓存对齐这份快照：丢掉不在快照里的、补抓还没有的。挂
-  /// `WindowCache.onChange`，和 `AppIcons.warm` 同一个钩子 —— 用户第一次按下
+  /// 让缓存对齐这份快照：丢掉不在快照里的、从盘上补进已有的、补抓还没有的。
+  /// 挂 `WindowCache.onChange`，和 `AppIcons.warm` 同一个钩子 —— 用户第一次按下
   /// ⌘Tab 时缓存已经就绪（spec §5.3 要的「第一帧就是完整的」）。
   static func warm(_ windows: [Window]) {
     live = Set(windows.map(\.windowID))
@@ -65,24 +141,77 @@ enum WindowThumbnails {
     // shortcut: 缩略图缓存只按 windowID 存，不做时间戳 / TTL —— 窗口关了就在
     //           快照边界清掉；真的出现过期图误导人时再加时效
     cache = cache.filter { live.contains($0.key) }
+    // 关掉的窗口的负缓存条目也清掉（id 会被 WindowServer 复用）。
+    unrenderable.formIntersection(live)
 
-    let ids = windows.map(\.windowID).filter { cache[$0] == nil && !pending.contains($0) }
-    guard !ids.isEmpty else { return }
-    pending.formUnion(ids)
+    let survivors = live
+    Task.detached(priority: .utility) { pruneDisk(keeping: survivors) }
+
+    // 内存里没有的先从盘上补 —— 面板首帧要能直接读到（其他 Space 的窗口只能靠
+    // 这张「见过一次」的图）。只读一轮：进缓存之后就不再读盘。
+    for id in windows.map(\.windowID) where cache[id] == nil {
+      if let image = load(id) { cache[id] = image }
+    }
+
+    let plan = Self.capturePlan(
+      windows: windows,
+      cached: Set(cache.keys),
+      busy: pending.union(refreshing),
+      unrenderable: unrenderable
+    )
+    guard !plan.needed.isEmpty || !plan.refresh.isEmpty else { return }
+    pending.formUnion(plan.needed)
+    refreshing.formUnion(plan.refresh)
 
     // `Task.detached` 而不是 `Task {}`：后者在这个 @MainActor 的类型里会继承
     // 主 actor 隔离，抓图就回到主线程了（红线 4）。
     Task.detached(priority: .utility) {
-      let captured = await Self.capture(ids)
-      await MainActor.run { Self.publish(captured, ids: ids) }
+      let captured = await Self.capture(plan.needed + plan.refresh)
+      await MainActor.run { Self.publish(captured, needed: plan.needed, refresh: plan.refresh) }
     }
+  }
+
+  /// 纯函数：这一轮要抓哪些窗口（`WindowThumbnailsTests` 直接测）。两类结果的
+  /// 区别只在**听不听结果**：
+  ///
+  /// - `needed`：内存里还没有图 —— 首帧要等它（`hasPendingWork` / `whenSettled`）。
+  ///   负缓存里的**只在它不在屏上时**跳过 —— 抓过、失败了、当时没渲染（其他
+  ///   Space / 最小化），现在也一样；等它真的在屏上就该再给一次机会（那时它
+  ///   是能抓的）。
+  /// - `refresh`：有图、但窗口**在屏上** —— 可见窗口的内容会变，图得跟得上。
+  ///   不在屏上的不刷：抓不到（-3811 或坏图），只会白烧 IPC 并反复往负缓存
+  ///   记账。缓存里那张图因此是「它在屏时的最近一次」。
+  ///
+  /// 正在飞的不重复发（`busy` = `pending` ∪ `refreshing`）。
+  nonisolated static func capturePlan(
+    windows: [Window], cached: Set<UInt32>, busy: Set<UInt32>, unrenderable: Set<UInt32>
+  ) -> (needed: [UInt32], refresh: [UInt32]) {
+    var needed: [UInt32] = []
+    var refresh: [UInt32] = []
+    for window in windows {
+      let id = window.windowID
+      guard !busy.contains(id) else { continue }
+      if cached.contains(id) {
+        if window.isOnscreen { refresh.append(id) }
+      } else if window.isOnscreen || !unrenderable.contains(id) {
+        needed.append(id)
+      }
+    }
+    return (needed, refresh)
   }
 
   /// 抓取结束（主线程）：收进缓存。**只收还在快照里的** —— 快照换过之后，
   /// 上一批的窗口可能已经关了，塞回缓存就是「关掉的窗口还在显示」。
-  private static func publish(_ captured: [UInt32: CGImage], ids: [UInt32]) {
-    pending.subtract(ids)
+  private static func publish(
+    _ captured: [UInt32: CGImage], needed: [UInt32], refresh: [UInt32]
+  ) {
+    pending.subtract(needed)
+    refreshing.subtract(refresh)
     notifySettledIfIdle()
+    // 没抓到图的记进负缓存。在屏窗口的条目会在下一次 `warm` 被清掉（能抓就
+    // 再给一次机会），离屏的留着 —— 那正是「重试多少次都一样」的那批。
+    for id in needed where captured[id] == nil { unrenderable.insert(id) }
+
     let fresh = captured.filter { live.contains($0.key) }
     guard !fresh.isEmpty else { return }
     for (id, image) in fresh { cache[id] = image }
@@ -108,21 +237,24 @@ enum WindowThumbnails {
     let byID = Dictionary(
       content.windows.map { ($0.windowID, $0) }, uniquingKeysWith: { first, _ in first })
 
-    return await withTaskGroup(of: (UInt32, CGImage)?.self) { group in
-      for id in ids {
-        guard let scWindow = byID[id] else { continue }
-        // SCWindow 没标 Sendable（SDK 缺注解）：字段都是建好就不再变的只读快照，
-        // 交给子任务只读，安全 —— 比 import 层面关掉整个框架的检查窄。
-        nonisolated(unsafe) let window = scWindow
-        group.addTask { await shot(of: window) }  // 并发抓：20 扇窗串行就是 400ms
-      }
-      var result: [UInt32: CGImage] = [:]
-      for await pair in group {
-        guard let (id, image) = pair, looksLikeWindowRender(image) else { continue }
-        result[id] = image
-      }
-      return result
+    // **串行**抓。为什么不用并发：实测离屏窗口的失败与并发无关（并发被抓一批时
+    // 失败的那几个，串行重试、隔 6 秒再试，还是同一批）；而终端里对 79 个真实
+    // 窗口顺序抓是 16–25ms/个、稳定成功。20 扇窗串行约 400ms，全在后台（红线 4）。
+    //
+    // shortcut: 没为「一屏几十扇窗」做分批 / 流控 —— 面板首帧的等待有
+    //           `warmUpDeadline` 封顶，真觉得慢时再回并发 + 限流
+    var result: [UInt32: CGImage] = [:]
+    for id in ids {
+      guard let scWindow = byID[id] else { continue }
+      guard
+        let (capturedID, image) = await shot(of: scWindow),
+        looksLikeWindowRender(image)
+      else { continue }
+      result[capturedID] = image
+      // 落盘也在后台（红线 4）：20–40 KB 的 PNG 编码 + 写盘不该压主线程。
+      save(capturedID, image)
     }
+    return result
   }
 
   /// 抓一扇窗。抓不到 / 不像窗口渲染都返回 nil（走缓存 → app 图标的降级）。

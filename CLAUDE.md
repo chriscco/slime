@@ -68,7 +68,8 @@ gh 不传 `-t` 时默认给的是 PR 标题，对不上，所以要用 `-t` 指�
 `-b` 补上 PR 标题那一行。
 
 PR 开完之后**必须自己跑一遍 `.agents/skills/pr-review/SKILL.md` 的审查**，
-把结论贴成 PR comment，修到 Ready 再合 —— 贴完 review 就可以直接合入，不用等人工。
+把结论贴成 PR comment，修到 Ready —— **但合并一律由用户亲自执行**：
+review 完就把 PR 留在那里（修到 Ready 为止），不要合，用户会自己看完再合。
 
 本地 `pre-commit` 钩子会**拒绝在 main 上提交**。克隆后启用一次：
 

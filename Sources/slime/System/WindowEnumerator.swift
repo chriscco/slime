@@ -193,7 +193,8 @@ enum WindowEnumerator {
           appName: candidate.appName,
           // 拿不到标题就留空 —— label 退化成 app 名，不编造（红线 6）。
           title: info.title,
-          isMinimized: info.minimized
+          isMinimized: info.minimized,
+          isOnscreen: candidate.onscreen
         )
       )
     }

@@ -16,20 +16,39 @@
 
 ## 缩略图（`WindowThumbnails`，2026-10-12 新增）
 
-**职责**：按 `windowID` 缓存 `CGImage`、后台抓取、按快照边界清理。**不碰 AppKit 视图**。
+**职责**：按 `windowID` 缓存 `CGImage`（**内存 + 落盘**）、后台抓取、按快照边界清理。
+**不碰 AppKit 视图**。
 
-**接口**：`warm(_ windows: [Window])`（对齐一份快照：丢不在里面的、补抓还没有的，
-挂 `WindowCache.onChange`）、`image(for:) -> CGImage?`（转成 `NSImage` 在 UI 边界 ——
-`CardView` 做，这一层不 import AppKit）、`onChange: (() -> Void)?`、
-`looksLikeWindowRender(_:) -> Bool`。
+**接口**：`warm(_ windows: [Window])`（对齐一份快照：丢不在里面的、从盘上补进已有的、
+补抓还没有的，挂 `WindowCache.onChange`）、`image(for:) -> CGImage?`（转成 `NSImage`
+在 UI 边界 —— `CardView` 做，这一层不 import AppKit）、`onChange: (() -> Void)?`、
+`looksLikeWindowRender(_:) -> Bool`、`capturePlan(windows:cached:busy:unrenderable:)`
+（纯函数，单测直接钉）。
 
-**线程**：缓存 / `pending` / `live` / `onChange` 全在主线程；抓取走 `Task.detached`
-（不是 `Task {}` —— 后者从 MainActor 上下文继承隔离，等于把 IPC 放回主线程，红线 4）；
-结果经 `MainActor.run` 回主线程发布。抓取带并发（`withTaskGroup`），20 扇窗串行
-就是 400ms。
+**线程**：缓存 / `pending` / `refreshing` / `live` / `unrenderable` / `onChange` 全在
+主线程；抓取走 `Task.detached`（不是 `Task {}` —— 后者从 MainActor 上下文继承隔离，
+等于把 IPC 放回主线程，红线 4）；结果经 `MainActor.run` 回主线程发布。抓取**串行**
+（一扇窗一个流、16–25ms/个），**落盘也在后台**。
 
-**降级链**：实时抓的图 → 上一张好图（缓存）→ app 图标。抓取不实时刷新的窗口
-（台前调度搁置）停在第二 / 第三级。
+**抓取计划**（用户实测「大部分卡片只有 app 图标」之后的修法）：离屏窗口在合成层
+没有被渲染，SCK 抓它们要么报 `-3811`、要么给坏图 —— 这跟节流 / 并发无关（串行抓、
+隔 6 秒重试，失败的还是同一批）。所以：
+
+- **没图的**（`needed`）：必抓，面板首帧要等它（`hasPendingWork` / `whenSettled`）；
+  **但负缓存里的离屏窗口不再重试**（`unrenderable`）—— 它们注定失败，重试只会白烧
+  IPC 并把首帧拖满 `warmUpDeadline`。回到屏上就再给一次机会（那时它真能抓）。
+- **有图、在屏上的**（`refresh`）：刷新 —— 可见窗口的内容会变，图得跟得上。
+  **不阻塞首帧**（`onChange` 就地换卡片）。
+
+**降级链**：实时抓的图 → 落盘的「见它的最近一次」→ app 图标。抓不到的窗口
+（其他 Space / 最小化 / 台前调度搁置）停在第二 / 第三级 —— 那张图是它在屏时的
+最近一次，也是平台自己的行为（系统给最小化窗口显示的就是它上一次的样子）。
+
+**落盘**（`Application Support/slime/thumbs/<windowID>.png`）：**必须跨重启存活** ——
+离屏窗口整个会话都抓不到，不存的话重启后它们全是图标。清理的边界是「窗口关没关」，
+**不是面板的显示列表** —— `warm` 收的是 `WindowCache.allWindows`（含当前窗口）：
+用户所在的这扇窗不显示，但它切走之后就是列表里第一张卡，而那时它多半已经离屏、
+抓不到了。关掉的窗口不在这份列表里（known 表在枚举里自然修剪），它的图会被删。
 
 **判据**（`looksLikeWindowRender`，spec §16 选的方案 (a)）：缩到 32×32 采样，
 四角必须不透明、至少两种量化颜色。对着实测到的两种坏法：斜的透视条带（四角空）、

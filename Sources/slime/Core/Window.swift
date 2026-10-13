@@ -19,19 +19,29 @@ public struct Window: Equatable, Sendable {
   /// 窗口标题。AX 拿不到（超时/无权限）时留空，由 `label` 退化成 app 名（红线 6）。
   public let title: String
   public let isMinimized: Bool
+  /// `kCGWindowIsOnscreen`。**只用于缩略图**：在屏上的窗口合成层才有渲染，
+  /// 抓它才拿得到真图（其他 Space / 最小化 / 台前调度搁置的窗口抓不了，
+  /// 见 `WindowThumbnails`）。**不是用来过滤窗口的** —— 台前调度搁置的窗口
+  /// 这个值会在 0/1 之间反复横跳（spec §4.3 实测），拿它筛列表会漏窗。
+  ///
+  /// 默认 true（「不知道就算它能抓」）：唯一的生产构造点在 `WindowEnumerator`，
+  /// 那里总是显式传值；默认值只影响测试构造。
+  public let isOnscreen: Bool
 
   public init(
     pid: pid_t,
     windowID: UInt32,
     appName: String,
     title: String,
-    isMinimized: Bool
+    isMinimized: Bool,
+    isOnscreen: Bool = true
   ) {
     self.pid = pid
     self.windowID = windowID
     self.appName = appName
     self.title = title
     self.isMinimized = isMinimized
+    self.isOnscreen = isOnscreen
   }
 
   /// 列表显示与搜索匹配共用的拼接串：`app名 — 标题`。

@@ -67,7 +67,7 @@ final class CardGridView: NSView {
     highlight.frame = target
     CATransaction.commit()
     guard motion, previous != selection else { return }
-    if layout.shouldAnimate(from: previous, to: selection) {
+    if layout.shouldAnimate(from: previous, to: selection), abs(oldFrame.midY - target.midY) < 1 {
       let bulge = min(max(0, 52 - oldFrame.width),
                       min(20, abs(target.midX - oldFrame.midX) * 0.08))
       let samples = (0...32).map { step -> (width: CGFloat, position: NSValue) in
@@ -92,16 +92,25 @@ final class CardGridView: NSView {
       motion.duration = 0.3
       layer.add(motion, forKey: "selection")
     } else {
+      let dx = target.midX - oldFrame.midX
+      let dy = target.midY - oldFrame.midY
+      let distance = hypot(dx, dy)
+      let stops: [(time: CGFloat, width: CGFloat)] = [
+        (0, oldFrame.width), (0.15, min(52, max(oldFrame.width, 44))),
+        (0.4, 4), (0.5, 4), (0.78, 38), (1, target.width),
+      ]
       let samples = (0...40).map { step -> (width: CGFloat, position: NSValue) in
         let t = CGFloat(step) / 40
-        let travel = t * t * (3 - 2 * t)
-        let shrink = min(t / 0.3, 1)
-        let grow = max((t - 0.7) / 0.3, 0)
-        let width = t < 0.5
-          ? oldFrame.width + (4 - oldFrame.width) * shrink * shrink * (3 - 2 * shrink)
-          : 4 + (target.width - 4) * grow * grow * (3 - 2 * grow)
-        let center = NSPoint(x: oldFrame.midX + (target.midX - oldFrame.midX) * travel,
-                             y: oldFrame.midY + (target.midY - oldFrame.midY) * travel)
+        let progress = min(t / 0.78, 1)
+        let travel = 1 - pow(1 - progress, 3)
+        // A single small rebound stays bounded even when wrapping several rows.
+        let rebound = t > 0.6 ? pow(sin(.pi * (t - 0.6) / 0.4), 2) * min(6, distance * 0.025) : 0
+        let end = stops.indices.dropFirst().first { t <= stops[$0].time } ?? stops.count - 1
+        let from = stops[end - 1], to = stops[end]
+        let phase = (t - from.time) / (to.time - from.time)
+        let width = from.width + (to.width - from.width) * phase * phase * (3 - 2 * phase)
+        let center = NSPoint(x: oldFrame.midX + dx * travel + dx / max(distance, 1) * rebound,
+                             y: oldFrame.midY + dy * travel + dy / max(distance, 1) * rebound)
         return (width, NSValue(point: NSPoint(
           x: center.x + (layer.anchorPoint.x - 0.5) * width,
           y: center.y + (layer.anchorPoint.y - 0.5) * target.height)))
@@ -110,10 +119,10 @@ final class CardGridView: NSView {
       flight.values = samples.map(\.position)
       let morph = CAKeyframeAnimation(keyPath: "bounds.size.width")
       morph.values = samples.map(\.width)
-      for animation in [flight, morph] { animation.duration = 0.4 }
+      for animation in [flight, morph] { animation.duration = 0.24 }
       let motion = CAAnimationGroup()
       motion.animations = [flight, morph]
-      motion.duration = 0.4
+      motion.duration = 0.24
       layer.add(motion, forKey: "selection")
     }
   }

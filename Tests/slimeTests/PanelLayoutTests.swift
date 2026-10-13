@@ -326,6 +326,15 @@ private func label(of card: CardView) -> String? {
     let flight = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
     let flightWidth = try #require(flight.animations?.compactMap { $0 as? CAKeyframeAnimation }
       .first { $0.keyPath == "bounds.size.width" }?.values as? [CGFloat])
+    #expect(flight.duration == 0.24)
+    #expect(flightWidth[1] > 32)
+    #expect(flightWidth.suffix(12).max()! > 32)
+    #expect(flightWidth.max()! <= 52)
+    let positions = try #require(flight.animations?.compactMap { $0 as? CAKeyframeAnimation }
+      .first { $0.keyPath == "position" }?.values as? [NSValue])
+    let end = try #require(positions.last?.pointValue)
+    #expect(positions.contains { $0.pointValue.y > end.y })
+    #expect(positions.allSatisfy { $0.pointValue.y <= end.y + 6 })
     #expect(flightWidth.first == 32)
     #expect(flightWidth.min() == 4)
     #expect(flightWidth.last == 32)
@@ -387,4 +396,19 @@ private func label(of card: CardView) -> String? {
   #expect(widths.first == 52)
   #expect(widths.last == 32)
   #expect(widths.allSatisfy { $0 <= 52 })
+}
+
+@Test @MainActor func interruptedFlightKeepsItsVerticalPositionWhenMovingAlongTheNewRow() throws {
+  guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+  let grid = CardGridView()
+  grid.rows = (1...7).map { window("App", "Window", id: UInt32($0)) }
+  grid.setSelection(5, animated: false)
+  let bar = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
+  bar.frame.origin.y -= 80 // The previous flight has not reached this row yet.
+  let start = try #require(bar.layer?.position)
+  grid.setSelection(6, animated: true)
+  let group = try #require(bar.layer?.animation(forKey: "selection") as? CAAnimationGroup)
+  let positions = try #require(group.animations?.compactMap { $0 as? CAKeyframeAnimation }
+    .first { $0.keyPath == "position" }?.values as? [NSValue])
+  #expect(positions.first?.pointValue == start)
 }

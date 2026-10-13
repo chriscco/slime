@@ -37,3 +37,9 @@
 - **放弃了**：在翻译层做吞放判断（测试不到）；「默认吞、明确放行」（白名单反了 —— 状态表没覆盖的按键会掉进吞掉的一侧，违反红线 3）。
 - **代价**：多一层翻译（CGEvent → Event），Event 枚举之外的新按键需要显式进状态表；`reduce` 得为状态表没覆盖的组合定死默认行为。
 - **推翻条件**：除非出现状态机管不了的按键（例如安全输入，spec §8 红线 9 —— 那是系统层面本来就收不到事件，不是这里的洞）。
+
+## 2026-10-13 — 保留会话中的修饰键不再关闭面板
+
+用户的 ⌥Tab → 松 Option → Command 快捷键故障推翻了此前“修饰键重开手势”的决定。lingering 保持 query/selection，tap 统一处理整个会话；删除 AppKit 第二条 reducer 路径，避免 tap 和面板分叉。取消/停用经 run loop 和 revision 双向同步，不在 tap 加锁。
+
+关闭窗口增加 closing 状态，暂停输入/导航、保留 Esc/设置出口。完成后回 lingering，松 Command 不会激活邻居；autorepeat 不能再次关闭。UI session 与 tap revision 分别隔离旧异步任务。

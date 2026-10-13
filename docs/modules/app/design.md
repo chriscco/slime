@@ -1,43 +1,26 @@
 # App · 设计
 
-## 职责
+`main.swift` 在 run 前设置 accessory（无 Dock 图标）；`AppDelegate` 在 MainActor 组装 SettingsWindow、菜单栏、EventTap、WindowCache 和 PanelController。
 
-启动与组装（spec §7）：权限检查与引导 → 事件 tap → 缓存 → 面板，以及两个来源的 Effect 接成一条链路。`main.swift` 起 `NSApplication`，`.accessory` 策略（无 Dock 图标、不进系统 ⌘+Tab 列表）。
+菜单栏先建立，停用/缺权限/监听失败时仍可打开设置。启用时检查 AX 权限并启动 tap 和 cache；失败显示本地化提示、总开关回关，不假装启用。屏幕录制缺失不阻止切窗，仅影响预览。授权后提示重启。
 
-**不负责**：各层内部行为（见各模块文档）；没有登录自启、没有打包分发；菜单栏只有「设置…」「退出 slime」两项（0.0.2 起，spec §8）。
+总开关关闭立即 dismiss 和 configure(false)，释放键盘，保留其余偏好；再次开启复用 tap，无需正常运行期间重启。连续超时兜底关闭总开关、取消会话并提示原生 ⌘Tab 已恢复。
 
-## 数据结构
+## 接线
 
-- `AppDelegate`（`@MainActor`）：持有 `WindowCache`（weak 关系不成立 —— 强引用）、`PanelController`、`EventTap`，用闭包把三者接起来；另持有菜单栏的 `NSStatusItem` 和 `SettingsWindowController`（窗口只建一次，关掉不释放）。
+- tap effects → panel.handle；panel 失焦/停用 → tap.cancelSession。
+- panel.onActivate → WindowActivator.activate + cache.noteActivated。
+- panel.onRefresh → cache.refresh；cache.onChange → AppIcons.warm + WindowThumbnails.warm(allWindows) + panel.setWindows。
+- panel.onClosed → cache.noteClosed；onCloseFinished → tap.completeClose（revision 校验）。
+- panel.onOpenSettings / 菜单栏 → settingsWindow.show。
+- settingsWindow.onChange → 重建菜单文案；总开关改变时启停接管。语言即时保存，面板下次展示读取；真实 app 名/标题不翻译。
 
-## 流程
+## 设置
 
-**启动**
+720×510pt 原生 AppKit 窗口，侧栏 General/Appearance/Shortcuts/About。Settings 注入 UserDefaults 供测试；未选语言（包括升级用户）默认英文。现有颜色/玻璃/圆角偏好保留，新默认面板圆角 20pt。
 
-1. 无辅助功能权限 → `Permission.promptAccessibility()` 弹系统对话框 → 轮询等授权（≤2 分钟）→ 弹提示（「已授权，请重启 slime」/「没等到」）→ 退出。
-2. 有权限 → 建缓存、面板、事件 tap；tap 装不上就弹窗报错退出（spec §9）。
-3. 接线路：tap 的 Effect → `panel.handle`；`panel.onActivate` → `WindowActivator.activate` + `cache.noteActivated`；`panel.onRefresh` → `cache.refresh`；`cache.onChange` → `AppIcons.warm(windows)`（主线程预热图标）+ `panel.setWindows`。
-4. `installStatusItem()`：菜单栏图标 —— 「设置…」（⌘,）开 `SettingsWindowController`、「退出 slime」（⌘Q）。`.accessory` 下没有别的入口，没有它设置页做出来打不开（spec §8）。
-5. `cache.start()`：首次枚举 + 订阅 `didActivateApplicationNotification`（MRU）。
+登录项直接使用 ServiceManagement 的 SMAppService.mainApp，不复制一份真假状态到 defaults。窗口成为 key 时重读状态；注册/注销期间禁用控件；需要批准、找不到 app、调用失败分别显示系统状态或错误。默认不注册。About 从 bundle 读取版本并链接项目仓库。
 
-**tap 连续被禁**（红线 3 的兜底在 EventTap 里）→ `onDegraded` 弹窗；顺手重查权限（spec §9 的「权限中途被撤销」多半就是这个信号），没权限就再引导一次。
+## 验证与限制
 
-## 接口
-
-- `main.swift`：顶层代码起 app（`.accessory`）。
-- `AppDelegate.applicationDidFinishLaunching(_:)`。
-- `Permission`：`isAccessibilityTrusted` / `promptAccessibility()` / `waitUntilTrusted(timeout:completion:)`。
-- `SettingsWindowController`（`@MainActor`）：`show()` —— 窗口复用（只建一次）、每次打开从 `Settings` 同步控件、先 `NSApp.activate()` 再 `makeKeyAndOrderFront`。
-
-## 正确性假设
-
-- **授权只对新进程生效**（CLAUDE.md 第五条）：所以流程是「引导 → 提示重启」，不是原地重试。打破的症状：用户授权后功能还是不动，以为 app 坏了。
-- **`.accessory` 策略在 `app.run()` 之前设置**：晚设会在 Dock 里闪现图标/进 ⌘Tab 列表。症状：spec §2 第 1 条失败。
-- **弹窗前 `NSApp.activate()`**：accessory app 不激活的话弹窗在别的 app 后面，用户看不到。症状：启动/兜底提示「没出现」。
-- **三个回调都只在主线程被触发**（EventTap 经 `DispatchQueue.main` 发布；cache 是 `@MainActor`）。打破的症状：UI 从别的线程更新，间歇性崩。
-
-## 已知限制
-
-- 没有 Dock 图标；退出与设置走菜单栏图标（0.0.1 时代的 `killall slime` 仍然可用）。手动验收需要重启时记着这条。
-- 权限撤销的检测是兜底式的（tap 被禁 → 重查），不是实时的。
-- 首次枚举的失败（无窗口 / AX 全超时）不报错，只是空列表 —— 面板显示「没有其他窗口」。
+测试覆盖设置持久化、语言控件动作、tap 接管/撤销及异步关闭联动。系统批准、真实登录启动、TCC、macOS 全局按键与焦点需要真机验收。安全输入时原生 ⌘Tab 接管是预期降级。

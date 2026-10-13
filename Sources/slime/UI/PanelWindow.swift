@@ -13,8 +13,6 @@ final class PanelWindow: NSPanel {
   /// shortcut: 只有一块玻璃面，没用 NSGlassEffectContainerView —— 每张卡片
   ///           单独做玻璃时再回来合并渲染
   private let glass = NSGlassEffectView()
-  /// lingering 下的 NSEvent 翻译入口（spec §6：两个事件源、一个状态机）。
-  var onKey: (@MainActor (Event) -> Void)?
   /// 失去 key（用户点了别的窗口）—— 面板该藏着走，避免留下无主窗口。
   var onResignKey: (@MainActor () -> Void)?
 
@@ -25,6 +23,7 @@ final class PanelWindow: NSPanel {
       backing: .buffered,
       defer: false
     )
+    appearance = NSAppearance(named: .darkAqua)
     isFloatingPanel = true
     level = .floating
     becomesKeyOnlyIfNeeded = false
@@ -78,32 +77,15 @@ final class PanelWindow: NSPanel {
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
 
-  override func keyDown(with event: NSEvent) {
-    if let translated = Self.translate(event), let onKey {
-      onKey(translated)
-      return
-    }
-    // 不是我们认识的键（功能键等）：不动。0.0.1 面板没有别的按键消费者。
-    super.keyDown(with: event)
-  }
+  // The tap owns keyboard sessions; do not run a second reducer in AppKit.
+  override func keyDown(with event: NSEvent) {}
 
   override func resignKey() {
     super.resignKey()
     onResignKey?()
   }
 
-  /// NSEvent → Event。翻译的活在这里，不在 Core/Trigger；
-  /// keyCode 表与 EventTap 共用（KeyTable），两个事件源语义一致。
-  private static func translate(_ event: NSEvent) -> Event? {
-    guard event.type == .keyDown else { return nil }
-    let flags = event.modifierFlags
-    return KeyTable.event(
-      keyCode: Int(event.keyCode),
-      shift: flags.contains(.shift),
-      commandOrOption: flags.contains(.command) || flags.contains(.option),
-      character: event.charactersIgnoringModifiers?.first
-    )
-  }
+
 }
 
 /// 面板内容：搜索行 + 卡片网格 + 空态提示。手动布局（从上到下三块，
@@ -114,11 +96,12 @@ final class PanelContentView: NSView {
   let searchLabel = NSTextField(labelWithString: "")
   let scrollView = NSScrollView()
   let gridView = CardGridView()
-  let emptyLabel = NSTextField(labelWithString: "没有其他窗口")
+  let emptyLabel = NSTextField(labelWithString: "")
+  let statusLabel = NSTextField(labelWithString: "")
 
   /// 空查询时的占位提示。键盘路径上查询只经 `setSearchText` 更新，
   /// 这里就是它的初始状态。
-  static let searchPlaceholder = "输入以过滤"
+  static var searchPlaceholder: String { localized("Type to filter", "输入以过滤") }
 
   override var isFlipped: Bool { true }
 
@@ -161,6 +144,11 @@ final class PanelContentView: NSView {
     addSubview(searchBox)
     addSubview(scrollView)
     addSubview(emptyLabel)
+    statusLabel.font = .systemFont(ofSize: 11)
+    statusLabel.textColor = .secondaryLabelColor
+    statusLabel.alignment = .right
+    statusLabel.lineBreakMode = .byTruncatingTail
+    searchBox.addSubview(statusLabel)
   }
 
   required init?(coder: NSCoder) { fatalError("面板只从代码建") }
@@ -171,6 +159,13 @@ final class PanelContentView: NSView {
     let isEmpty = text.isEmpty
     searchLabel.stringValue = isEmpty ? Self.searchPlaceholder : text
     searchLabel.textColor = isEmpty ? .secondaryLabelColor : .labelColor
+  }
+
+  func showStatus(_ message: String?) {
+    statusLabel.stringValue = message ?? ""
+    statusLabel.toolTip = message
+    statusLabel.setAccessibilityLabel(message)
+    needsLayout = true
   }
 
   /// 渲染一批卡片：先把文档宽度定稿（跑一遍布局、经 setContentWidth 传导），
@@ -207,10 +202,12 @@ final class PanelContentView: NSView {
     searchLabel.frame = NSRect(
       x: textX,
       y: (searchHeight - searchLabel.frame.height) / 2,
-      width: searchBox.bounds.width - textX - Self.searchLeadingInset,
+      width: (searchBox.bounds.width - textX - Self.searchLeadingInset) * (statusLabel.stringValue.isEmpty ? 1 : 0.45),
       height: searchLabel.frame.height
     )
 
+    statusLabel.frame = NSRect(x: searchBox.bounds.width * 0.48, y: (searchHeight - 16) / 2,
+      width: searchBox.bounds.width * 0.52 - 10, height: 16)
     let listTop = padding + headerHeight
     scrollView.frame = NSRect(
       x: padding, y: listTop, width: inner, height: bounds.height - listTop - padding)

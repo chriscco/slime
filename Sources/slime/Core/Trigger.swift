@@ -4,8 +4,7 @@
 /// → 全系统键盘挂掉」这个真实且严重的风险，变成能在单测里穷举的东西 ——
 /// 不需要辅助功能权限、不需要 CGEventTap、不需要真人按键。
 ///
-/// 两个事件源（EventTap 的 CGEvent、PanelController 的 NSEvent）翻译成同一个
-/// Event 调同一个 reduce；翻译的活在 System/ 和 UI/，不在这一层。
+/// EventTap translates keyboard events and owns the session state.
 
 public enum Modifier: Equatable, Sendable {
   case cmd, opt
@@ -28,6 +27,7 @@ public enum State: Equatable, Sendable {
   case holding(Modifier, query: String, selection: Int)
   /// ⌥ 模式：修饰键已松开，面板留着。
   case lingering(query: String, selection: Int)
+  case closing(query: String, selection: Int)
 }
 
 public enum Event: Equatable, Sendable {
@@ -38,6 +38,7 @@ public enum Event: Equatable, Sendable {
   case arrow(axis: Axis, step: Int)
   case focusSearch                             // ⌘F / ⌥F
   case openSettings                            // ⌘, / ⌥,
+  case closeWindow, closeFinished
   case enter, escape
 }
 
@@ -47,6 +48,7 @@ public enum Effect: Equatable, Sendable {
   case moveSelection(axis: Axis, step: Int)
   case appendQuery(Character), deleteQueryChar
   case focusSearchField
+  case closeWindow
   case activate, cancel
   case openSettings
 }
@@ -87,6 +89,9 @@ public func reduce(_ state: State, _ event: Event) -> (State, [Effect]) {
         return (.lingering(query: query, selection: selection), [.focusSearchField])
       }
     }
+    if case .closeWindow = event {
+      return (.closing(query: query, selection: selection), [.swallow, .closeWindow])
+    }
     // ⌘ 模式下 ⌘F = 「我要慢慢找」：会话转 lingering —— 松开 ⌘ 不再切换、
     // 回车才切、Esc 取消（用户实测：按 F 想搜索，松 ⌘ 却直接切走了）。
     // ⌥ 模式的松开本来就转 lingering，⌥F 保持 holding 即可。
@@ -103,12 +108,21 @@ public func reduce(_ state: State, _ event: Event) -> (State, [Effect]) {
       return (state, [.passThrough])
     }
 
+  case .closing(let query, let selection):
+    switch event {
+    case .closeFinished: return (.lingering(query: query, selection: selection), [])
+    case .escape: return (.idle, [.swallow, .cancel, .hidePanel])
+    case .openSettings: return (.idle, [.swallow, .openSettings])
+    case .modifierDown, .modifierUp: return (state, [.passThrough])
+    default: return (state, [.swallow])
+    }
+
   case .lingering(let query, let selection):
-    if case .modifierDown(let m) = event {
-      // lingering 时按 ⌘/⌥ = 开始新手势。关掉 lingering 的面板 —— 不关的话，
-      // 接下来的 armed/idle 没有面板窗口的主人，窗口会以「没有状态驱动」
-      // 的样子留在屏幕上（spec §6 状态表没写这一格；取舍见 decision.md）。
-      return (.armed(m), [.passThrough, .hidePanel])
+    if case .closeWindow = event {
+      return (.closing(query: query, selection: selection), [.swallow, .closeWindow])
+    }
+    if case .modifierDown = event {
+      return (state, [.passThrough])
     }
     if case .modifierUp = event {
       // lingering 是「修饰键已经松开」的状态，再收到松开事件是尾随的，无意义。
@@ -162,5 +176,14 @@ private func panelStep(_ event: Event, query: String, selection: Int) -> PanelSt
     return .finish(effects: [.swallow, .cancel, .hidePanel])
   default:
     return nil
+  }
+}
+
+public extension State {
+  var isSessionOpen: Bool {
+    switch self {
+    case .holding, .lingering, .closing: true
+    default: false
+    }
   }
 }

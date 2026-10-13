@@ -108,6 +108,14 @@ final class WindowCache {
     onChange?(snapshot)
   }
 
+  func noteClosed(_ window: Window) {
+    generation += 1
+    all.removeAll { $0.windowID == window.windowID }
+    known.removeValue(forKey: window.windowID)
+    Self.saveKnown(known, to: defaults)
+    onChange?(snapshot)
+  }
+
   private func apply(
     _ windows: [Window], frontWindowID: UInt32?, known: [UInt32: KnownWindow], generation: Int
   ) {
@@ -155,8 +163,6 @@ final class WindowCache {
   /// 已有的那个」）—— 这是对「只有 Core 能单测」的一处有意偏离，见
   /// docs/modules/system/decision.md。
   ///
-  /// shortcut: 排序聚拢只保证同一 app 的窗口相邻，不做视觉分组（app 之间加标题 /
-  ///           间隔）—— 相邻了还是分不清哪几扇窗属于同一个 app 时再做
   nonisolated static func sort(_ windows: [Window], byMRU mru: [pid_t]) -> [Window] {
     var rank: [pid_t: Int] = [:]
     for (index, pid) in mru.enumerated() { rank[pid] = index }

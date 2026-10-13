@@ -22,7 +22,7 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   ]
   content.layoutSubtreeIfNeeded()
 
-  #expect(content.gridView.layout.columns == 3)
+  #expect(content.gridView.layout.columns == 5)
   #expect(content.gridView.layout.rows == 1)
 
   let cards = content.gridView.subviews.compactMap { $0 as? CardView }
@@ -205,11 +205,15 @@ private func label(of card: CardView) -> String? {
   #expect(content.emptyLabel.isHidden)
 }
 
-// spec §8：线条加粗到 2.5。2.5 是提案值，但「不能悄悄回到 2」值得钉住。
-@Test @MainActor func highlightOutlineIsThickerThanTheOldTwoPoints() throws {
+// 0.0.5 removes the outline; only a short underline moves.
+@Test @MainActor func highlightUsesAnUnderlineInsteadOfAnOutline() throws {
   let grid = CardGridView()
   let highlight = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
-  #expect(highlight.layer?.borderWidth == 2.5)
+  #expect(highlight.layer?.borderWidth == 0)
+  grid.rows = [window("Chrome", "A", id: 1)]
+  grid.setSelection(0, animated: false)
+  #expect(highlight.frame.height == 3)
+  #expect(highlight.frame.width == 32)
 }
 
 @Test @MainActor func highlightColorIsPushedInFromTheOutside() throws {
@@ -217,7 +221,7 @@ private func label(of card: CardView) -> String? {
   let grid = CardGridView()
   let highlight = try #require(grid.subviews.compactMap { $0 as? HighlightView }.first)
   grid.highlightColor = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
-  #expect(highlight.layer?.borderColor == NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor)
+  #expect(highlight.layer?.backgroundColor == NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).cgColor)
 }
 
 // spec §6 / §12：没有缩略图（没权限、抓失败、台前调度搁置）时卡片必须退回
@@ -228,10 +232,12 @@ private func label(of card: CardView) -> String? {
   card.frame = NSRect(x: 0, y: 0, width: 160, height: 120)
   card.layoutSubtreeIfNeeded()
 
-  let thumb = try #require(card.subviews.compactMap { $0 as? NSImageView }.first)
-  // 测试进程里没有抓过任何图 → 缩略图缓存必然是空的。
+  let preview = try #require(card.subviews.compactMap { $0 as? WindowPreviewView }.first)
   #expect(WindowThumbnails.image(for: chrome) == nil)
-  #expect(thumb.image === AppIcons.icon(for: chrome))
+  #expect(preview.image == nil)
+  #expect(preview.appIcon === AppIcons.icon(for: chrome))
+  #expect(preview.toolTip == localized("Preview unavailable", "无法获取预览"))
+
 }
 
 // 缩略图区在上、标题在下，两者不重叠（spec §5.4：图区 + 间隙 + 标题）。
@@ -241,7 +247,7 @@ private func label(of card: CardView) -> String? {
   card.frame = NSRect(x: 0, y: 0, width: cell.cardWidth, height: cell.cardHeight)
   card.layoutSubtreeIfNeeded()
 
-  let thumb = try #require(card.subviews.compactMap { $0 as? NSImageView }.first)
+  let thumb = try #require(card.subviews.compactMap { $0 as? WindowPreviewView }.first)
   let label = try #require(card.subviews.compactMap { $0 as? NSTextField }.first)
   // 图区 = 卡片 − 底部标题 − 间隙 − 上下内缩（尺寸是调参值，用关系断言）。
   #expect(thumb.frame.maxY <= label.frame.minY)  // flipped：y 向下
@@ -249,7 +255,7 @@ private func label(of card: CardView) -> String? {
   #expect(label.frame.maxY <= card.bounds.maxY - 2)
 }
 
-@Test @MainActor func cardContentSitsInsideTheHighlightOutline() {
+@Test @MainActor func cardContentKeepsAnInsetForRoundedSelection() {
   // 用户实测：高亮描边压在缩略图 / 底部标题上。高亮画在**单元格边界**，
   // 所以卡片内容必须内缩 —— 这条钉住「内容和描边不重叠」。
   let content = PanelContentView()
@@ -267,4 +273,34 @@ private func label(of card: CardView) -> String? {
         && frame.maxX <= card.bounds.width - 2 && frame.maxY <= card.bounds.height - 2,
       "子视图 \(type(of: sub)) 压到了高亮描边所在的边界：\(frame) in \(card.bounds)")
   }
+}
+
+@Test @MainActor func groupingKeepsCardsButAddsAppHeaders() {
+  let grid = CardGridView()
+  let first = Window(pid: 10, windowID: 11, appName: "Safari", title: "A", isMinimized: false)
+  let second = Window(pid: 20, windowID: 22, appName: "Notes", title: "B", isMinimized: false)
+  grid.rows = [first, second]
+  let original = cardSubviews(of: grid)
+  grid.groupByApp = true
+  #expect(grid.layout.groupStarts == [0, 1])
+  #expect(grid.layout.origin(of: 1).x == 0)
+  #expect(grid.layout.origin(of: 1).y > grid.layout.origin(of: 0).y)
+  #expect(cardSubviews(of: grid)[0] === original[0])
+  grid.groupByApp = false
+  #expect(grid.layout.groupStarts.isEmpty)
+  #expect(grid.layout.origin(of: 1).y == 0)
+}
+
+@Test @MainActor func portraitPreviewRoundsTheImageItself() throws {
+  let preview = WindowPreviewView(frame: NSRect(x: 0, y: 0, width: 180, height: 120))
+  preview.image = NSImage(size: NSSize(width: 60, height: 120), flipped: false) { rect in
+    NSColor.red.setFill(); rect.fill(); return true
+  }
+  let rect = WindowPreviewView.imageRect(size: preview.image!.size, in: preview.bounds)
+  #expect(rect == NSRect(x: 60, y: 0, width: 60, height: 120))
+  let bitmap = try #require(preview.bitmapImageRepForCachingDisplay(in: preview.bounds))
+  preview.cacheDisplay(in: preview.bounds, to: bitmap)
+  let scale = Double(bitmap.pixelsWide) / 180
+  #expect(bitmap.colorAt(x: Int(60 * scale), y: 0)!.alphaComponent < 0.1)
+  #expect(bitmap.colorAt(x: Int(90 * scale), y: Int(60 * scale))!.redComponent > 0.9)
 }

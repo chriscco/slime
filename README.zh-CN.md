@@ -164,7 +164,7 @@ pre-commit 钩子会拦。
   交付物**做完了**才写 `Closes #N`，只完成一部分写 `Refs #N` —— 用错 `Closes`
   会把没做完的 issue 关掉，比不关更糟。
 
-完整的开发规范在 [`CLAUDE.md`](CLAUDE.md)。动 `EventTap` 或 `WindowEnumerator`
+完整的开发规范在 [`CLAUDE.md`](CLAUDE.md)（英文）。动 `EventTap` 或 `WindowEnumerator`
 之前先读它 —— 里面写了这个领域的正确性红线，踩错不是「看起来不好」，是会把
 用户的机器弄坏。
 

@@ -1,8 +1,12 @@
-# slime
+<p align="center">
+  <img src="docs/assets/slime-banner.png" alt="Slime — logo and green slime mascot" width="100%">
+</p>
+
+<p align="center">
+  <a href="README.md">English →</a>
+</p>
 
 macOS 窗口切换器。比系统自带的切换器多两样东西：**打字即时搜索**和**双触发手势**。
-
-**[English →](README.md)**
 
 > **版本：0.0.6。** 史莱姆绿主题、新图标、明确的搜索焦点，以及完善的窗口关闭和动画。
 

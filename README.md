@@ -1,9 +1,13 @@
-# slime
+<p align="center">
+  <img src="docs/assets/slime-banner.png" alt="Slime — logo and green slime mascot" width="100%">
+</p>
+
+<p align="center">
+  <a href="README.zh-CN.md">中文说明 →</a>
+</p>
 
 A macOS window switcher with two things the system's own switcher doesn't do:
 **type-to-search** and **two trigger gestures**.
-
-**[中文说明 →](README.zh-CN.md)**
 
 > **Version: 0.0.6.** Slime-green accents, a new icon, visible search focus, and refined window closing and animation.
 

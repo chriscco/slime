@@ -175,7 +175,7 @@ Everything goes through **issue → branch → PR → merge**. No direct commits
 - A PR must say **why**, not just what, and must link an issue. Use `Closes #N`
   only when the PR finishes the deliverable, `Refs #N` otherwise.
 
-The full development norms are in [`CLAUDE.md`](CLAUDE.md) (Chinese). Read it
+The full development norms are in [`CLAUDE.md`](CLAUDE.md) (English). Read it
 before touching `EventTap` or `WindowEnumerator` — it lists this domain's
 correctness red lines, and getting those wrong does not merely look bad, it
 breaks the user's machine.

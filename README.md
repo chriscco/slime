@@ -54,7 +54,7 @@ Login items use macOS status and may require approval in System Settings.
 
 When direct access is unavailable, slime attempts to reveal the target app and revalidate the window. The panel dismisses and does not return automatically after closing or confirmation. Ambiguous targets are never guessed. Automatic identification, retries, and confirmation share a three-second budget; system AX calls may return later than the requested timeout.
 
-Search focus has an accent border and end caret. Typing appends to the query, Backspace deletes its final character, and arrows still select windows. This version does not implement text selection, arbitrary caret placement, or IME composition.
+Typing after `⌘Tab` keeps the panel open when you release Command; `⌘F` is optional. Without typing, releasing Command still switches immediately. Search focus has a 2pt accent border and an end caret that updates immediately without sliding. Typing appends to the query, Backspace deletes its final character, and arrows still select windows. This version does not implement text selection, arbitrary caret placement, or IME composition.
 
 ## Requirements
 

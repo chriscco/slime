@@ -406,23 +406,25 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   let content = controller.panel.content
   controller.handle(state: .lingering(query: "", selection: 0), effects: [.focusSearchField])
   #expect(content.searchFocused)
+  #expect(content.searchBox.layer?.borderWidth == 2)
   #expect(!content.searchCaret.isHidden)
   let start = content.searchCaret.frame.minX
   controller.handle(state: .lingering(query: "abc", selection: 0), effects: [.appendQuery("a")])
   #expect(content.searchCaret.frame.minX > start)
+  #expect(content.searchCaret.layer?.animation(forKey: "caret") == nil)
   controller.dismiss()
   #expect(!content.searchFocused)
 }
 
-@Test @MainActor func repeatingSearchFocusKeepsTheExistingCaretAnimation() {
+@Test @MainActor func repeatingSearchFocusKeepsTheExistingBlinkAnimation() {
   let content = PanelContentView()
   content.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
   content.setSearchFocused(true)
-  let marker = CABasicAnimation(keyPath: "position")
+  let marker = CABasicAnimation(keyPath: "opacity")
   marker.duration = 1
-  content.searchCaret.layer?.add(marker, forKey: "caret")
+  content.searchCaret.layer?.add(marker, forKey: "blink")
   content.setSearchFocused(true)
-  #expect(content.searchCaret.layer?.animation(forKey: "caret") != nil)
+  #expect(content.searchCaret.layer?.animation(forKey: "blink") != nil)
 }
 
 @Test @MainActor func typingThePlaceholderTextIsStillAQuery() {

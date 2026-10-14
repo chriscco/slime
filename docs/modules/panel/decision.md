@@ -119,3 +119,7 @@ The user rejected the overall flight. Delete the branch and its unused curves/op
 ## 2026-10-13 · 0.0.6 close decoration, resizing, and visible search focus
 
 Fade title/tint/underline at close start, leaving only the preview for CRT. Restore direct failures, animate successful height changes over 200 ms, and keep cross-row selection immediate. Use the existing tap-owned filter with an accent focus border and a 90 ms end caret, not a second field editor. Skip unchanged image/grid work and avoid per-frame enumeration or reconstruction. The sole existing user's accent migrates once from any saved value to slime green. The release spec requires native and performance verification rather than assuming animation duration proves smoothness.
+
+## 2026-10-14 · Immediate caret, stronger focus, slightly faster CRT
+
+Owner feedback removes end-caret travel; the previous 90 ms animation is superseded. Keep ordinary blinking, strengthen the focus border from 1 to 2 pt and accent opacity from 65% to 85%. Reduce CRT duration from 560 to 500 ms while retaining phase proportions and the 120 ms Reduce Motion fade. Removing travel avoids its per-edit animation allocation/compositing, without claiming it was a measured bottleneck.

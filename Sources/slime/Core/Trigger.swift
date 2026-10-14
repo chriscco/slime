@@ -101,6 +101,9 @@ public func reduce(_ state: State, _ event: Event) -> (State, [Effect]) {
 
     switch panelStep(event, query: query, selection: selection) {
     case .update(let q, let sel, let effects):
+      if case .char = event, m == .cmd {
+        return (.lingering(query: q, selection: sel), effects)
+      }
       return (.holding(m, query: q, selection: sel), effects)
     case .finish(let effects):
       return (.idle, effects)

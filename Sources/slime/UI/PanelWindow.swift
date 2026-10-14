@@ -184,8 +184,8 @@ final class PanelContentView: NSView {
   func setSearchFocused(_ focused: Bool) {
     guard focused != searchFocused else { return }
     searchFocused = focused
-    searchBox.layer?.borderWidth = focused ? 1 : 0
-    searchBox.layer?.borderColor = accentColor.withAlphaComponent(0.65).cgColor
+    searchBox.layer?.borderWidth = focused ? 2 : 0
+    searchBox.layer?.borderColor = accentColor.withAlphaComponent(0.85).cgColor
     searchBox.layer?.backgroundColor = (focused ? accentColor.withAlphaComponent(0.10)
       : NSColor.white.withAlphaComponent(0.06)).cgColor
     searchIcon.contentTintColor = focused ? accentColor : .secondaryLabelColor
@@ -249,20 +249,8 @@ final class PanelContentView: NSView {
     let offset = min(0, available - textWidth - 6)
     searchLabel.frame = NSRect(x: offset, y: (searchHeight - searchLabel.frame.height) / 2,
       width: max(available, textWidth + 4), height: searchLabel.frame.height)
-    let oldPosition = searchCaret.layer?.presentation()?.position ?? searchCaret.layer?.position
-    let caretFrame = NSRect(x: max(0, offset + textWidth + 2),
+    searchCaret.frame = NSRect(x: max(0, offset + textWidth + 2),
       y: (searchHeight - 18) / 2, width: 2, height: 18)
-    if searchCaret.frame != caretFrame {
-      searchCaret.frame = caretFrame
-      if searchFocused, let oldPosition, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-        let move = CABasicAnimation(keyPath: "position")
-        move.fromValue = NSValue(point: oldPosition)
-        move.toValue = searchCaret.layer.map { NSValue(point: $0.position) }
-        move.duration = 0.09
-        move.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        searchCaret.layer?.add(move, forKey: "caret")
-      }
-    }
 
     statusLabel.frame = NSRect(x: searchBox.bounds.width * 0.48, y: (searchHeight - 16) / 2,
       width: searchBox.bounds.width * 0.52 - 10, height: 16)

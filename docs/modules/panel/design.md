@@ -17,7 +17,7 @@
 
 Show/hide advances session generation. Thumbnail warm-up waits at most 300 ms; stale callbacks cannot reopen a dismissed or replacement session. Dismissal/disable cancels the tap session.
 
-Command-D captures target and neighbor identities. AX work and CRT run concurrently. At close start, title, tint, and underline fade away; only the card-sized preview snapshot animates. The 560 ms CRT separates picture compression/exposure, a 2 pt luminous beam, and a 4 pt fading point so glow is not flattened into a rectangle. Reduce Motion uses a 120 ms fade.
+Command-D captures target and neighbor identities. AX work and CRT run concurrently. At close start, title, tint, and underline fade away; only the card-sized preview snapshot animates. The 500 ms CRT separates picture compression/exposure, a 2 pt luminous beam, and a 4 pt fading point so glow is not flattened into a rectangle. Reduce Motion uses a 120 ms fade.
 
 During closing, cache snapshots can arrive but cannot reorder visible cards. Confirmed closure removes only the target and selects the next surviving neighbor, or the previous one at the end. A direct failure restores the preview/decorations and shows a reason. A fallback that must reveal the target application dismisses slime permanently for that transaction, leaving save confirmation to the user.
 
@@ -25,7 +25,7 @@ One AXRequest supplies a shared three-second deadline and cancellation checks. A
 
 ## Search and performance
 
-The filter is a tap-owned append/backspace query, not an AppKit field editor. Explicit focus shows an accent border/icon and blinking end caret. Caret position interpolates over 90 ms and replaces its previous movement; hidden panels stop blinking. Long text is clipped with its end visible. Arrows still select windows; no IME, arbitrary text selection, or mouse window selection is implemented.
+The filter is a tap-owned append/backspace query, not an AppKit field editor. Explicit focus shows a 2 pt accent border/icon and blinking end caret. Caret position updates immediately without travel animation; hidden panels stop blinking. Typing from Command-holding enters a persistent search session. Long text is clipped with its end visible. Arrows still select windows; no IME, arbitrary text selection, or mouse window selection is implemented.
 
 Unchanged ordered results skip grid rendering. Cards avoid wrapping an unchanged CGImage again or invalidating its preview. Focus does not restart its animations on every character. Resize frames update geometry without repeating ranking or capture. Thumbnail updates are snapshots, not live video.
 

@@ -1,6 +1,6 @@
 # App handoff
 
-Updated 2026-10-13. Branch: `feat/0.0.6`, based on merged 0.0.5 (`fe3a221`). Implementation: [#51](https://github.com/chriscco/slime/issues/51). Final native acceptance and post-merge publication: [#52](https://github.com/chriscco/slime/issues/52). The owner merges; the agent must not merge or tag the feature branch.
+Updated 2026-10-14. Branch: `feat/0.0.6`, based on merged 0.0.5 (`fe3a221`). Implementation: [#51](https://github.com/chriscco/slime/issues/51). Final native acceptance and post-merge publication: [#52](https://github.com/chriscco/slime/issues/52). The owner merges; the agent must not merge or tag the feature branch.
 
 ## Implemented
 
@@ -8,7 +8,7 @@ Version 0.0.6 (6), supplied application icon, exact sRGB slime-green default and
 
 Command-D has a shared three-second deadline, cancellation between AX calls, and at most one active transaction. It revalidates the CG/AX identity before pressing the close button. Inaccessible targets can be activated/unhidden/raised with public APIs and retried within the same budget. Save sheets are a handoff, never consent. The panel stays dismissed after handing control to the app. An intentional hide's resign-key notification no longer cancels that handoff; user dismissal and replacement sessions still cancel it.
 
-CRT hides selected tint, title and underline; direct failure restores them. Confirmed removals animate panel height for 200 ms. Search has visible focus and a 90 ms end-caret transition. Cross-row underline placement remains immediate. Reduce Motion keeps the existing fade and disables geometry travel. Cards/images are reused when unchanged.
+CRT hides selected tint, title and underline; direct failure restores them. Confirmed removals animate panel height for 200 ms. Search has a 2 pt focus border and an end caret that updates immediately. Typing after Command-Tab enters lingering without requiring Command-F; Command release then leaves the panel open. CRT is slightly faster at 500 ms. Cross-row underline placement remains immediate. Reduce Motion keeps the existing fade and disables geometry travel. Cards/images are reused when unchanged.
 
 Enumeration now allows one running and one pending request and stops obsolete AX work. Thumbnail disk reads and eager decoding run in the background; live identity tickets guard publication, misses are remembered, and the existing 300 ms presentation deadline remains.
 

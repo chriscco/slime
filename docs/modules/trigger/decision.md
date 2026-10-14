@@ -39,3 +39,7 @@ Historical entries retain their original order; the final entries supersede earl
 The user's Option-Tab → release Option → Command-shortcut failure overturns modifier-restart behavior. Lingering retains query and selection. EventTap owns the whole session; remove the second AppKit reducer path. Cancellation/disable synchronize through the run loop and revisions without locking the tap.
 
 Closing pauses input/navigation while retaining Escape/settings exits, then returns to lingering. Command release cannot activate a neighbor and autorepeat cannot close again. UI session generations and tap revisions separately isolate stale work.
+
+## 2026-10-14 · Typing makes Command search persistent
+
+The owner reported that direct typing after Command-Tab still required holding Command. The first character now changes Command holding to lingering, preserving the updated query and reset selection. Command release does not activate a result afterward; Enter activates and Escape dismisses. Command-F remains an optional way to enter search. Without typing, hold-Tab-release retains immediate switching. This supersedes the earlier decision to preserve hold/type/release behavior.

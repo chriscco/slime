@@ -259,7 +259,7 @@ final class WindowPreviewView: NSView {
     let overlay = CALayer()
     overlay.frame = frame
     let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let duration = reduced ? 0.12 : 0.56
+    let duration = reduced ? 0.12 : 0.50
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     parent.addSublayer(overlay)

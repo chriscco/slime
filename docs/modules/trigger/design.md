@@ -6,7 +6,7 @@
 |---|---|
 | idle | Modifier down → armed; otherwise pass through |
 | armed(m) | Tab → holding/showPanel; matching modifier up → idle; ordinary shortcuts pass through |
-| holding(cmd) | Command up → activate/hide; Command-F → lingering |
+| holding(cmd) | Command up → activate/hide until typing; first character or Command-F → lingering |
 | holding(opt) | Option up → lingering |
 | lingering | Modifier changes retain query/selection; Tab/arrows/type continue; Enter activates, Escape cancels, Command-comma opens settings |
 | closing | Modifier changes retain the session; navigation/input/repeated close are swallowed; Escape/settings can end it; closeFinished → lingering |

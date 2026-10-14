@@ -26,4 +26,4 @@ Input must already be MRU ordered; otherwise an empty query cannot put recently 
 
 There is no position penalty, length normalization, optimal fzf-style alignment, or pinyin matching. Unicode lowercasing follows the standard library; special cases such as Turkish İ were not separately calibrated in the original implementation.
 
-In 0.0.6, the panel shows explicit search focus and an animated end caret. The tap still owns the append/backspace filter; arrows navigate windows. No full text editor or IME integration is added. Search itself remains synchronous and pure. Skip unchanged grid/image work before introducing a debounce or background ranking; validate the 10/50/100-window release matrix first.
+In 0.0.6, the panel shows explicit search focus and an immediately positioned end caret. The tap still owns the append/backspace filter; typing while holding Command makes the session persistent, and arrows navigate windows. No full text editor or IME integration is added. Search itself remains synchronous and pure. Skip unchanged grid/image work before introducing a debounce or background ranking; validate the 10/50/100-window release matrix first.

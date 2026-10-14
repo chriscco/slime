@@ -44,13 +44,23 @@ import Testing
   #expect(Settings.clampStrength(-.infinity) == 0)
 }
 
-@Test func defaultHighlightColorIsTheMeasuredOrange() throws {
-  // spec §8：不绑系统主题色，用实测过的那个橙（对着近黑面板底、2.5pt 线条
-  // 验过对比度）。换颜色要重测一轮 —— 这条测试就是「别顺手改掉」的提示。
+@Test func defaultHighlightColorIsSlimeGreen() throws {
   let srgb = try #require(Settings.defaultHighlightColor.usingColorSpace(.sRGB))
-  #expect(abs(srgb.redComponent - 0.969) < 0.01)
-  #expect(abs(srgb.greenComponent - 0.510) < 0.01)
-  #expect(abs(srgb.blueComponent - 0.106) < 0.01)
+  #expect(abs(srgb.redComponent - 150.0 / 255) < 0.0001)
+  #expect(abs(srgb.greenComponent - 215.0 / 255) < 0.0001)
+  #expect(abs(srgb.blueComponent - 106.0 / 255) < 0.0001)
+}
+
+@Test func accentMigrationResetsOldColorsOnlyOnce() throws {
+  let suite = "slime.tests.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  defaults.set(try NSKeyedArchiver.archivedData(withRootObject: NSColor.orange,
+    requiringSecureCoding: true), forKey: "highlight.color")
+  let migrated = Settings(defaults: defaults)
+  #expect(migrated.highlightColor == Settings.defaultHighlightColor)
+  migrated.highlightColor = .purple
+  #expect(Settings(defaults: defaults).highlightColor == .purple)
 }
 
 @Test func generalSettingsDefaultToEnabledUngroupedAndEnglishAndPersist() throws {

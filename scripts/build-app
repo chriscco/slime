@@ -33,7 +33,8 @@ if [ ! -x "$BIN" ]; then
 fi
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Resources/slime.icns "$APP/Contents/Resources/slime.icns"
 cp "$BIN" "$APP/Contents/MacOS/slime"
 
 cat > "$APP/Contents/Info.plist" <<EOF
@@ -45,8 +46,9 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleName</key><string>slime</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.0.5</string>
-  <key>CFBundleVersion</key><string>5</string>
+  <key>CFBundleShortVersionString</key><string>0.0.6</string>
+  <key>CFBundleVersion</key><string>6</string>
+  <key>CFBundleIconFile</key><string>slime</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSUIElement</key><true/>
 </dict>

@@ -22,16 +22,19 @@ struct Settings {
   /// 默认给偏透明的值，但留出可见余量：1.0 时滑块到底、没有任何变化可看。
   static let defaultGlassStrength: Double = 0.2
 
-  /// 高亮线条的颜色（spec §8）。**固定默认值，不跟系统主题色** —— 绑系统意味着
-  /// 系统主题一改 slime 就跟着变，那是需求方明确不要的耦合，还多一个「跟随系统」
-  /// 勾选框。这个橙是实测过的（近黑面板底 + 2.5pt 线条下对比度够）。
+  /// Fixed sRGB accent, independent of the system accent color.
   static let defaultHighlightColor = NSColor(
-    srgbRed: 0.969, green: 0.510, blue: 0.106, alpha: 1)
+    srgbRed: 150.0 / 255, green: 215.0 / 255, blue: 106.0 / 255, alpha: 1)
 
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+    // The sole pre-release user requested resetting every old accent once.
+    if !defaults.bool(forKey: "highlight.migrated006") {
+      defaults.removeObject(forKey: Key.highlightColor)
+      defaults.set(true, forKey: "highlight.migrated006")
+    }
   }
 
   enum Language: String, CaseIterable {

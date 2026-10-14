@@ -27,6 +27,7 @@ final class CardGridView: NSView {
   var highlightColor: NSColor = Settings.defaultHighlightColor {
     didSet { highlight.color = highlightColor; setSelection(selection, animated: false) }
   }
+  private var closingID: UInt32?
   private let highlight = HighlightView()
   private var cards: [CardView] = []
   private var headings: [NSView] = []
@@ -52,7 +53,7 @@ final class CardGridView: NSView {
     highlight.isHidden = rows.isEmpty
     let motion = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     for (i, card) in cards.enumerated() {
-      card.setSelected(i == selection, color: highlightColor, animated: motion)
+      card.setSelected(i == selection && rows[i].windowID != closingID, color: highlightColor, animated: motion)
     }
     guard !rows.isEmpty, let layer = highlight.layer else { return }
     let cell = cardRect(selection)
@@ -92,6 +93,28 @@ final class CardGridView: NSView {
       motion.duration = 0.3
       layer.add(motion, forKey: "selection")
 
+    }
+  }
+
+  func setClosing(_ id: UInt32?) {
+    closingID = id
+    let motion = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    for (index, card) in cards.enumerated() {
+      let closing = rows[index].windowID == id
+      card.setSelected(index == selection && !closing, color: highlightColor, animated: motion)
+      card.setTitleVisible(!closing, animated: motion)
+    }
+    Self.fade(highlight, to: id == nil ? 1 : 0, animated: motion)
+  }
+
+  static func fade(_ view: NSView, to alpha: CGFloat, animated: Bool) {
+    let previous = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
+    view.alphaValue = alpha
+    view.layer?.removeAnimation(forKey: "closeFade")
+    if animated {
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = previous; fade.toValue = alpha; fade.duration = 0.1
+      view.layer?.add(fade, forKey: "closeFade")
     }
   }
 
@@ -144,12 +167,15 @@ final class CardGridView: NSView {
 final class CardView: NSView {
   let preview = WindowPreviewView()
   private let label = NSTextField(labelWithString: "")
+  private var thumbnail: CGImage?
+  private var displayedWindow: Window?
   override var isFlipped: Bool { true }
 
   init(window: Window) {
     super.init(frame: .zero)
     wantsLayer = true
     layer?.cornerRadius = 14
+    label.wantsLayer = true
     label.font = .systemFont(ofSize: 12)
     label.textColor = .labelColor
     label.alignment = .center
@@ -162,8 +188,14 @@ final class CardView: NSView {
   required init?(coder: NSCoder) { fatalError("Use init(window:)") }
 
   func update(window: Window) {
-    preview.image = WindowThumbnails.image(for: window)
-      .map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+    let image = WindowThumbnails.image(for: window)
+    let changed = thumbnail !== image
+    if changed {
+      thumbnail = image
+      preview.image = image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+    }
+    guard changed || displayedWindow != window else { return }
+    displayedWindow = window
     preview.appIcon = AppIcons.icon(for: window)
     let unavailable = localized("Preview unavailable", "无法获取预览")
     preview.toolTip = preview.image == nil ? unavailable : nil
@@ -190,6 +222,10 @@ final class CardView: NSView {
     }
   }
 
+  func setTitleVisible(_ visible: Bool, animated: Bool) {
+    CardGridView.fade(label, to: visible ? 1 : 0, animated: animated)
+  }
+
   override func layout() {
     super.layout()
     preview.frame = NSRect(x: 8, y: 8, width: max(0, bounds.width - 16),
@@ -201,8 +237,8 @@ final class CardView: NSView {
 
 /// Draws the actual aspect-fit image through a rounded path, including portrait images.
 final class WindowPreviewView: NSView {
-  var image: NSImage? { didSet { needsDisplay = true } }
-  var appIcon: NSImage? { didSet { needsDisplay = true } }
+  var image: NSImage? { didSet { if oldValue !== image { needsDisplay = true } } }
+  var appIcon: NSImage? { didSet { if oldValue !== appIcon { needsDisplay = true } } }
   override var isFlipped: Bool { true }
   override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true }
   convenience init() { self.init(frame: .zero) }
@@ -223,7 +259,7 @@ final class WindowPreviewView: NSView {
     let overlay = CALayer()
     overlay.frame = frame
     let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let duration = reduced ? 0.12 : 0.56
+    let duration = reduced ? 0.12 : 0.50
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     parent.addSublayer(overlay)

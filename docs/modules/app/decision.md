@@ -1,33 +1,37 @@
-# App · 取舍记录
+# App decisions
 
-<!-- 新的在最上面。 -->
+Historical entries retain their original order. Later entries supersede earlier choices explicitly.
 
-## 2026-10-11 · 用 Swift 6 语言模式（偏离 spec §13 的 Swift 5 锁）
+## 2026-10-11 · Swift 6 language mode instead of the spec's Swift 5 lock
 
-- **背景**：本机只有 CommandLineTools，没有完整 Xcode —— XCTest 拿不到，测试就没法跑。Swift 6 工具链自带 swift-testing（`import Testing`），可以不装 Xcode 跑测试。这是项目所有者给出的指令（「swift 使用 swift 6，这样 testing 不依赖于 xctest，不需要下载 xcode」）。
-- **选定**：`swift-tools-version:6.0`，全 target 默认 Swift 6 语言模式；测试用 swift-testing。本机补 Testing 搜索路径的 workaround 在 `scripts/test`（根因写在脚本注释里：manifest 里的 unsafe flags 会被 SwiftPM 转坏，见那个提交的说明）。
-- **放弃了**：spec §13 / CLAUDE.md 原本的「Swift 5 锁」（Swift 6 的严格并发会让 AppKit 代码到处要标注解）；为了跑测试而装完整 Xcode（几 GB，且本机原本就用不上）。
-- **代价**：AppKit 代码要按严格并发写（`@MainActor`、少量 `@unchecked Sendable` 边界，全部就地注释）；`@preconcurrency import` 一处（导入的 AX 常量键）。CI 的 `macos-latest` 用完整 Xcode 跑，同一份 manifest 两种环境都通 —— probe 逻辑在 `scripts/test`。
-- **推翻条件**：除非某天发现 Swift 6 严格并发逼出 @unchecked 的雪崩（现在只有 EventTap 一处、有完整注释），或者测试环境换成完整 Xcode。
+- **Context:** This machine has CommandLineTools, not full Xcode, so XCTest is unavailable. The owner requested Swift 6 and its bundled swift-testing to avoid downloading Xcode.
+- **Decision:** Use tools version 6.0 and Swift 6 mode for every target, with swift-testing. `scripts/test` supplies local Testing paths; manifest unsafe flags were rejected because SwiftPM transformed them incorrectly for the generated runner.
+- **Alternatives rejected:** The original Swift 5 lock in spec §13/CLAUDE.md, and installing several gigabytes of otherwise unnecessary Xcode solely to run tests.
+- **Cost:** AppKit must obey strict concurrency using MainActor and documented unchecked boundaries. The original implementation also needed one preconcurrency import for AX keys. CI uses full Xcode; the script probes which toolchain is active.
+- **Revisit:** If strict concurrency requires widespread unchecked annotations, or the test environment changes to full Xcode. At the time of this decision, EventTap was the only unchecked boundary.
 
-## 2026-10-11 · 权限引导：轮询等授权，然后提示用户重启（不自动重启）
+## 2026-10-11 · Poll authorization, then request a manual restart
 
-- **背景**：辅助功能权限「授权后要重启 app 才生效」（spec §9 / CLAUDE.md 第五条）。用户在系统设置里勾选时，运行中的进程 `AXIsProcessTrusted()` 不会变。
-- **选定**：启动时无权限 → 弹系统对话框 → 每秒轮询（最多 2 分钟）→ 授权成功弹「已授权，请重启 slime」后退出；超时弹「请去设置里勾上」后退出。手动验收的指令里包含 `killall slime`。
-- **放弃了**：自动重启（`NSWorkspace.openApplication` 自替换）—— 多一层时序（旧进程退出与新进程启动的竞态、TCC 对 bundle 路径的识别），0.0.1 不值当；在运行中重试（授权不生效）。
-- **代价**：用户要做「授权 → 重启」两步，且没有 Dock/菜单栏入口，重启靠命令行。
-- **推翻条件**：把「重启 slime」变成用户别扭的操作时 —— 补一个菜单栏项（退出/重开入口）或自动重启。
+- **Context:** Accessibility authorization required restarting the running process in local testing; `AXIsProcessTrusted()` did not change after checking the permission in System Settings.
+- **Decision:** Initially, missing permission opened the system prompt, polled once per second for up to two minutes, then explained whether permission succeeded or timed out and exited. Manual instructions included `killall slime`.
+- **Alternatives rejected:** Automatic self-relaunch via NSWorkspace adds process-exit, launch, and TCC bundle-path races; retrying in the same process did not apply authorization.
+- **Cost:** Authorization and restart were separate user steps. There was initially no Dock or menu-bar restart entry.
+- **Revisit:** If restart becomes awkward, add a menu-bar entry or automatic relaunch. The 2026-10-13 entry below supersedes the exit-only behavior.
 
-## 2026-10-11 · 系统选型 Swift + AppKit（记录 spec §4 的取舍）
+## 2026-10-11 · Swift and AppKit
 
-- **背景**：见 spec §4 的量化（一次 ⌘+Tab 的热点是跨进程 AX IPC 和 WindowServer，纯 CPU 部分 <0.1ms）。
-- **选定**：Swift + AppKit；状态机/搜索纯 Swift；零第三方依赖。
-- **放弃了**：Rust（语言省不下系统 API 的耗时，objc2 样板 2–3 倍）；Tauri / egui / winit（窗口做不成 nonactivating panel，而「切换器不能抢焦点」是硬约束）。
-- **代价**：需接受 SwiftPM + CLT 工具链的工程限制（测试 workaround、手工组 .app）。
-- **推翻条件**：spec §4 的论证被实测推翻时（比如纯 CPU 部分真的成了瓶颈 —— 现在不是）。
+- **Context:** The original spec §4 measurements attributed switching latency to AX IPC and WindowServer, with pure CPU work below 0.1 ms.
+- **Decision:** Swift/AppKit, pure Swift trigger/search logic, and no dependencies.
+- **Alternatives rejected:** Rust cannot remove system API latency and requires roughly two to three times the objc2 glue. Tauri, egui, and winit did not satisfy the nonactivating-panel requirement.
+- **Cost:** Accept SwiftPM/CLT limitations, test-path workarounds, and manual app-bundle assembly.
+- **Revisit:** Measurements invalidate the original argument, such as pure CPU becoming the bottleneck.
 
-## 2026-10-13 — 总开关保留设置入口，登录项读取系统真值
+## 2026-10-13 · Preserve settings while disabled; use system login-item truth
 
-设置新增 enable/group/language，默认启用、未分组、英文；旧外观 key 不迁移覆盖。tap 无法启动或降级时关接管并显示错误，保留菜单栏，而非旧版报错退出。正常停用/启用复用已安装 tap。
+Add enabled/group/language preferences, defaulting to enabled, ungrouped, and English. Preserve previous appearance keys. Tap failure or degradation disables interception and shows an error while retaining the menu bar, replacing the old exit-on-error behavior. Ordinary toggling reuses the installed tap.
 
-SMAppService 直接由设置页调用，不再包一层只用于转发的服务；默认不注册、不给 defaults 写“已启用”。状态在窗口成为 key 后同步，待批准与错误有独立文案。设置/菜单/面板自有字符串用同一 Settings 语言偏好选择；真实窗口标题不翻译。
+Settings calls SMAppService directly; there is no forwarding-only service or persisted claim that login launch is enabled. Read status on key-window changes and distinguish approval/errors. Menu, panel, and settings labels share the language preference; real titles remain unchanged.
+
+## 2026-10-13 · One-time green migration and bundled artwork for 0.0.6
+
+The owner confirmed there are no other existing users and requested resetting all old accents to RGB(150, 215, 106). A versioned migration marker makes this a one-time operation; future customization remains intact. Preserve glass settings. Package the supplied artwork as an icns resource and derive About from bundle metadata. Local development signing is not a claim of Developer ID signing or notarization.

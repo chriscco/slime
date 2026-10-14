@@ -4,7 +4,17 @@ macOS 窗口切换器。比系统自带的切换器多两样东西：**打字即
 
 **[English →](README.md)**
 
-> **当前版本：0.0.5。** 固定五列、圆角预览、可选应用分组、重新设计的设置页，以及 `⌘D` 关闭窗口。
+> **版本：0.0.6。** 史莱姆绿主题、新图标、明确的搜索焦点，以及完善的窗口关闭和动画。
+
+## 安装 DMG
+
+需要 **macOS 26 或更新版本**。本轮发行包面向 **Apple silicon（arm64）**；Intel 可从源码构建，但本轮不提供已验证的 Intel 安装包。
+
+1. 从 [GitHub Releases](https://github.com/chriscco/slime/releases) 下载 DMG 和对应的 `.sha256` 文件。
+2. 在下载目录运行 `shasum -a 256 -c slime-0.0.6-arm64.dmg.sha256` 校验文件。
+3. 打开 DMG，将 slime 拖到 Applications，推出磁盘映像，再从应用程序打开 slime。
+
+**0.0.6 使用本地自签证书，未经 Apple 公证。** 如果 macOS 因无法验证开发者而阻止打开，确认文件来自本仓库且校验通过后，在“系统设置 → 隐私与安全性”中对 slime 选择“仍要打开”，再确认系统提示。无需全局关闭 Gatekeeper。参见 [Apple 的首次打开说明](https://support.apple.com/en-ie/102445)。
 
 ## 手势
 
@@ -21,23 +31,25 @@ macOS 窗口切换器。比系统自带的切换器多两样东西：**打字即
 | `⌘,` | 打开设置；松开 Option 后仍可使用。 |
 | `Esc` | 关闭面板，且不改变当前窗口。 |
 
-列表按应用级 MRU 排序；开启分组后每个应用独立分区。
+列表按应用级 MRU 排序，包含当前窗口并将其放在末尾；开启分组后每个应用独立分区。固定每行五张，少于五张时面板宽度不缩小。同行下划线平滑移动，跨行直接定位。
 
 slime 没有 Dock 图标，也不会出现在系统原生的 `⌘+Tab` 列表里。你不叫它，它就不出现。
 
-它列的是**每个 app 的每一个窗口**，而不是一个 app 一条 —— 所以你能直接跳到想要
-的那个窗口，不用先切到 app 再在它的窗口之间循环。
+它按**窗口而非 app**显示条目，让你直接跳到目标。公开系统 API 无法可靠发现或操作所有离屏窗口，限制见下文。
 
 ## 设置
 
 从菜单栏或面板内 `⌘,` 打开。通用包含总开关、应用分组、登录启动和 English / 简体中文；
-默认英文（包括升级用户），保留已有外观偏好。外观页保留玻璃样式、强度、颜色和面板圆角；
+默认英文。0.0.6 首次启动将旧高亮色一次性改为史莱姆绿 `#96D76A`（RGB 150, 215, 106），随后自定义颜色会保留；玻璃偏好不变。外观页保留玻璃样式、强度、颜色和面板圆角；
 快捷键页展示固定绑定；关于页显示实际版本及仓库链接。
 
 关闭总开关立即恢复系统 `⌘Tab`，菜单栏入口保留。登录启动读取 macOS 实际状态，可能需要在系统设置批准。
 
-`⌘D` 仅请求关闭选中窗口；匹配不唯一时拒绝操作。保存确认或失败时恢复预览并说明原因，
-不会退出应用，也不会代替用户回应保存对话框。系统开启“减少动态效果”时使用淡出替代 CRT 收缩闪烁。
+`⌘D` 仅请求关闭选中窗口，不退出应用，也不代替用户回应保存确认。关闭开始时，选中底色、标题和短线淡出，仅预览播放 CRT；直接关闭失败则恢复。成功减少行数时面板平滑缩高。开启“减少动态效果”后使用淡出并取消移动动画。
+
+无法直接访问目标时，slime 会尝试唤起目标应用并重新核验窗口；此时面板退出，关闭或确认后不会自动返回。无法唯一确定目标时不会猜测关闭。自动识别、重试和确认共享三秒预算；系统 AX 调用可能迟于请求的超时返回。
+
+`⌘Tab` 后开始打字即进入常驻搜索，松开 Command 不会切走，无需先按 `⌘F`；未打字时仍保持松手切换。搜索焦点用 2pt 高亮边框和末尾光标表示，光标直接定位，不再平滑移动。打字追加查询，Backspace 删除末尾字符；方向键仍用于选窗口。此版本不提供文本选择、任意光标定位或输入法组字。
 
 ## 系统要求
 
@@ -80,6 +92,18 @@ rebuild 不会掉权限。跳过这一步，你一天要勾几十次那个复选
 macOS 把 tap 禁掉了，slime 会停止拦截、退回系统原生 `⌘+Tab` —— **宁可切换器
 失效，也不能让用户的键盘坏掉。**
 
+## 打包发行版
+
+```sh
+scripts/package-dmg
+```
+
+脚本执行 release 构建，按实际架构命名 DMG，并只读挂载验证版本、签名、图标、二进制和 Applications 链接，最后生成 SHA-256 校验文件。产物位于 `build/`。本地自签名用于稳定开发权限，不等于 Developer ID 签名或 Apple 公证。
+
+## 已知限制
+
+公开 AX 信息可能只覆盖部分 Space；从未观察过的窗口可能暂缺，歧义目标会拒绝关闭。跨 Space 缓存预览可能过期；从应用自身关闭且系统保留表面的窗口可能延迟清理。安全输入开启时使用系统切换器。面板打开期间，未专门绑定的 Command 字母组合仍作为过滤输入。登录启动和权限行为需按本机系统提示确认。
+
 ## 测试
 
 ```sh
@@ -87,21 +111,42 @@ scripts/test
 ```
 
 用 [swift-testing](https://github.com/swiftlang/swift-testing)（`import Testing`，
-不是 XCTest）。测试集中在 `Sources/slime/Core/` 的纯逻辑上 —— 尤其是触发状态机：
-状态机写错、吞掉了不该吞的按键，会让**整个系统的键盘**失效，而这个风险必须能在
-单测里穷举，不能靠真人按键去试。
+不是 XCTest）。`Tests/slimeTests/` 覆盖 Core 纯逻辑、AppKit 控件和异步生命周期。
+触发状态机测试穷举按键吞放；实际系统行为仍需真机验收。
+
+`scripts/benchmark` 测量 release 构建下 10/50/100 个窗口的查询、布局和离屏绘制 CPU 耗时，
+不代表输入到屏幕显示的延迟，详见[验证记录](docs/releases/0.0.6-validation.md)。
 
 ## 目录结构
 
-```
-Sources/slime/
-  App/      main.swift, AppDelegate.swift, Permission.swift
-  Core/     纯逻辑 —— Window, Search, Trigger, GridLayout。只依赖 Foundation，不 import AppKit。
-  System/   EventTap, WindowEnumerator, WindowCache, WindowActivator
-  UI/       面板、卡片、预览、设置
-Tests/slimeTests/     swift-testing
-docs/       specs / plans / modules / templates
-scripts/    build-app, test, setup-signing, hooks
+```text
+slime/
+├── Package.swift
+├── Resources/
+│   ├── slime.png
+│   └── slime.icns
+├── Sources/slime/
+│   ├── App/
+│   ├── Core/
+│   ├── System/
+│   └── UI/
+├── Tests/slimeTests/
+├── docs/
+│   ├── specs/
+│   ├── plans/
+│   ├── modules/
+│   ├── releases/
+│   └── templates/
+├── scripts/
+│   ├── build-app
+│   ├── package-dmg
+│   ├── benchmark
+│   ├── fixtures/
+│   ├── test
+│   ├── setup-signing
+│   └── hooks/
+└── .github/workflows/
+    └── test.yml
 ```
 
 `Core/` 刻意不能 import AppKit、CoreGraphics、ApplicationServices。

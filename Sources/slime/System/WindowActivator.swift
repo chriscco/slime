@@ -56,13 +56,14 @@ enum WindowActivator {
 
 
 enum WindowCloseResult: Equatable, Sendable {
-  case closed, unavailable, failed, stillOpen
+  case closed, unavailable, failed, stillOpen, confirmationRequired
 
   var message: String {
     switch self {
     case .closed: ""
     case .unavailable: localized("Cannot safely identify this window's close button.", "无法安全确定此窗口的关闭按钮。")
     case .failed: localized("Could not close this window. Try again in its app.", "无法关闭此窗口，请在所属应用中重试。")
+    case .confirmationRequired: localized("Confirm closing in the application.", "请在应用中确认关闭。")
     case .stillOpen: localized("Window is still open. Switch to its app to check for a save dialog.", "窗口仍然打开，请切到所属应用检查保存对话框。")
     }
   }
@@ -90,56 +91,103 @@ extension WindowActivator {
     return titled.count == 1 ? titled[0] : nil
   }
 
-  static func close(_ window: Window) async -> WindowCloseResult {
+  @MainActor static func revealForClosing(_ window: Window, request: AXRequest) async -> Bool {
+    guard request.isActive, let app = NSRunningApplication(processIdentifier: window.pid) else { return false }
+    app.unhide()
+    guard request.isActive else { return false }
+    let activated = app.activate(options: [.activateAllWindows])
+    for attempt in 0..<8 {
+      guard request.isActive else { return false }
+      let raised = await Task.detached(priority: .userInitiated) {
+        if !activated && attempt == 0 {
+          let application = AXUIElementCreateApplication(window.pid)
+          guard request.prepare(application) else { return false }
+          AXUIElementSetAttributeValue(application, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        }
+        guard let list = windowList() else { return false }
+        let candidates = closeCandidates(list, pid: window.pid)
+        guard let target = candidates.first(where: { $0.windowID == window.windowID }) else { return false }
+        let entries = AXWindows.read(pid: window.pid, request: request)
+        guard let index = closeMatch(target: target, entries: entries, candidates: candidates) else { return false }
+        let element = entries[index].element
+        guard request.prepare(element) else { return false }
+        AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        guard request.prepare(element) else { return false }
+        return AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success
+      }.value
+      if raised { return true }
+      await request.pause(milliseconds: min(250, 50 * (attempt + 1)))
+    }
+    return false
+  }
+
+  static func close(_ window: Window, request: AXRequest = AXRequest(seconds: 3)) async -> WindowCloseResult {
+    // Stage Manager changes geometry during activation. Only retry before AXPress.
+    for delay in [0, 80, 160] {
+      guard request.isActive else { return .stillOpen }
+      if delay > 0 { await request.pause(milliseconds: delay) }
+      let result = await closeOnce(window, request: request)
+      if result != .unavailable { return result }
+    }
+    return .unavailable
+  }
+
+  private static func closeOnce(_ window: Window, request: AXRequest) async -> WindowCloseResult {
     await Task.detached(priority: .userInitiated) {
+      guard request.isActive else { return .stillOpen }
       guard let initial = windowList() else { return .failed }
       guard let info = initial.first(where: { id($0) == window.windowID }) else { return .closed }
       guard (info[kCGWindowOwnerPID as String] as? pid_t) == window.pid else { return .unavailable }
-      let displays = WindowEnumerator.displayBounds()
-      let candidates = closeCandidates(initial, pid: window.pid, displays: displays)
+      let candidates = closeCandidates(initial, pid: window.pid)
       guard let candidate = candidates.first(where: { $0.windowID == window.windowID }) else { return .unavailable }
-      let entries = AXWindows.read(pid: window.pid)
+      let entries = AXWindows.read(pid: window.pid, request: request)
       guard let index = closeMatch(target: candidate, entries: entries, candidates: candidates) else { return .unavailable }
       let target = entries[index].element
-      AXUIElementSetMessagingTimeout(target, AXWindows.timeout)
       var value: CFTypeRef?
-      guard AXUIElementCopyAttributeValue(target, kAXCloseButtonAttribute as CFString, &value) == .success,
+      guard request.copy(target, kAXCloseButtonAttribute as CFString, &value) == .success,
         let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return .unavailable }
       let button = unsafeDowncast(value as AnyObject, to: AXUIElement.self)
-      AXUIElementSetMessagingTimeout(button, AXWindows.timeout)
       // Re-read both sides after IPC; the window and AX identity must still agree.
       guard let fresh = windowList() else { return .failed }
       guard fresh.contains(where: { id($0) == window.windowID }) else { return .closed }
-      let freshCandidates = closeCandidates(fresh, pid: window.pid, displays: displays)
+      let freshCandidates = closeCandidates(fresh, pid: window.pid)
       guard let current = freshCandidates.first(where: { $0.windowID == window.windowID }),
         AXWindows.isSameFrame(current.bounds, candidate.bounds) else { return .unavailable }
-      let freshEntries = AXWindows.read(pid: window.pid)
+      let freshEntries = AXWindows.read(pid: window.pid, request: request)
       guard let freshIndex = closeMatch(target: current, entries: freshEntries, candidates: freshCandidates),
         CFEqual(target, freshEntries[freshIndex].element) else { return .unavailable }
+      guard request.prepare(button) else { return .stillOpen }
       guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else { return .failed }
-      // Acceptance of AXPress is not proof of closure (unsaved documents may show a sheet).
-      for _ in 0..<20 {
+      // Poll only the identified target. A save sheet is a handoff, never consent.
+      for delay in [50, 100, 150, 250, 400, 500, 500, 500] {
+        guard request.isActive else { break }
         guard let list = windowList() else { return .failed }
-        guard let remaining = list.first(where: { id($0) == window.windowID }) else { return .closed }
+        guard list.contains(where: { id($0) == window.windowID }) else { return .closed }
         var role: CFTypeRef?
-        let state = AXUIElementCopyAttributeValue(target, kAXRoleAttribute as CFString, &role)
+        let state = request.copy(target, kAXRoleAttribute as CFString, &role)
         if state == .invalidUIElement { return .closed }
-        // Some apps close by hiding a retained CG surface, rather than destroying it.
-        if (remaining[kCGWindowIsOnscreen as String] as? Bool) != true,
-           AXWindows.snapshot(pid: window.pid).hasNoWindows { return .closed }
-        try? await Task.sleep(for: .milliseconds(100))
+        var sheets: CFTypeRef?
+        if request.copy(target, kAXChildrenAttribute as CFString, &sheets) == .success,
+           let children = sheets as? [AXUIElement] {
+          for child in children {
+            guard request.isActive else { break }
+            var childRole: CFTypeRef?
+            if request.copy(child, kAXRoleAttribute as CFString, &childRole) == .success,
+               childRole as? String == kAXSheetRole { return .confirmationRequired }
+          }
+        }
+        await request.pause(milliseconds: delay)
       }
       return .stillOpen
     }.value
   }
 
-  static func closeCandidates(_ list: [[String: Any]], pid: pid_t, displays: [CGRect]) -> [CloseCandidate] {
+  static func closeCandidates(_ list: [[String: Any]], pid: pid_t) -> [CloseCandidate] {
     list.compactMap { info in
       guard (info[kCGWindowOwnerPID as String] as? pid_t) == pid,
             (info[kCGWindowLayer as String] as? Int) == 0,
             let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0,
-            let id = id(info), let frame = bounds(info),
-            displays.isEmpty || WindowEnumerator.isOnAnyDisplay(frame, displays: displays)
+            let id = id(info), let frame = bounds(info)
       else { return nil }
       return CloseCandidate(windowID: id, bounds: frame, title: info[kCGWindowName as String] as? String)
     }

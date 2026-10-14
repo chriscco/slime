@@ -1,172 +1,125 @@
-# Panel · 取舍记录
+# Panel decisions
 
-<!-- 新的在最上面。 -->
+Historical entries retain their original order and measurements. Later entries explicitly supersede earlier choices; historical dimensions are not current defaults.
 
-## 2026-10-12 · 卡片从 app 图标改成窗口缩略图（0.0.2 非目标的推翻条件达成）
+## 2026-10-12 · Window thumbnails replace app-icon cards
 
-- **背景**：0.0.2 spec §3 把真截图缩略图列为非目标，理由是「台前调度会把搁置的窗口
-  抓成斜的，那个 spike 还没跑」。**spike 跑完了，结论支持做**：搁置窗口没有可靠的
-  实时抓取路径，但正常窗口完全没问题（SCK 17–100ms，中位 ~22ms）—— 而搁置窗口的
-  降级结果是它搁置前的样子，比任何实时抓取都清楚。
-- **选定**：卡片改成横向 160×120（图区 160×100 + 间隙 4 + 标题 16），
-  `GridLayout.maxColumns` 5 → 4；缩略图按长宽比整窗可见，抓不到时退回 app 图标、
-  **尺寸不变**。
-- **放弃了**：竖向卡片里塞一张小横图（112pt 宽认不出是哪个窗口）；
-  给抓不到的窗口做第二种卡形（混排两种卡形更难看）。
-- **代价**：面板从 620pt 宽涨到 700pt；卡片区能放的列数少了一列。
-- **推翻条件**：卡片相邻了还是分不清哪几扇窗属于同一个 app 时（那时做视觉分组，
-  要重算 `GridLayout` 的格子数）。
+- **Context:** 0.0.2 excluded screenshots until the Stage Manager spike. The spike found normal captures reliable (SCK 17–100 ms, median about 22 ms), but parked windows needed their last good image.
+- **Decision:** Use 160×120 landscape cards (160×100 image, 4 gap, 16 title), reducing five columns to four. Show the full aspect ratio and keep card size unchanged when falling back to icons.
+- **Rejected:** A small landscape image inside a 112 pt portrait card, or a second card shape for missing previews.
+- **Cost:** Panel width grows from 620 to 700 pt and loses one column.
+- **Revisit:** Adjacent windows remain hard to associate with apps; add visual grouping and recalculate layout.
 
-## 2026-10-12 · 玻璃浓度是一层遮罩，不是 `tintColor`
+## 2026-10-12 · Glass strength is an overlay, not tintColor
 
-- **背景**：0.0.2 §7 把玻璃参数写成「`style` / `tintColor` / `cornerRadius`」三个。
-  实测：五块 `NSGlassEffectView`（`.regular`）、`tintColor = black` 的 alpha 取
-  0 / 0.25 / 0.5 / 0.75 / 1.0，放在同一张彩虹底上截图 —— **五块长得一模一样**，
-  彩虹照样透出来，纯黑 alpha=1.0 也没让任何一块变暗。`NSGlassEffectView` 也没有
-  opacity 属性。**`tintColor` 那条假设不成立。**
-- **选定**：在玻璃之上、内容之下盖一层实色遮罩，`alpha = 1 − 浓度`，挂在
-  `PanelContentView.layer`（它本来就是玻璃的 `contentView`，已在 `wantsLayer = true`）
-  —— 不新增视图。实测遮罩 α 从 0 到 1，背后彩虹从完全透出到完全消失，
-  而**文字始终锐利**（整体改 alpha 会把内容一起淡掉，那是 `tintColor` 那条路给不了的）。
-- **代价**：遮罩是方的、玻璃是圆的，所以要把 `glass.cornerRadius` 同时给内容层，
-  否则四角露黑方块；「完全透明」受玻璃材质自身的折射影响，不是数学上的 0%。
-- **推翻条件**：Apple 给 `NSGlassEffectView` 一个真的 opacity / density 属性时。
+- **Context:** Five regular glass views with black tint alpha 0/0.25/0.5/0.75/1 looked identical over a rainbow background. NSGlassEffectView had no opacity property; tint alpha did not provide density.
+- **Decision:** Use PanelContentView's existing layer as a solid overlay above glass and below content, with alpha `1 − strength`. Measured background visibility changed while text stayed sharp.
+- **Cost:** Match the content corner radius to the glass to prevent black corners. Fully transparent still includes the glass material's refraction.
+- **Revisit:** Apple supplies a real glass density/opacity control.
 
-## 2026-10-12 · 高亮色用固定默认值，不绑系统主题色
+## 2026-10-12 · Fixed default accent rather than system accent
 
-- **背景**：spec §8。原来用 `NSColor.selectedContentBackgroundColor`。实测三个候选：
-  `controlAccentColor`（深/浅外观完全相同）、`selectedContentBackgroundColor`
-  （深 `(0.788,0.376,0.012)` / 浅 `(0.851,0.420,0.039)`）、`keyboardFocusIndicatorColor`
-  （α 0.5）。
-- **选定**：**固定默认色 `(0.969, 0.510, 0.106)`** + 用户可用色板覆盖。
-  （系统只提供 9 个值 —— `AppleAccentColor` = -1 多彩 + 0…7。）
-- **为什么**：绑系统意味着「系统主题色一改，slime 的高亮跟着变」，那是需求方明确不要的
-  耦合，还多一个「跟随系统」勾选框。默认值取那个橙不是因为它好看，是因为它
-  **实测过**：近黑面板底 + 2.5pt 线条下对比度够。
-- **代价**：`Settings.glassTint`（可选）改成 `highlightColor`（非可选）——
-  0.0.2 那个「取到白就算清除」的别扭表达随之消失。
-- **推翻条件**：用户普遍想要高亮跟随系统主题色时。
+- **Context:** Candidates included controlAccentColor, selectedContentBackgroundColor (dark 0.788/0.376/0.012, light 0.851/0.420/0.039), and keyboardFocusIndicatorColor at alpha 0.5.
+- **Decision:** Fixed orange 0.969/0.510/0.106, customizable through the color picker. Its contrast was checked against near-black with a 2.5 pt line. The owner did not want system-theme coupling or a follow-system preference.
+- **Cost:** Replace optional glassTint with nonoptional highlightColor, removing the old white-means-clear convention. System accent choices were limited to the documented preset values.
+- **Revisit:** Users want system-accent following. The 0.0.6 entry changes the default color, not this independence.
 
-## 2026-10-12 · 面板视觉语言统一（轮廓高亮 + 无框搜索行）；刷新按身份复用 CardView
+## 2026-10-12 · Consistent selection/search surfaces and identity-based card reuse
 
-用户实测收尾（issue #34 / #35）。两个独立的取舍，同日记录。
+Two decisions followed feedback in issues #34/#35.
 
-**一、视觉语言：高亮与搜索行改成同一套克制的语言**
-- **背景**：用户实测（issue #34）「高亮只是单纯一个背景高亮，不好看」「高亮背景是个方块」「搜索框目前是一个黑框，显得很突兀」。原实现是高亮半透明实心块（外扩 4pt、文档视图边缘还会裁到）、搜索框 `controlBackgroundColor` 实心底。
-- **选定**：高亮改成贴合卡片的圆角矩形（圆角 12），`selectedContentBackgroundColor` 的 2pt 轮廓 + 8% 同色填充，文字保持 `labelColor`；搜索行改成无框的「放大镜（`secondaryLabelColor`）+ 文本」pill（白 8%、圆角 8），空查询显示占位「输入以过滤」（次要色）、有查询显示查询（主色）。
-- **放弃了**：实心半透明高亮（压卡片、方块的观感）；给选中卡换文字色（图标本身没有可换色的语义，纯增噪声）；外扩 4pt（四边留白不均、边缘被裁）；`controlBackgroundColor`（深浅色下都是硬边方块）与真正的 `NSSearchField`（会引入 field editor，推翻「搜索框是只读展示」那条）。
-- **代价**：轮廓 + 8% 填充的对比度不如实心块，靠 2pt 描边立住 —— 玻璃上的最终观感走人工验收。
-- **推翻条件**：用户仍然看不清选中 / 找不到搜索行时（回到实心填充或加深 pill）。
+**Visual design:** A filled square selection and solid black search field looked intrusive. Use a card-aligned 12 pt rounded outline, 2 pt selection stroke, and 8% matching fill; keep labelColor text. Search becomes an 8 pt rounded pill with 8% white, secondary magnifier/placeholder, and primary query text. Reject an expanded selection border that clips at document edges, changing selected text color, solid controlBackgroundColor, and a real NSSearchField that would introduce a competing field editor. Lower contrast requires native glass acceptance. Revisit if selection/search remains hard to see.
 
-**二、刷新时按身份复用 CardView，不再全量重建**
-- **背景**（issue #35）：用户实测「每次 cmd+tab 召唤面板的时候明显能感觉到图标在一瞬间闪烁了一下」。根因：`show()` 先用当前快照渲染，`onRefresh()` 后台重枚举回来 `setWindows` → `rows` 赋值全量拆造 CardView → 重绘闪烁。
-- **选定**：`rows` 赋值先比较 windowID 序列 —— 一致则不重建（也不重设 layout / selection），只经 `update(window:)` 就地刷新；不一致则按 windowID 复用存活实例、按新顺序重排，只增删新增 / 消失的。`CardView.init(window:)` 的渲染逻辑抽成可复用的 `update(window:)`。
-- **放弃了**：继续全量重建（闪烁根因）；为复用引入 `NSCollectionView` 的 cell 机制（手动布局的推翻条件不在这里，池子十几行就够）。
-- **代价**：`CardGridView` 多一份池子重排逻辑；`subviews` 的插入顺序不再等于网格顺序（测试用实例身份 + frame 判断）。
-- **推翻条件**：窗口数上百、池子重排本身变成可感成本时（回 `NSCollectionView` / 现成的 diffable 方案）。
+**Reuse:** Each asynchronous refresh previously destroyed/recreated every card, visibly flashing icons. Compare ordered IDs; update matching sequences in place, otherwise reuse surviving instances through an ID pool and add/remove only changed windows. Reject full reconstruction and NSCollectionView complexity for a small manual grid. Subview insertion order no longer equals visual order, so tests inspect identities and frames. Revisit collection/diffable infrastructure if hundreds of windows make this pool measurably expensive.
 
-## 2026-10-12 · ↑↓ 按排循环：轴语义留在面板层，列数不进纯状态机
+## 2026-10-12 · Vertical movement wraps by row; Core does not know column count
 
-- **背景**：0.0.1 那条「不用 NSTableView，手动布局」的推翻条件（列表加图标时重新评估）
-  已随卡片网格兑现：手动布局保留（`CardGridView` / `CardView`，高亮仍是网格文档视图里
-  的普通子视图，网格数学抠进 `Core/GridLayout` 纯函数），`NSCollectionView` 被放弃
-  （cell 复用用不上、选中样式不做动画、要在集合视图内部坐标系里贴一层）——
-  完整记录见同日下一条。本条目补记方向键的轴语义。
-- **选定**：纵向移动按**排**循环 —— 首排 ↑ 绕到末排、末排 ↓ 绕回首排，同一列优先，
-  目标排缺这一列时收到最后一个格子（`PanelController.movedSelection`，纯函数）；
-  横向恒为一格。**列数留在面板层**，纯状态机 `Trigger` 只带轴
-  （`Event.arrow(axis:step:)` / `Effect.moveSelection(axis:step:)`），不知道网格有几列。
-- **放弃了**：把列数传给状态机（纯状态机依赖布局状态，改一次列数就得重建状态机、
-  `TriggerTests` 要开始构造布局）；字面照抄 spec §6 的示范公式取模。
-- **代价**：spec §6 的示范公式是扁平索引取模，末排不满时与行为语义不一致 ——
-  **以 spec §10 的行为语义（按排循环）为准**，公式只当示意。
-- **推翻条件**：移动语义被重新定义时（例如 ↑ 改为按索引整体回绕而非按排）。
+- **Context:** The thumbnail grid triggered reevaluation of manual layout, retained in the next decision. This entry records navigation semantics.
+- **Decision:** Up from the first row wraps to the last, down from the last wraps to the first, preserving column where possible and clamping to a short row's last cell. Horizontal movement is one cell. Core carries axis/step only.
+- **Rejected:** Passing columns into the reducer or literally using the spec's flat-index modulo example.
+- **Cost:** The illustrative formula in spec §6 differs on incomplete rows; the behavioral row-wrapping requirement in §10 takes precedence.
+- **Revisit:** Navigation semantics change, such as explicitly choosing flat-index wrapping.
 
-## 2026-10-12 · 网格仍然是手动布局，高亮是网格里的普通子视图
+## 2026-10-12 · Keep manual grid layout and an ordinary highlight subview
 
-- **背景**：0.0.1 那条「不用 NSTableView，手动布局」的推翻条件写的是
-  「列表要加上缩略图 / 图标时重新评估」。卡片网格就是那一刻。
-- **选定**：继续手动布局，换成 `CardGridView` + `CardView`；高亮仍是网格文档视图
-  里的一个普通子视图；网格数学抠到 `Core/GridLayout` 做成纯函数单测。
-- **放弃了**：`NSCollectionView`（cell 复用我们用不上，它的选中样式不做动画，
-  要动它还得在集合视图内部坐标系里贴一层，并处理绘制顺序）；继续用
-  `NSTableView` 画自定义 cell（同上，且多一层表格语义）。
-- **代价**：没有 cell 复用（窗口几十个时无所谓）；布局和命中都在自己手里。
-- **推翻条件**：窗口数上百、重建成本变成可感的时候。
+- **Context:** The original table decision required reevaluation when adding icons/thumbnails.
+- **Decision:** CardGridView/CardView and a highlight in the document view; pure geometry lives in Core/GridLayout tests.
+- **Rejected:** NSCollectionView's selection rendering/coordinate overlay requirements and NSTableView's extra table semantics.
+- **Cost:** At that point there was no cell reuse; layout and hit-testing were owned locally. A few dozen windows made this acceptable.
+- **Revisit:** Hundreds of windows make reconstruction measurably costly. Identity reuse was subsequently added without changing the container.
 
-## 2026-10-11 · 搜索框是只读展示，所有键盘经 PanelWindow.keyDown → 同一个 reduce
+## 2026-10-11 · Read-only search display and a shared reducer from keyDown
 
-- **背景**：lingering 下键盘走 AppKit 响应链（spec §6）。如果搜索框是真可编辑的 `NSTextField`，field editor 会吃掉 Tab / 回车 / ↑↓（我们的语义需要它们），还要额外用本地事件监视器抢回来。
-- **选定**：搜索框是只读展示，没有 field editor；所有键经 `PanelWindow.keyDown` → `KeyTable` → `reduce`，文本只由 `appendQuery` / `deleteQueryChar` Effect 更新。纯状态机的 query 与显示文本永远一致。
-- **放弃了**：真编辑框 + 事件监视器抢键（两套输入路径要同步，回车间处理、焦点环、IME 都会变成坑）；编辑框 + 只在 special key 上拦截（Tab/回车行为仍要斗）。
-- **代价**：输入法（IME）不可用 —— 打不进中文查询。spec §3 的拼音搜索本来就是非目标；ASCII 正常。
-- **推翻条件**：中文标题多到用 ASCII 搜不动时（等价于 spec §3 里「中文标题多到受不了时」做拼音搜索的触发条件）。
+- **Context:** An editable field's field editor consumes Tab, Enter, and arrows needed for window navigation.
+- **Decision:** Originally all AppKit lingering keys used PanelWindow.keyDown → KeyTable → reduce; append/delete effects updated the display and query together.
+- **Rejected:** Editable fields plus event monitors or special-key interception, requiring two coordinated input paths and introducing focus/IME issues.
+- **Cost:** No IME composition or Chinese query entry; ASCII worked. Pinyin was already excluded.
+- **Revisit:** Chinese titles become impractical to search through app names/ASCII, also triggering reconsideration of pinyin. Later EventTap ownership supersedes the keyDown route.
 
-## 2026-10-11 · resignKey 直接隐藏面板
+## 2026-10-11 · Hide on resignKey
 
-- **背景**：spec §6 的状态表没有覆盖「面板开着（lingering），用户去点了别的窗口」——事件既不进 tap（放行）也不进 panel（点的是别的 app），没有东西驱动状态，面板会留在屏幕上。
-- **选定**：`PanelWindow.resignKey` → 藏起来 + phase 归 idle。语义：面板的存活前提是「它是 key」。
-- **放弃了**：留着面板让用户手动关 —— 没有关掉它的交互路径（不支持点选），只会卡住；监视全局鼠标事件 —— 为这一件事不值。
-- **代价**：phase 与 tap 线程副本短暂不一致（tap 仍以为 lingering）—— 无实际影响：tap 在 lingering 只放行，下一次修饰键按下发 `hidePanel` 是幂等的。
-- **推翻条件**：真的需要「点别的窗口时面板保留」时（比如面板变成可点选列表）。
+- **Context:** Clicking another app was absent from the keyboard state table and left an orphaned panel.
+- **Decision:** resignKey hides the panel and resets phase to idle; panel lifetime requires key status.
+- **Rejected:** Requiring an explicit dismissal or installing a global mouse monitor for one case.
+- **Cost:** The original tap/UI state could briefly differ; the then-current lingering pass-through and idempotent hide made this tolerable. Later revision synchronization replaces that assumption.
+- **Revisit:** A future clickable/persistent panel must survive clicking another window.
 
-## 2026-10-11 · 高亮条是 document view 里的普通子视图，不用 NSTableView
+## 2026-10-11 · Highlight is a document subview, not NSTableView selection
 
-- **背景**：spec §2 第 7 条要求高亮条平滑滑动。
-- **选定**：列表手动布局（行是 `NSTextField`，高亮是 document view 的子视图），移动时用 `animator()` 动 frame。
-- **放弃了**：NSTableView（自带选中样式不做动画；要动它得在表格内部坐标系里贴一层，还要处理 cell 复用与绘制顺序）；`NSStackView`（滚动 + 固定行高时没有优势）。
-- **代价**：没有 cell 复用（窗口几十个时无所谓）；行的布局在自己手里，宽高变化要自己跟。
-- **推翻条件**：列表要加上缩略图 / 图标（0.0.2）时重新评估。
+- **Context:** The spec required a smoothly sliding highlight.
+- **Decision:** Manually lay out NSTextField rows and animate the highlight subview's frame.
+- **Rejected:** NSTableView selection did not animate as needed and required a coordinate overlay plus reuse/z-order handling; NSStackView offered little for scrolling fixed-height rows.
+- **Cost:** No cell reuse; own row geometry and resizing.
+- **Revisit:** Icons/thumbnails arrive in 0.0.2.
 
-## 2026-10-13 · 卡片按 16:10 缩略图重新配平；高亮内容内缩；首帧等缩略图
+## 2026-10-13 · Rebalance for 16:10 previews, inset content, wait for first-frame thumbnails
 
-- **背景**：用户实测三连：缩略图太小、面板比例是按图标配的；高亮描边压在缩略图
-  和底部标题上；召唤面板先闪一下图标再换成窗口图（spec §5.3 明确禁止）。
-- **选定**：
-  1. 卡片 160×120 → **240×176**（图区 240×150），`maxColumns` 4 → **3**、
-     gap 12 → 16、padding 12 → 20 —— 3 列满排 792pt，1366 宽屏放得下。
-  2. 高亮描边画在**单元格边界**上（不扩不缩），卡片内容整体内缩 7pt ——
-     描边与内容不重叠（回归测试断言子视图离边界 ≥2pt）。
-  3. 缩略图未就绪时首帧**等**（上限 0.3s；期间用户松手就不出面板），
-     连拍 14 帧验证「出现后零像素变化」。
-- **放弃了**：把高亮画在卡片外扩一圈（文档视图边缘会裁到它）；
-  固定延时出面板（不是「就绪」语义）；先图标后换图（用户实测的坏体验）。
-- **代价**：冷启动/新窗口后的第一次唤出最多晚 0.3s 出现（换来的是一帧到位）；
-  3 列在 1280 宽的屏上要再收就减 `maxColumns`。
-- **推翻条件**：缩略图真的能按窗口状态实时刷新时（那时「等」可以省掉）。
+- **Context:** Previews were too small, borders overlapped content, and icons flashed before screenshots.
+- **Decision:** Increase 160×120 cards to 240×176 with 240×150 image space; four columns become three, gap 12→16, padding 12→20, yielding 792 pt width. Draw the outline on cell bounds and inset content 7 pt, with tests requiring at least 2 pt clearance. Wait for required thumbnails up to 300 ms; cancelling during the wait shows nothing. Fourteen sampled frames showed no post-presentation pixel change in that test.
+- **Rejected:** Expanding the outline outside cells, a fixed unconditional delay, and intentionally flashing an icon before a ready screenshot.
+- **Cost:** Cold/new-window presentation can wait 300 ms. Narrower layouts may need fewer columns.
+- **Revisit:** Reliable live previews eliminate the need to wait.
 
-## 2026-10-13 — 0.0.5 五列、下划线与小窗口占位
+## 2026-10-13 · 0.0.5 five columns, underline, and small-window fallback
 
-执行已合并的 0.0.5 spec：固定五列替代三列，默认 200×160 / gap 12 / padding 20；0–5 项不缩面板，窄屏缩预览不减列。可选 app 分区使用真实行导航。旧 240×176 更易辨认的实测背景仍有效，本次换取五列密度，不能仅凭几何放得下宣布验收通过。
+Implement the merged spec: fixed five columns, 200×160 cards, gap 12, padding 20. Zero to five items keep panel size; narrow screens shrink previews instead of removing columns. Optional app sections use real occupied-row navigation. Earlier evidence favoring 240×176 readability remains relevant: fitting five columns is not proof of recognition quality.
 
-本机可用屏幕为 1470×867pt 和 1920×1050pt；1088pt 提案可容纳。离屏 AppKit 渲染检查了排版/占位，纵向图片圆角有像素测试；Computer Use 连接超时，未完成实际屏幕中多窗/纵向图对照和动画手感验收。200×160 仍为待校准值。
+The local visible screens were 1470×867 and 1920×1050 pt, accommodating the 1088 pt proposal. Offscreen rendering checked layout/fallback and pixel tests checked portrait corners; Computer Use timeouts prevented full visual comparison. The size remained subject to native calibration.
 
-取消整卡轮廓，保留自定义色，采用淡底和可打断的短下划线；跨行仅淡化。占位直接绘制通用窗口而非伪造网页，真实图/同窗口缓存优先级不变。CRT 使用预览快照层，避免扭曲标题/卡片布局；减少动态效果时只淡出。
+Replace the outline with a tint and interruptible underline; initially fade across rows. Draw a generic placeholder window rather than fabricated webpage content. Real/cached previews retain priority. CRT uses a preview snapshot; Reduce Motion fades only.
 
-## 2026-10-13 — 下划线伸缩与分层 CRT
+## 2026-10-13 · Stretching underline and layered CRT
 
-用户反馈短线太细、CRT 太简陋。短线由 3pt 加粗至 4pt，同行 240ms 内先伸长再收回，位置和宽度一同从 presentation frame 接续；跨行仍淡化，避免斜穿预览。CRT 将截图、亮线、亮点分成独立层，560ms 内完成画面提亮/垂直收缩、带光晕的横线收束、点状余辉消退。只动画预览快照，不移动标题和卡片；Reduce Motion 保持 120ms 无闪烁淡出。使用原生 CALayer，没有新增资源或依赖。
+Feedback requested a thicker line and richer CRT. Increase underline thickness from 3 to 4 pt, initially stretching over 240 ms from the current presentation frame, with cross-row fading. Separate picture, beam, and dot over 560 ms: exposure/vertical compression, glowing horizontal collapse, and point afterglow. Only the preview animates. Reduce Motion remains a 120 ms nonflashing fade. Use CALayer, no new resources/dependencies.
 
-## 2026-10-13 — 连续下划线曲线与刷新保留
+## 2026-10-13 · Continuous underline curve and preservation on refresh
 
-两段 ease-out 在中点停顿再启动，同项异步刷新又会删除在途动画，造成瞬间伸缩。改成 300ms 连续采样曲线，从 presentation frame 重定向；同项且目标几何不变时保留动画。伸长余量限制总宽不超过 52pt，快速切换不累加。原生窗口采样宽度依次约 33、37、42、46、49 再收回 32pt，中途插入刷新仍连续；回归测试覆盖刷新和连续重定向。跨行淡化和 Reduce Motion 不变。
+Two ease-out segments stopped/restarted at their join; same-item refresh deleted in-flight motion. Replace with a continuous 300 ms sampled curve, retarget from presentation geometry, and preserve motion when selection/target are unchanged. Cap stretch at 52 pt. Native samples rose through about 33/37/42/46/49 pt before returning to 32 pt, including an intervening refresh. Tests cover refresh and rapid retargeting. Cross-row fade and Reduce Motion were unchanged at this point.
 
-## 2026-10-13 — 跨行线点飞行与扁平设置
+## 2026-10-13 · Cross-row line-to-dot flight and flat settings
 
-用户明确要求跨行及首尾循环也有运动，替代之前的淡出淡入。400ms 内 smoothstep 移动，前 30% 收缩为 4pt 点、后 30% 展为短线，中段保持点；从 presentation frame 接续，Reduce Motion 仍直接更新。实际采样宽度约 28、20、11、5、4…5、12、21、30、32pt。
+The user requested cross-row/wrap motion instead of fading. A 400 ms smoothstep move contracted to a 4 pt point in the first 30%, stayed a point in transit, then expanded in the final 30%, retargeting from presentation geometry. Samples were about 28/20/11/5/4…5/12/21/30/32 pt. Reduce Motion placed directly.
 
-设置采用纯色侧栏、内边距、淡色选中背景及无边框导航，去掉装饰文案；About 仅名称、版本、链接。设置不是 nonactivating 切换器，使用 floating 层级和当前 Space 前置，避免普通 orderFront 在其他 app 后面显示。
+Settings adopted a solid sidebar, padding, faint selection, borderless navigation, and no decorative copy. About contains name/version/link only. Unlike the nonactivating switcher, settings uses a floating level and current-Space front ordering.
 
-## 2026-10-13 — 跨行弹性与更快的落点
+## 2026-10-13 · Faster elastic cross-row landing
 
-用户确认原 400ms 飞行偏慢，希望起步拉伸、快速收点移动、落点轻微回弹。缩短到 240ms，起步伸至 44pt，收为 4pt，落点展开到 38pt 后收回 32pt；位置使用快速减速与单次最多 6pt 回弹，长距离首尾循环不会放大过冲。连续切换到目标行内其他项时，若展示位置尚未到该行，继续二维飞行，避免 y 坐标跳变。
+The user found 400 ms too slow. Shorten to 240 ms, stretch initially to 44 pt, shrink to 4 pt, expand to 38 pt at landing, and settle to 32 pt. Bound a single overshoot to 6 pt, including long wraps. If retargeting before reaching the destination row, continue two-dimensional travel instead of jumping y.
 
-实际原生播放采样：宽度约 38、44、37、20、7、4…33、38、36、34、32pt；位置越过终点约 4pt 后一次回落。中途同项刷新未打断动画。Reduce Motion 保持立即更新。
+Native samples were roughly 38/44/37/20/7/4…33/38/36/34/32 pt with about 4 pt overshoot; same-item refresh preserved motion. Reduce Motion stayed immediate.
 
-## 2026-10-13 — 点状阶段必须覆盖主要位移
+## 2026-10-13 · Point phase must cover the main displacement
 
-用户实测仍像横线飞行。上轮只验证宽度曾为 4pt，遗漏位置与宽度的阶段对应：快速 ease-out 已在收缩前完成大部分位移。保留总长 240ms，将起点拉伸/收点、移动、落点展开/单次回弹依次排为 54/120/66ms；移动用 smoothstep，整段保持 4×4pt。回归测试联立位置和宽度，覆盖向上、向下、跨行换列和首尾循环。原生采样在 y≈162、183、214、249、284、311、326pt 时宽度均为 4pt，抵达后才展开。
+The user still saw a flying line. Earlier verification checked that width reached 4 pt but missed that fast ease-out completed most movement before contraction. Retain 240 ms, allocating 54/120/66 ms to stretch/contract, travel, and expansion/overshoot. Travel keeps a 4×4 pt point throughout. Tests jointly check width/position for both directions, cross-column moves, and wrapping. Native samples at y≈162/183/214/249/284/311/326 pt all had 4 pt width before landing expansion.
 
-## 2026-10-13 — 取消跨行飞行
+## 2026-10-13 · Remove cross-row flight
 
-用户实测后决定取消整个跨行飞行设计。删除该分支，跨行及跨行首尾循环立即显示目标位置的 32×4pt 短线；先清除在途动画，再设置目标 frame。同行 300ms 伸缩和平滑移动保留。将旧飞行测试替换为跨行目标位置与无动画断言，不保留未使用的曲线或开关。
+The user rejected the overall flight. Delete the branch and its unused curves/options. Cross-row moves and wraps clear in-flight animations and directly place a 32×4 pt line. Preserve same-row 300 ms motion. Replace flight tests with destination/no-animation assertions.
+
+## 2026-10-13 · 0.0.6 close decoration, resizing, and visible search focus
+
+Fade title/tint/underline at close start, leaving only the preview for CRT. Restore direct failures, animate successful height changes over 200 ms, and keep cross-row selection immediate. Use the existing tap-owned filter with an accent focus border and a 90 ms end caret, not a second field editor. Skip unchanged image/grid work and avoid per-frame enumeration or reconstruction. The sole existing user's accent migrates once from any saved value to slime green. The release spec requires native and performance verification rather than assuming animation duration proves smoothness.
+
+## 2026-10-14 · Immediate caret, stronger focus, slightly faster CRT
+
+Owner feedback removes end-caret travel; the previous 90 ms animation is superseded. Keep ordinary blinking, strengthen the focus border from 1 to 2 pt and accent opacity from 65% to 85%. Reduce CRT duration from 560 to 500 ms while retaining phase proportions and the 120 ms Reduce Motion fade. Removing travel avoids its per-edit animation allocation/compositing, without claiming it was a measured bottleneck.

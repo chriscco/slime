@@ -1,0 +1,15 @@
+#!/bin/sh
+# CPU query/layout/offscreen-paint benchmark, not input-to-display latency.
+set -eu
+cd "$(dirname "$0")/.."
+checkout=$(mktemp -d "${TMPDIR:-/tmp}/slime-benchmark.XXXXXX")
+trap 'rm -rf "$checkout"' EXIT
+trap 'exit 1' HUP INT TERM
+if [ "$#" -gt 0 ]; then
+  git archive "$1" Package.swift Sources Tests | tar -x -C "$checkout"
+else
+  cp -R Package.swift Sources Tests "$checkout/"
+fi
+cp scripts/fixtures/benchmark.swift "$checkout/Sources/slime/App/main.swift"
+swift build --package-path "$checkout" -c release >&2
+"$checkout/.build/release/slime"

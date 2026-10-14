@@ -67,3 +67,22 @@ import Testing
   #expect(labels.contains("slime"))
   #expect(!descendants(window.contentView!).contains { $0 is NSVisualEffectView })
 }
+
+@Test @MainActor func accentChangesUpdateTheExistingSidebarWithoutReplacingTheColorWell() throws {
+  _ = NSApplication.shared
+  let suite = "slime.settings-accent.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let controller = SettingsWindowController(settings: Settings(defaults: defaults))
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.title == "Appearance" })
+  NSApp.sendAction(try #require(appearance.action), to: appearance.target, from: appearance)
+  let selected = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.title == "Appearance" })
+  let well = try #require(descendants(window.contentView!).compactMap { $0 as? NSColorWell }.first)
+  well.color = .systemPink
+  NSApp.sendAction(try #require(well.action), to: well.target, from: well)
+  #expect(selected.contentTintColor == .systemPink)
+  #expect(well.window === window)
+}

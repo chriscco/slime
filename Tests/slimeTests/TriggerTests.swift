@@ -97,7 +97,7 @@ private func expect(
 @Test func holdingTypingAppendsAndResetsSelection() {
   expect(
     from: .holding(.cmd, query: "sl", selection: 3), on: .char("a"),
-    .holding(.cmd, query: "sla", selection: 0), [.swallow, .appendQuery("a")])
+    .lingering(query: "sla", selection: 0), [.swallow, .appendQuery("a")])
 }
 
 @Test func holdingBackspaceRemovesLastChar() {
@@ -236,7 +236,7 @@ private func expect(
 
 // MARK: - 完整生命周期
 
-@Test func cmdModeLifecycleEndsWithActivate() {
+@Test func typingInCmdModeKeepsPanelOpenUntilEnter() {
   var (state, _) = reduce(.idle, .modifierDown(.cmd))
   #expect(state == .armed(.cmd))
 
@@ -245,11 +245,15 @@ private func expect(
 
   // 按住 ⌘ 打字：s、l、a 进 query（手动验收清单里的「打字 sla」）。
   for c in "sla" { (state, _) = reduce(state, .char(c)) }
-  #expect(state == .holding(.cmd, query: "sla", selection: 0))
+  #expect(state == .lingering(query: "sla", selection: 0))
 
-  let (final, effects) = reduce(state, .modifierUp(.cmd))
+  let (released, releaseEffects) = reduce(state, .modifierUp(.cmd))
+  state = released
+  #expect(state == .lingering(query: "sla", selection: 0))
+  #expect(releaseEffects == [.passThrough])
+  let (final, effects) = reduce(state, .enter)
   #expect(final == .idle)
-  #expect(effects == [.activate, .hidePanel])
+  #expect(effects == [.swallow, .activate, .hidePanel])
 }
 
 @Test func optModeLifecycleLeavesPanelUp() {

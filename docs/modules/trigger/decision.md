@@ -1,45 +1,45 @@
-# Trigger · 取舍记录
+# Trigger decisions
 
-<!-- 新的在最上面。 -->
+Historical entries retain their original order; the final entries supersede earlier behavior.
 
-## 2026-10-12 · 方向键的轴语义留在面板层，不把列数传给状态机
+## 2026-10-12 · Keep arrow-axis geometry in the panel
 
-- **背景**：卡片网格里 ↑↓ 要走一排（= 列数格），Tab / ←→ 走一格。
-  `Effect.moveSelection(Int)` 只带裸 delta，面板层无从得知「一行」还是「一格」。
-- **选定**：`Event.arrow(axis:step:)` 和 `Effect.moveSelection(axis:step:)` 带轴；
-  `PanelController` 做 `delta = step * (axis == .vertical ? columns : 1)`。
-- **放弃了**：把 `columns` 传给 `reduce`（纯状态机依赖布局状态 —— 改一次列数
-  就要重建状态机，`TriggerTests` 也得开始构造网格）；`Event` 直接带上像素位移
-  （状态机不该知道渲染单位）。
-- **代价**：`Effect` 和行为之间多一层换算，读代码时要跳一次。
-- **推翻条件**：出现第三种轴（比如斜向），或者面板层需要知道按键来源本身。
+- **Context:** Up/down moves a row, while Tab/left/right moves one cell. A bare moveSelection delta cannot distinguish them.
+- **Decision:** Carry axis and step in Event/Effect; PanelController translates them into layout movement. The initial conversion multiplied vertical steps by column count; row-aware wrapping later refined that behavior.
+- **Alternatives rejected:** Passing columns into the reducer, which couples pure state tests to layout, or passing pixel displacement through Core.
+- **Cost:** One translation between effect and movement.
+- **Revisit:** A third axis appears or the panel needs the original key identity.
 
-## 2026-10-12 · ⌘ 模式下 ⌘F 把会话转成 lingering
+## 2026-10-12 · Command-F changes Command holding to lingering
 
-- **背景**：用户实测「⌘Tab 起面板、按 ⌘F 聚焦输入框后，⌘ 依旧不能松开，否则会直接跳到高亮的窗口」—— 想慢慢搜索就得一直按住 ⌘，两只手都不自由。
-- **选定**：`holding(.cmd) + ⌘F` → `lingering`（效果照旧 `swallow + focusSearchField`）。语义：⌘F 就是「我要慢慢找」——松 ⌘ 不切、回车才切、Esc 取消，和 ⌥ 模式松手后的状态一致。⌥F 行为不变（⌥ 松开本来就转 lingering）。
-- **放弃了**：保持 spec §6 状态表的字面（⌘F 留在 holding）—— 用户要的「聚焦搜索框后松开修饰键」在那种语义下做不到；把「打字后松 ⌘ 也不切」一并改掉 —— 那会推翻 ⌘ 模式的肌肉记忆语义（manual 手册里的「打字 sla，松开 ⌘ 切到 Slack」），需要单独确认。
-- **代价**：⌘ 模式下多一条「松 ⌘ 不切」的出口，模式语义多一个分叉；用户如果按了 ⌘F 又习惯性按住 ⌘ 打字，那个手势会变成「新手势」语义（lingering 里按 ⌘ 关面板重新起手势，既有行为）。
-- **推翻条件**：真觉得两种出口难记时 —— 可以改成「打第一个字就转 lingering」（会动 spec §6 语义，先确认）。
+- **Context:** The user could not release Command after focusing search without activating a window.
+- **Decision:** `holding(.cmd) + Command-F` becomes lingering, with swallow/focus effects. Enter activates and Escape cancels. Option-F remains unchanged because releasing Option already lingers.
+- **Alternatives rejected:** Keeping the literal original spec transition; also changing ordinary typing to linger, which would break the established hold/type/release gesture and require another decision.
+- **Cost:** Command mode has two exits. Under the then-current modifier-restart behavior, pressing Command again after Command-F started a fresh gesture; the later 0.0.5 decision supersedes that part.
+- **Revisit:** If the two exits are confusing, consider lingering on the first typed character, with explicit approval of the gesture change.
 
-## 2026-10-11 · lingering 时按 ⌘/⌥ 关掉面板，开始新手势
+## 2026-10-11 · Pressing a modifier while lingering begins a new gesture
 
-- **背景**：spec §6 的状态表里有一格没写 Effect：`lingering + ⌘/⌥ 按下 → armed(m)`。但 lingering 的面板是留着的 —— 如果这一格不关面板，接下来的 `armed` / `idle` 没有任何东西会去关它，那个窗口会以「没有状态驱动」的样子一直挂在屏幕上，用户只能切走或用鼠标点掉。
-- **选定**：`lingering + modifierDown(m) → armed(m)`，Effect 追加 `hidePanel`。理解为「按修饰键 = 开始新手势」：关掉旧会话，Tab 之后是一个全新的 `holding(m, "", 0)`。
-- **放弃了**：保持 lingering 面板不动（等于从状态表里删掉这一格）—— 那样用户按 ⌘ 想开新会话时，旧 query 会留在面板上，和「新手势」语义打架；把关面板推迟到 `armed → idle`（修饰键松开时）—— 状态表里 `armed + modifierUp(m)` 的 Effect 只有 `passThrough`，改它会把「按下没按 Tab 就松开」的简单语义也拖下水。
-- **代价**：lingering 里按 ⌘（哪怕是别的意图）会关掉面板，重新开新会话 query 归零。
-- **推翻条件**：实际用起来觉得「按 ⌘ 关掉我正在找的列表」很烦时 —— 改成保持面板并删除状态表这一格。
+- **Context:** The original state table changed lingering to armed without hiding the existing panel, leaving an orphaned panel after the modifier was released.
+- **Decision:** Add hidePanel to `lingering + modifierDown → armed`, treating this as a fresh gesture with an empty query.
+- **Alternatives rejected:** Keeping the old query and panel, or delaying dismissal until armed returns to idle, which complicates the no-Tab gesture.
+- **Cost:** Any modifier press dismisses a search even when intended for another shortcut.
+- **Revisit:** If this becomes annoying, keep the panel and remove the transition. The 2026-10-13 entry does exactly that.
 
-## 2026-10-11 · 状态机做成纯函数，Effect 里没有 swallow 就默认放行
+## 2026-10-11 · Pure reducer; pass through unless explicitly swallowed
 
-- **背景**：事件 tap 吞错键 = 全系统键盘挂掉（红线 3）。吞/放的判断散在 CGEvent 回调和 NSEvent 处理里就不可能穷举。
-- **选定**：全部判断进 `reduce` 纯函数；且**放行是默认**，只有 Effect 里明确带 `swallow` 的事件才吞。
-- **放弃了**：在翻译层做吞放判断（测试不到）；「默认吞、明确放行」（白名单反了 —— 状态表没覆盖的按键会掉进吞掉的一侧，违反红线 3）。
-- **代价**：多一层翻译（CGEvent → Event），Event 枚举之外的新按键需要显式进状态表；`reduce` 得为状态表没覆盖的组合定死默认行为。
-- **推翻条件**：除非出现状态机管不了的按键（例如安全输入，spec §8 红线 9 —— 那是系统层面本来就收不到事件，不是这里的洞）。
+- **Context:** Incorrect interception can break the system keyboard. Splitting decisions across CGEvent and NSEvent handlers makes exhaustive testing impractical.
+- **Decision:** Put decisions in the pure reducer; pass-through is the default.
+- **Alternatives rejected:** Untestable translation-layer interception, or swallowing unknown combinations by default.
+- **Cost:** Events require translation, new keys need explicit handling, and unspecified state/event combinations need a safe default.
+- **Revisit:** A platform behavior cannot be represented by the reducer. Secure Input is outside this boundary: macOS does not deliver those events at all.
 
-## 2026-10-13 — 保留会话中的修饰键不再关闭面板
+## 2026-10-13 · Modifiers preserve a lingering session
 
-用户的 ⌥Tab → 松 Option → Command 快捷键故障推翻了此前“修饰键重开手势”的决定。lingering 保持 query/selection，tap 统一处理整个会话；删除 AppKit 第二条 reducer 路径，避免 tap 和面板分叉。取消/停用经 run loop 和 revision 双向同步，不在 tap 加锁。
+The user's Option-Tab → release Option → Command-shortcut failure overturns modifier-restart behavior. Lingering retains query and selection. EventTap owns the whole session; remove the second AppKit reducer path. Cancellation/disable synchronize through the run loop and revisions without locking the tap.
 
-关闭窗口增加 closing 状态，暂停输入/导航、保留 Esc/设置出口。完成后回 lingering，松 Command 不会激活邻居；autorepeat 不能再次关闭。UI session 与 tap revision 分别隔离旧异步任务。
+Closing pauses input/navigation while retaining Escape/settings exits, then returns to lingering. Command release cannot activate a neighbor and autorepeat cannot close again. UI session generations and tap revisions separately isolate stale work.
+
+## 2026-10-14 · Typing makes Command search persistent
+
+The owner reported that direct typing after Command-Tab still required holding Command. The first character now changes Command holding to lingering, preserving the updated query and reset selection. Command release does not activate a result afterward; Enter activates and Escape dismisses. Command-F remains an optional way to enter search. Without typing, hold-Tab-release retains immediate switching. This supersedes the earlier decision to preserve hold/type/release behavior.

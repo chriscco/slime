@@ -5,8 +5,17 @@ A macOS window switcher with two things the system's own switcher doesn't do:
 
 **[中文说明 →](README.zh-CN.md)**
 
-> **Version: 0.0.5.** A five-column panel with rounded previews, optional app groups,
-> redesigned settings, and window closing with `⌘D`.
+> **Version: 0.0.6.** Slime-green accents, a new icon, visible search focus, and refined window closing and animation.
+
+## Install the DMG
+
+Requires **macOS 26 or later**. This release's package targets **Apple silicon (arm64)**. Intel users can build from source; this release does not provide a validated Intel package.
+
+1. Download the DMG and its `.sha256` file from [GitHub Releases](https://github.com/chriscco/slime/releases).
+2. In the download directory, verify it with `shasum -a 256 -c slime-0.0.6-arm64.dmg.sha256`.
+3. Open the DMG, drag slime to Applications, eject the image, and launch slime from Applications.
+
+**0.0.6 is locally self-signed and is not notarized by Apple.** If macOS blocks it because the developer cannot be verified, first verify the repository source and checksum, then use **System Settings → Privacy & Security → Open Anyway** for slime and confirm the system prompt. Do not disable Gatekeeper globally. See [Apple's first-launch guidance](https://support.apple.com/en-ie/102445).
 
 ## Gestures
 
@@ -23,29 +32,29 @@ A macOS window switcher with two things the system's own switcher doesn't do:
 | `⌘,` | Open settings. Also works after releasing Option. |
 | `Esc` | Close without switching. |
 
-The list uses app-level MRU ordering. With grouping enabled, each app starts its own section.
+The list uses app-level MRU ordering and includes the current window at the end. Optional grouping gives each app its own section. The panel keeps five columns and the same width with fewer than five windows. The underline animates within a row and moves immediately between rows.
 
 slime has no Dock icon and does not appear in the system's own `⌘+Tab` list. It
 stays out of the way until you ask for it.
 
-It also lists **every window of every app**, not one entry per app — so you can
-jump straight to the window you want instead of landing on an app and then
-cycling through its windows.
+Entries represent **windows rather than apps**, so you can switch directly to a target. Public system APIs cannot reliably discover or operate every offscreen window; see the limitations below.
 
 ## Settings
 
 Open Settings from the menu bar or with `⌘,` while the panel is open.
 General contains the enable switch, app grouping, launch at login, and English / 简体中文.
-English is the default, including upgrades; existing appearance preferences are preserved.
+English is the default. On first launch, 0.0.6 resets old accents once to slime green `#96D76A` (RGB 150, 215, 106); subsequent custom colors persist. Glass preferences are preserved.
 Appearance keeps the glass style, strength, accent color, and panel corners. Shortcuts
 lists the fixed bindings; About shows the bundle version and repository link.
 
 Turning slime off restores native `⌘Tab` without removing the menu bar item.
 Login items use macOS status and may require approval in System Settings.
 
-`⌘D` only requests closing the selected window. Ambiguous targets are refused;
-a save prompt or failure restores the preview with an explanation. It never quits
-an app or responds to a save prompt. Reduce Motion replaces the CRT effect with a fade.
+`⌘D` requests closing the selected window without quitting the app or answering save dialogs. Selection tint, title, and underline fade at the start; only the preview plays CRT. A direct failure restores them. Confirmed removal animates panel height when rows disappear. Reduce Motion uses a fade and immediate geometry changes.
+
+When direct access is unavailable, slime attempts to reveal the target app and revalidate the window. The panel dismisses and does not return automatically after closing or confirmation. Ambiguous targets are never guessed. Automatic identification, retries, and confirmation share a three-second budget; system AX calls may return later than the requested timeout.
+
+Typing after `⌘Tab` keeps the panel open when you release Command; `⌘F` is optional. Without typing, releasing Command still switches immediately. Search focus has a 2pt accent border and an end caret that updates immediately without sliding. Typing appends to the query, Backspace deletes its final character, and arrows still select windows. This version does not implement text selection, arbitrary caret placement, or IME composition.
 
 ## Requirements
 
@@ -92,6 +101,18 @@ the menu bar settings remain available. After granting Accessibility, restart an
 running, slime stops intercepting and lets the native `⌘+Tab` take over — the
 switcher degrading is always preferable to the keyboard breaking.
 
+## Package a release
+
+```sh
+scripts/package-dmg
+```
+
+The script builds release configuration, names the DMG from the actual architecture, mounts it read-only, verifies version/signature/icon/binary/Applications link, and generates a SHA-256 file. Artifacts are in `build/`. Local self-signing stabilizes development permissions; it is not Developer ID signing or Apple notarization.
+
+## Known limitations
+
+Public AX information can cover only part of the available Spaces. Never-observed windows may be missing and ambiguous close targets are refused. Offscreen previews can be stale; a window closed outside slime may take time to disappear if macOS retains its surface. Secure Input uses the system switcher. Unassigned Command-letter combinations remain filter input while the panel is open. Login launch and permission behavior follow system approval prompts.
+
 ## Tests
 
 ```sh
@@ -99,22 +120,44 @@ scripts/test
 ```
 
 Uses [swift-testing](https://github.com/swiftlang/swift-testing) (`import Testing`,
-not XCTest). The pure logic in `Sources/slime/Core/` is where the tests live — the
-trigger state machine especially, because a state machine that swallows the wrong
-key breaks the keyboard system-wide, and that risk needs to be exhaustively
-unit-testable without a human pressing keys.
+not XCTest). `Tests/slimeTests/` covers Core logic, AppKit controls, and asynchronous
+lifecycles. Trigger tests exhaustively check keyboard interception; native acceptance
+still verifies actual system behavior.
+
+`scripts/benchmark` measures release-build query/layout/offscreen painting for
+10/50/100 windows. It is a CPU benchmark, not input-to-display latency; see the
+[validation record](docs/releases/0.0.6-validation.md).
 
 ## Layout
 
-```
-Sources/slime/
-  App/      main.swift, AppDelegate.swift, Permission.swift
-  Core/     pure logic — Window, Search, Trigger, GridLayout. Foundation only, no AppKit.
-  System/   EventTap, WindowEnumerator, WindowCache, WindowActivator
-  UI/       panel, cards, previews, settings
-Tests/slimeTests/     swift-testing
-docs/       specs / plans / modules / templates
-scripts/    build-app, test, setup-signing, hooks
+```text
+slime/
+├── Package.swift
+├── Resources/
+│   ├── slime.png
+│   └── slime.icns
+├── Sources/slime/
+│   ├── App/
+│   ├── Core/
+│   ├── System/
+│   └── UI/
+├── Tests/slimeTests/
+├── docs/
+│   ├── specs/
+│   ├── plans/
+│   ├── modules/
+│   ├── releases/
+│   └── templates/
+├── scripts/
+│   ├── build-app
+│   ├── package-dmg
+│   ├── benchmark
+│   ├── fixtures/
+│   ├── test
+│   ├── setup-signing
+│   └── hooks/
+└── .github/workflows/
+    └── test.yml
 ```
 
 `Core/` deliberately cannot import AppKit, CoreGraphics, or ApplicationServices.

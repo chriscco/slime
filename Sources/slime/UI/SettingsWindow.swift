@@ -89,9 +89,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       item.wantsLayer = true
       item.layer?.cornerRadius = 8
       item.layer?.backgroundColor = (section == index
-        ? NSColor.controlAccentColor.withAlphaComponent(0.12) : .clear).cgColor
+        ? settings.highlightColor.withAlphaComponent(0.12) : .clear).cgColor
       button.font = .systemFont(ofSize: 13, weight: section == index ? .semibold : .regular)
-      button.contentTintColor = section == index ? .controlAccentColor : .secondaryLabelColor
+      button.contentTintColor = section == index ? settings.highlightColor : .secondaryLabelColor
       button.setButtonType(.pushOnPushOff)
       button.state = section == index ? .on : .off
       button.image = NSImage(systemSymbolName: symbols[index], accessibilityDescription: nil)
@@ -272,7 +272,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   }
   @objc private func strengthChanged(_ sender: NSSlider) { settings.glassStrength = sender.doubleValue; onChange?() }
   @objc private func radiusChanged(_ sender: NSSlider) { settings.glassCornerRadius = sender.doubleValue; onChange?() }
-  @objc private func colorChanged(_ sender: NSColorWell) { settings.highlightColor = sender.color; onChange?() }
+  @objc private func colorChanged(_ sender: NSColorWell) {
+    settings.highlightColor = sender.color
+    for (index, item) in sidebar.arrangedSubviews.enumerated() where index == section {
+      item.layer?.backgroundColor = sender.color.withAlphaComponent(0.12).cgColor
+      (item.subviews.first as? NSButton)?.contentTintColor = sender.color
+    }
+    onChange?()
+  }
   @objc private func openGitHub() { NSWorkspace.shared.open(URL(string: "https://github.com/chriscco/slime")!) }
   @objc private func openLoginItems() { SMAppService.openSystemSettingsLoginItems() }
   @objc private func loginChanged(_ sender: NSSwitch) {

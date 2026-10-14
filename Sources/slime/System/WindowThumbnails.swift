@@ -35,6 +35,9 @@ enum WindowThumbnails {
   private static var refreshing: Set<UInt32> = []
   /// 当前快照里的窗口（`warm` 每次都重设）。
   private static var live: Set<UInt32> = []
+  private static var owners: [UInt32: pid_t] = [:]
+  private static var tickets: [UInt32: UUID] = [:]
+  private static var diskChecked: Set<UInt32> = []
   /// 负缓存：抓过、失败了、**而且当时不在屏上**的窗口 —— 本来就没渲染，重试
   /// 多少次都一样。等它真的在屏上（或关掉）时 `warm` 把条目清掉，再抓。
   private static var unrenderable: Set<UInt32> = []
@@ -44,14 +47,14 @@ enum WindowThumbnails {
 
   /// 还有**没图的**窗口在抓。面板用它决定「首帧要不要等」（spec §5.3：不允许
   /// 先图标、后换图的跳变）。刷新中的不算 —— 那些窗口本来就有图可显示。
-  static var hasPendingWork: Bool { !pending.isEmpty }
+  static var hasPendingWork: Bool { pending.contains { cache[$0] == nil } }
 
   private static var whenSettledCallback: (() -> Void)?
 
   /// 这一批（`pending`，没图的）抓完 —— 成或败都算 —— 时在主线程调一次。
   /// 没有在飞的批次时立刻调：语义是「现在这批的结果已经定了」。
   static func whenSettled(_ body: @escaping () -> Void) {
-    guard !pending.isEmpty else {
+    guard hasPendingWork else {
       body()
       return
     }
@@ -59,7 +62,7 @@ enum WindowThumbnails {
   }
 
   private static func notifySettledIfIdle() {
-    guard pending.isEmpty, let callback = whenSettledCallback else { return }
+    guard !hasPendingWork, let callback = whenSettledCallback else { return }
     whenSettledCallback = nil
     callback()
   }
@@ -110,7 +113,8 @@ enum WindowThumbnails {
       let data = try? Data(contentsOf: thumbURL(windowID)),
       let source = CGImageSourceCreateWithData(data as CFData, nil)
     else { return nil }
-    return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    return CGImageSourceCreateImageAtIndex(source, 0,
+      [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
   }
 
   /// 清盘上不在这一轮快照里的图 —— 与内存同一条规则（spec §4.5：关掉的窗口
@@ -133,8 +137,24 @@ enum WindowThumbnails {
   /// 让缓存对齐这份快照：丢掉不在快照里的、从盘上补进已有的、补抓还没有的。
   /// 挂 `WindowCache.onChange`，和 `AppIcons.warm` 同一个钩子 —— 用户第一次按下
   /// ⌘Tab 时缓存已经就绪（spec §5.3 要的「第一帧就是完整的」）。
-  static func warm(_ windows: [Window]) {
+  static func warm(_ windows: [Window],
+    diskLoader: @escaping @Sendable ([UInt32]) async -> [UInt32: CGImage] = { await loadDiskImages($0) },
+    captureImages: @escaping @Sendable ([UInt32]) async -> [UInt32: CGImage] = { await capture($0) },
+    pruneImages: @escaping @Sendable (Set<UInt32>) -> Void = { pruneDisk(keeping: $0) }) {
     live = Set(windows.map(\.windowID))
+    tickets = tickets.filter { live.contains($0.key) }
+    diskChecked.formIntersection(live)
+    pending.formIntersection(live)
+    refreshing.formIntersection(live)
+    for window in windows where tickets[window.windowID] == nil || owners[window.windowID] != window.pid {
+      tickets[window.windowID] = UUID()
+      cache.removeValue(forKey: window.windowID)
+      diskChecked.remove(window.windowID)
+      pending.remove(window.windowID)
+      refreshing.remove(window.windowID)
+      unrenderable.remove(window.windowID)
+    }
+    owners = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0.pid) })
     // 缓存按快照边界清理（spec §4.5）：窗口关掉就不会再显示 —— 没有任何东西
     // 在渲染它，缓存里也就不该留着。
     //
@@ -145,13 +165,7 @@ enum WindowThumbnails {
     unrenderable.formIntersection(live)
 
     let survivors = live
-    Task.detached(priority: .utility) { pruneDisk(keeping: survivors) }
-
-    // 内存里没有的先从盘上补 —— 面板首帧要能直接读到（其他 Space 的窗口只能靠
-    // 这张「见过一次」的图）。只读一轮：进缓存之后就不再读盘。
-    for id in windows.map(\.windowID) where cache[id] == nil {
-      if let image = load(id) { cache[id] = image }
-    }
+    Task.detached(priority: .utility) { pruneImages(survivors) }
 
     let plan = Self.capturePlan(
       windows: windows,
@@ -163,12 +177,37 @@ enum WindowThumbnails {
     pending.formUnion(plan.needed)
     refreshing.formUnion(plan.refresh)
 
-    // `Task.detached` 而不是 `Task {}`：后者在这个 @MainActor 的类型里会继承
-    // 主 actor 隔离，抓图就回到主线程了（红线 4）。
-    Task.detached(priority: .utility) {
-      let captured = await Self.capture(plan.needed + plan.refresh)
-      await MainActor.run { Self.publish(captured, needed: plan.needed, refresh: plan.refresh) }
+    let readIDs = plan.needed.filter { !diskChecked.contains($0) }
+    diskChecked.formUnion(readIDs)
+    let expected = tickets
+    let onscreen = Set(windows.filter(\.isOnscreen).map(\.windowID))
+    Task {
+      let loaded = await diskLoader(readIDs)
+      publishDisk(loaded, expected: expected)
+      let ids = (plan.needed.filter { loaded[$0] == nil || onscreen.contains($0) } + plan.refresh)
+        .filter { tickets[$0] == expected[$0] }
+      let captured = await Task.detached(priority: .utility) { await captureImages(ids) }.value
+      Self.publish(captured, needed: plan.needed, refresh: plan.refresh, expected: expected)
     }
+  }
+
+  static func loadDiskImages(_ ids: [UInt32],
+    loader: @escaping @Sendable (UInt32) -> CGImage? = { load($0) }) async -> [UInt32: CGImage] {
+    await Task.detached(priority: .utility) {
+      var images: [UInt32: CGImage] = [:]
+      for id in ids { if let image = loader(id) { images[id] = image } }
+      return images
+    }.value
+  }
+
+  private static func publishDisk(_ images: [UInt32: CGImage], expected: [UInt32: UUID]) {
+    var changed = false
+    for (id, image) in images where tickets[id] == expected[id] && cache[id] == nil {
+      cache[id] = image
+      changed = true
+    }
+    if changed { onChange?() }
+    notifySettledIfIdle()
   }
 
   /// 纯函数：这一轮要抓哪些窗口（`WindowThumbnailsTests` 直接测）。两类结果的
@@ -203,25 +242,23 @@ enum WindowThumbnails {
   /// 抓取结束（主线程）：收进缓存。**只收还在快照里的** —— 快照换过之后，
   /// 上一批的窗口可能已经关了，塞回缓存就是「关掉的窗口还在显示」。
   private static func publish(
-    _ captured: [UInt32: CGImage], needed: [UInt32], refresh: [UInt32]
+    _ captured: [UInt32: CGImage], needed: [UInt32], refresh: [UInt32], expected: [UInt32: UUID]
   ) {
-    pending.subtract(needed)
-    refreshing.subtract(refresh)
-    notifySettledIfIdle()
-    // 没抓到图的记进负缓存。在屏窗口的条目会在下一次 `warm` 被清掉（能抓就
-    // 再给一次机会），离屏的留着 —— 那正是「重试多少次都一样」的那批。
-    for id in needed where captured[id] == nil { unrenderable.insert(id) }
-
-    let fresh = captured.filter { live.contains($0.key) }
-    guard !fresh.isEmpty else { return }
+    let currentNeeded = needed.filter { tickets[$0] == expected[$0] }
+    pending.subtract(currentNeeded)
+    refreshing.subtract(refresh.filter { tickets[$0] == expected[$0] })
+    for id in currentNeeded where captured[id] == nil && cache[id] == nil { unrenderable.insert(id) }
+    let fresh = captured.filter { tickets[$0.key] == expected[$0.key] }
     for (id, image) in fresh { cache[id] = image }
-    onChange?()
+    if !fresh.isEmpty { onChange?() }
+    notifySettledIfIdle()
   }
 
   // MARK: - 后台（红线 4：这一节不碰主线程状态）
 
   /// 没权限 / 抓不到都返回空字典 —— 调用方只管「有没有图」。
   private nonisolated static func capture(_ ids: [UInt32]) async -> [UInt32: CGImage] {
+    guard !ids.isEmpty else { return [:] }
     // 没权限就别白跑：每次枚举都去试一遍是无谓的 IPC，SCK 的报错还会刷满日志。
     // 这里用 CoreGraphics 直接问，不走 `App/Permission` —— `System/` 不许依赖
     // `App/`（CLAUDE.md 第六条）；而且对这一个模块它问的是「我能不能干活」，

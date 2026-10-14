@@ -32,18 +32,36 @@ private func entry(_ frame: CGRect, title: String = "Document") -> AXWindows.Ent
     entries: [entry(full, title: "Another window")], candidates: [target]) == nil)
 }
 
-@Test func closingIgnoresOffDisplaySurfacesButKeepsStageManagerTiles() {
+@Test func closingKeepsOffDisplayWindowsAndStageManagerTiles() {
   let tile = CGRect(x: -566, y: -581, width: 123, height: 112)
   let offDisplay = CGRect(x: -1360, y: 255, width: 800, height: 600)
-  let displays = [CGRect(x: 0, y: 0, width: 1470, height: 956),
-                  CGRect(x: -582, y: -1080, width: 1920, height: 1080)]
   let raw: [[String: Any]] = [(UInt32(305), tile), (UInt32(9006), offDisplay)].map { id, frame in
     [kCGWindowNumber as String: id, kCGWindowOwnerPID as String: pid_t(702),
      kCGWindowLayer as String: 0, kCGWindowAlpha as String: 1.0,
      kCGWindowName as String: "ChatGPT", kCGWindowBounds as String: frame.dictionaryRepresentation]
   }
-  let candidates = WindowActivator.closeCandidates(raw, pid: 702, displays: displays)
-  #expect(candidates.map(\.windowID) == [305])
-  #expect(WindowActivator.closeCandidates(raw, pid: 703, displays: displays).isEmpty)
-  #expect(WindowActivator.closeCandidates(raw, pid: 702, displays: []).count == 2)
+  let candidates = WindowActivator.closeCandidates(raw, pid: 702)
+  #expect(candidates.map(\.windowID) == [305, 9006])
+  #expect(WindowActivator.closeCandidates(raw, pid: 703).isEmpty)
+}
+
+@Test func expiredOrCancelledAXRequestsNeverReachTheTarget() {
+  let element = AXUIElementCreateApplication(getpid())
+  let expired = AXRequest(seconds: 0)
+  var value: CFTypeRef?
+  #expect(expired.copy(element, kAXTitleAttribute as CFString, &value) == .cannotComplete)
+  #expect(!expired.isActive)
+  let cancelled = AXRequest(seconds: 3)
+  #expect(cancelled.isActive)
+  cancelled.cancel()
+  #expect(!cancelled.prepare(element))
+  #expect(cancelled.copy(element, kAXRoleAttribute as CFString, &value) == .cannotComplete)
+}
+
+@Test func closePollingSleepHonorsTheSharedDeadline() async {
+  let request = AXRequest(seconds: 0.03)
+  let start = ContinuousClock.now
+  await request.pause(milliseconds: 500)
+  #expect(start.duration(to: .now) < .milliseconds(300))
+  #expect(!request.isActive)
 }

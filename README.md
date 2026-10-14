@@ -189,4 +189,4 @@ breaks the user's machine.
 
 ## License
 
-Not chosen yet.
+Licensed under the [MIT License](LICENSE).

@@ -11,7 +11,7 @@
 - PanelContentView contains search, close status, scrollable grid, and empty state. The scroll view supplies document width. Render after settling initial geometry; post-close height changes use a 200 ms centered transition, disabled by Reduce Motion.
 - CardGridView reuses cards by windowID. Selection is a 13% accent tint with 14 pt corners and a 32×4 pt underline. Within a row, a 300 ms sampled position/width curve begins at the presentation frame, stretches no wider than 52 pt, then settles to 32 pt. Refreshing the same selection does not interrupt it. Cross-row movement and wrapping place the underline immediately. Tint fades independently over 160 ms; Reduce Motion removes travel.
 - WindowPreviewView clips the aspect-fit image itself to 10 pt corners, including portrait previews. Real/cached images take precedence. Otherwise draw a generic small window and app icon, without inventing website content. Preserve real titles and expose unavailable-preview help to accessibility.
-- The panel uses dark appearance and a black opacity mask; settings follows system appearance. Default panel corners are 20 pt. The 0.0.6 default accent is sRGB #96D76A, with one-time migration and later customization.
+- Background selection is persisted as Black (default), White, Deep Blue (#0A2C37), or System. Fixed colors force their matching Aqua/Dark Aqua appearance; System inherits application appearance. PanelContentView forwards effective-appearance changes to refresh the base mask and resolves cached search CGColors in its own appearance. The mask retains alpha = 1 − glass strength; full transparency removes the base color. Settings follows system appearance. Default panel corners are 20 pt. The 0.0.6 default accent is sRGB #96D76A, with one-time migration and later customization.
 
 ## Session and close lifecycle
 
@@ -25,7 +25,7 @@ One AXRequest supplies a shared three-second deadline and cancellation checks. A
 
 ## Search and performance
 
-The filter is a tap-owned append/backspace query, not an AppKit field editor. Explicit focus shows a 2 pt accent border/icon and blinking end caret. Caret position updates immediately without travel animation; hidden panels stop blinking. Typing from Command-holding enters a persistent search session. Long text is clipped with its end visible. Arrows still select windows; no IME, arbitrary text selection, or mouse window selection is implemented.
+The filter is a tap-owned append/backspace query, not an AppKit field editor. A 32 pt bundled slime icon sits outside search with a 10 pt gap. Unfocused search shows a passive ⌘F keycap, suppressed by focus or a close status message. Explicit focus shows a 2 pt accent border with a neutral contrast edge and blinking end caret. Query clipping reserves trailing space for the hint/status. Caret position updates immediately without travel animation; hidden panels stop blinking. Typing from Command-holding enters a persistent search session. Long text is clipped with its end visible. Arrows still select windows; no IME, arbitrary text selection, or mouse window selection is implemented.
 
 Unchanged ordered results skip grid rendering. Cards avoid wrapping an unchanged CGImage again or invalidating its preview. Focus does not restart its animations on every character. Resize frames update geometry without repeating ranking or capture. Thumbnail updates are snapshots, not live video.
 

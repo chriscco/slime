@@ -35,3 +35,7 @@ Settings calls SMAppService directly; there is no forwarding-only service or per
 ## 2026-10-13 · One-time green migration and bundled artwork for 0.0.6
 
 The owner confirmed there are no other existing users and requested resetting all old accents to RGB(150, 215, 106). A versioned migration marker makes this a one-time operation; future customization remains intact. Preserve glass settings. Package the supplied artwork as an icns resource and derive About from bundle metadata. Local development signing is not a claim of Developer ID signing or notarization.
+
+## 2026-10-15 · Static theme previews in a scrolling settings body
+
+Show four selectable native button illustrations instead of screenshot assets or live glass surfaces. A split illustration explains System independently of the current appearance. Previews deliberately show opaque base colors; copy explains how glass changes the actual result. Scroll only the body, keeping the sidebar fixed and all existing controls reachable at 720×510 pt. Keep selection controls alive to preserve keyboard focus.

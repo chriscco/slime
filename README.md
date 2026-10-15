@@ -9,7 +9,7 @@
 A macOS window switcher with two things the system's own switcher doesn't do:
 **type-to-search** and **two trigger gestures**.
 
-> **Version: 0.0.6.** Slime-green accents, a new icon, visible search focus, and refined window closing and animation.
+> **Development: 0.0.7.** Selectable panel themes and a branded search toolbar. The latest published DMG is still 0.0.6.
 
 ## Install the DMG
 
@@ -48,7 +48,7 @@ Entries represent **windows rather than apps**, so you can switch directly to a 
 Open Settings from the menu bar or with `⌘,` while the panel is open.
 General contains the enable switch, app grouping, launch at login, and English / 简体中文.
 English is the default. On first launch, 0.0.6 resets old accents once to slime green `#96D76A` (RGB 150, 215, 106); subsequent custom colors persist. Glass preferences are preserved.
-Appearance keeps the glass style, strength, accent color, and panel corners. Shortcuts
+Appearance offers Black (default), White, Deep Blue (`#0A2C37`), and System backgrounds, with clickable miniature previews. System follows macOS light/dark appearance. Glass style, strength, accent color, and panel corners remain adjustable. At full transparency the base color disappears; previews illustrate opaque themes. Shortcuts
 lists the fixed bindings; About shows the bundle version and repository link.
 
 Turning slime off restores native `⌘Tab` without removing the menu bar item.
@@ -58,7 +58,7 @@ Login items use macOS status and may require approval in System Settings.
 
 When direct access is unavailable, slime attempts to reveal the target app and revalidate the window. The panel dismisses and does not return automatically after closing or confirmation. Ambiguous targets are never guessed. Automatic identification, retries, and confirmation share a three-second budget; system AX calls may return later than the requested timeout.
 
-Typing after `⌘Tab` keeps the panel open when you release Command; `⌘F` is optional. Without typing, releasing Command still switches immediately. Search focus has a 2pt accent border and an end caret that updates immediately without sliding. Typing appends to the query, Backspace deletes its final character, and arrows still select windows. This version does not implement text selection, arbitrary caret placement, or IME composition.
+Typing after `⌘Tab` keeps the panel open when you release Command; `⌘F` is optional. Without typing, releasing Command still switches immediately. The square slime logo sits beside the search field. An unfocused field shows a `⌘F` keycap; focusing or typing hides it, and close status messages take priority. Search focus has a 2pt accent border with a subtle neutral edge and an end caret that updates immediately without sliding. Typing appends to the query, Backspace deletes its final character, and arrows still select windows. This version does not implement text selection, arbitrary caret placement, or IME composition.
 
 ## Requirements
 

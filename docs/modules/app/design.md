@@ -13,11 +13,11 @@ Disabling immediately dismisses the panel and calls `configure(false)`, releasin
 - `panel.onRefresh` → `cache.refresh`; cache publication → icon/thumbnail warming and `panel.setWindows`.
 - `panel.onClosed` → `cache.noteClosed`; `onCloseFinished` → revision-checked `tap.completeClose`.
 - Panel/menu settings action → `settingsWindow.show`.
-- Settings changes rebuild menu labels and start/stop interception only when enabled state changes. Language persists immediately; the next panel presentation reads it. Application names and window titles are never translated.
+- Settings changes refresh panel appearance without changing query, focus, or window identity, rebuild menu labels, and start/stop interception only when enabled state changes. Language persists immediately; the next panel presentation reads it. Application names and window titles are never translated.
 
 ## Settings
 
-A 720×510 pt AppKit window contains flat General, Appearance, Shortcuts, and About sections. The sidebar uses solid surfaces and borderless navigation. The floating window moves to the active Space, supports full-screen auxiliary presentation, and explicitly orders itself frontmost. About contains only slime, the bundle version, and the repository link.
+A 720×510 pt AppKit window contains flat General, Appearance, Shortcuts, and About sections. The sidebar uses solid surfaces and borderless navigation. The body scrolls, keeping appearance controls reachable beneath a two-column theme preview grid. Preview buttons draw static opaque schematics, expose native radio-button state, and remain alive when selection changes so keyboard focus is retained. The floating window moves to the active Space, supports full-screen auxiliary presentation, and explicitly orders itself frontmost. About contains only slime, the bundle version, and the repository link.
 
 Settings accepts isolated UserDefaults for tests. English is the default. Existing glass preferences remain; default panel corner radius is 20 pt. In 0.0.6 the sole existing user's saved accent resets once to sRGB #96D76A; later customization persists. The settings selection and panel share the configured accent.
 

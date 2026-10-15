@@ -123,3 +123,7 @@ Fade title/tint/underline at close start, leaving only the preview for CRT. Rest
 ## 2026-10-14 · Immediate caret, stronger focus, slightly faster CRT
 
 Owner feedback removes end-caret travel; the previous 90 ms animation is superseded. Keep ordinary blinking, strengthen the focus border from 1 to 2 pt and accent opacity from 65% to 85%. Reduce CRT duration from 560 to 500 ms while retaining phase proportions and the 120 ms Reduce Motion fade. Removing travel avoids its per-edit animation allocation/compositing, without claiming it was a measured bottleneck.
+
+## 2026-10-15 · 0.0.7 theme presets and branded search
+
+Keep black as the default and let System opt into inherited AppKit appearance. Refresh cached CGColors from effective-appearance callbacks rather than polling, and retain the existing glass mask formula. White uses Aqua so text and fallback previews remain readable. The square bundled icon sits outside the field; a passive ⌘F keycap disappears during focus or close status. No new query semantics or caret movement animation are introduced.

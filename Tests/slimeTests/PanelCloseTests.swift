@@ -186,3 +186,29 @@ private actor CloseGate {
   #expect(!panel.panel.isVisible)
   panel.onCancelSession = nil
 }
+
+@Test @MainActor func themeChangeDuringClosePreservesTheTransaction() async throws {
+  _ = NSApplication.shared
+  let suite = "slime.close-theme.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let gate = CloseGate()
+  let controller = PanelController(settings: settings, closeWindow: { window, _ in await gate.close(window) })
+  controller.handle(state: .lingering(query: "", selection: 0), effects: [])
+  controller.setWindows((1...2).map { Window(pid: 1, windowID: UInt32($0), appName: "Test", title: "Window", isMinimized: false) })
+  controller.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
+  await gate.waitUntilStarted()
+  let originalCard = controller.panel.content.gridView.card(for: 1)
+  settings.panelBackground = .white
+  controller.refreshAppearance()
+  #expect(controller.closing)
+  #expect(controller.panel.content.gridView.card(for: 1) === originalCard)
+  #expect(controller.panel.content.gridView.subviews.first { $0 is HighlightView }?.alphaValue == 0)
+  #expect(await gate.calls == 1)
+  await gate.finish(.closed)
+  for _ in 0..<100 where controller.closing { try await Task.sleep(for: .milliseconds(20)) }
+  #expect(controller.rows.map(\.windowID) == [2])
+  #expect(!controller.closing)
+  controller.dismiss()
+}

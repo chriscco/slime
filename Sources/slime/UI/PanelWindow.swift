@@ -49,11 +49,17 @@ final class PanelWindow: NSPanel {
     // 内容层留着裁边：空态文字不越出面板边界。
     content.wantsLayer = true
     content.layer?.masksToBounds = true
+    content.onAppearanceChange = { [weak self] in self?.refreshBackground() }
   }
 
-  /// 面板底色。**固定常量** —— 这一版不允许改背景色（spec §3 非目标），
-  /// 浓度是它的 alpha 表达的。
-  private static let panelBase = NSColor.black
+  private var panelBackground = Settings.PanelBackground.black
+  private var glassStrength = Settings.defaultGlassStrength
+
+  private func refreshBackground() {
+    let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    content.layer?.backgroundColor = panelBackground.baseColor(systemIsDark: dark)
+      .withAlphaComponent(1 - glassStrength).cgColor
+  }
 
   /// 玻璃参数由设置驱动。内容**必须**挂在 `glass.contentView` 上 ——
   /// 头文件明说任意子视图的 z-order 不保证（spec §7）。
@@ -66,12 +72,15 @@ final class PanelWindow: NSPanel {
   /// shortcut: 玻璃浓度是一层遮罩，不是玻璃本身的属性（NSGlassEffectView 没有
   ///           opacity，tintColor 的 alpha 实测无效）—— Apple 给出真属性时换掉
   func applyGlassSettings(_ settings: Settings) {
+    panelBackground = settings.panelBackground
+    glassStrength = settings.glassStrength
+    appearance = panelBackground == .system ? nil
+      : NSAppearance(named: panelBackground == .white ? .aqua : .darkAqua)
     glass.style = settings.glassStyle.glassEffectStyle
     glass.cornerRadius = settings.glassCornerRadius
     // 遮罩是方的，玻璃是圆的：不给内容层同样的圆角，四角会露出黑方块。
     content.layer?.cornerRadius = settings.glassCornerRadius
-    content.layer?.backgroundColor = Self.panelBase
-      .withAlphaComponent(1 - settings.glassStrength).cgColor
+    refreshBackground()
   }
 
   override var canBecomeKey: Bool { true }
@@ -91,6 +100,14 @@ final class PanelWindow: NSPanel {
 /// 面板内容：搜索行 + 卡片网格 + 空态提示。手动布局（从上到下三块，
 /// 用 constraints 是杀鸡用牛刀）。
 final class PanelContentView: NSView {
+  var onAppearanceChange: (() -> Void)?
+
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    refreshSearchPalette()
+    onAppearanceChange?()
+  }
+
   let searchBox = NSView()
   let searchIcon = NSImageView()
   let searchLabel = NSTextField(labelWithString: "")
@@ -98,7 +115,8 @@ final class PanelContentView: NSView {
   private let searchClip = NSView()
   private(set) var searchFocused = false
   private var searchText = ""
-  var accentColor = Settings.defaultHighlightColor
+  var accentColor = Settings.defaultHighlightColor { didSet { refreshSearchPalette() } }
+  let shortcutHint = NSTextField(labelWithString: "⌘F")
 
   let scrollView = NSScrollView()
   let gridView = CardGridView()
@@ -115,26 +133,31 @@ final class PanelContentView: NSView {
   /// panelHeight）也是它算的，内容视图再自带一组 padding / headerHeight
   /// 就会把文档视图摆偏（同一份常量只能有一个来源）。
   private static let metrics = GridLayout(count: 0)
-  private static let searchIconSide: CGFloat = 14
-  private static let searchLeadingInset: CGFloat = 10
-  /// 放大镜与查询文本之间的间隙。
-  private static let searchIconGap: CGFloat = 6
+  private static let searchIconSide: CGFloat = 32
+  private static let searchLeadingInset: CGFloat = 12
+  private static let searchIconGap: CGFloat = 10
 
   init() {
     super.init(frame: .zero)
 
-    // 无框搜索行：半透明浅色 pill，没有硬边 —— 底下的玻璃面继续活着，
-    // 不用 controlBackgroundColor 那种实心方块（用户实测：黑框很突兀）。
+    // The logo sits outside the field; only the query and passive hint live inside.
     searchBox.wantsLayer = true
     searchBox.layer?.cornerRadius = 10
-    searchBox.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
-    searchIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
-    searchIcon.contentTintColor = .secondaryLabelColor
+    if let url = Bundle.main.url(forResource: "slime", withExtension: "icns") {
+      searchIcon.image = NSImage(contentsOf: url)
+    }
+    searchIcon.setAccessibilityElement(false)
     searchIcon.imageScaling = .scaleProportionallyUpOrDown
     searchLabel.font = .systemFont(ofSize: 15)
     searchLabel.lineBreakMode = .byTruncatingTail
     setSearchText("")
-    searchBox.addSubview(searchIcon)
+    addSubview(searchIcon)
+    shortcutHint.font = .systemFont(ofSize: 12, weight: .medium)
+    shortcutHint.textColor = .secondaryLabelColor
+    shortcutHint.alignment = .center
+    shortcutHint.wantsLayer = true
+    shortcutHint.layer?.cornerRadius = 5
+    searchBox.addSubview(shortcutHint)
     searchClip.wantsLayer = true
     searchClip.layer?.masksToBounds = true
     searchBox.addSubview(searchClip)
@@ -164,6 +187,7 @@ final class PanelContentView: NSView {
     statusLabel.alignment = .right
     statusLabel.lineBreakMode = .byTruncatingTail
     searchBox.addSubview(statusLabel)
+    refreshSearchPalette()
   }
 
   required init?(coder: NSCoder) { fatalError("面板只从代码建") }
@@ -184,12 +208,8 @@ final class PanelContentView: NSView {
   func setSearchFocused(_ focused: Bool) {
     guard focused != searchFocused else { return }
     searchFocused = focused
-    searchBox.layer?.borderWidth = focused ? 2 : 0
-    searchBox.layer?.borderColor = accentColor.withAlphaComponent(0.85).cgColor
-    searchBox.layer?.backgroundColor = (focused ? accentColor.withAlphaComponent(0.10)
-      : NSColor.white.withAlphaComponent(0.06)).cgColor
-    searchIcon.contentTintColor = focused ? accentColor : .secondaryLabelColor
-    searchCaret.layer?.backgroundColor = accentColor.cgColor
+    refreshSearchPalette()
+    updateShortcutVisibility()
     searchCaret.isHidden = !focused
     searchCaret.layer?.removeAllAnimations()
     if focused && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
@@ -203,10 +223,33 @@ final class PanelContentView: NSView {
     layoutSubtreeIfNeeded()
   }
 
+  private func updateShortcutVisibility() {
+    shortcutHint.isHidden = searchFocused || !statusLabel.stringValue.isEmpty
+  }
+
+  private func refreshSearchPalette() {
+    effectiveAppearance.performAsCurrentDrawingAppearance {
+      let neutral = NSColor.labelColor
+      searchBox.layer?.borderWidth = searchFocused ? 2 : 0
+      searchBox.layer?.borderColor = accentColor.withAlphaComponent(0.85).cgColor
+      searchBox.layer?.backgroundColor = (searchFocused
+        ? accentColor.withAlphaComponent(0.10) : neutral.withAlphaComponent(0.06)).cgColor
+      // A neutral edge keeps even a white custom accent visible on a light panel.
+      let edge = NSShadow()
+      edge.shadowColor = neutral.withAlphaComponent(0.65)
+      edge.shadowBlurRadius = 1
+      edge.shadowOffset = .zero
+      searchBox.shadow = searchFocused ? edge : nil
+      shortcutHint.layer?.backgroundColor = neutral.withAlphaComponent(0.08).cgColor
+      searchCaret.layer?.backgroundColor = neutral.cgColor
+    }
+  }
+
   func showStatus(_ message: String?) {
     statusLabel.stringValue = message ?? ""
     statusLabel.toolTip = message
     statusLabel.setAccessibilityLabel(message)
+    updateShortcutVisibility()
     needsLayout = true
   }
 
@@ -233,17 +276,21 @@ final class PanelContentView: NSView {
     // 起，面板高度公式（panelHeight）才对得上。
     let searchHeight = headerHeight - padding
     let inner = bounds.width - padding * 2
-    searchBox.frame = NSRect(x: padding, y: padding, width: inner, height: searchHeight)
-    searchIcon.frame = NSRect(
-      x: Self.searchLeadingInset,
-      y: (searchHeight - Self.searchIconSide) / 2,
-      width: Self.searchIconSide,
-      height: Self.searchIconSide)
+    searchIcon.frame = NSRect(x: padding, y: padding + (searchHeight - Self.searchIconSide) / 2,
+      width: Self.searchIconSide, height: Self.searchIconSide)
+    let searchX = searchIcon.frame.maxX + Self.searchIconGap
+    searchBox.frame = NSRect(x: searchX, y: padding,
+      width: max(0, bounds.width - padding - searchX), height: searchHeight)
     searchLabel.sizeToFit()
-    let textX = Self.searchLeadingInset + Self.searchIconSide + Self.searchIconGap
-    let available = max(0, (searchBox.bounds.width - textX - Self.searchLeadingInset)
-      * (statusLabel.stringValue.isEmpty ? 1 : 0.45))
+    let textX = Self.searchLeadingInset
+    let hasStatus = !statusLabel.stringValue.isEmpty
+    let trailingWidth: CGFloat = hasStatus ? searchBox.bounds.width * 0.50
+      : (shortcutHint.isHidden ? 0 : 36)
+    let available = max(0, searchBox.bounds.width - textX - Self.searchLeadingInset
+      - trailingWidth - (trailingWidth > 0 ? 10 : 0))
     searchClip.frame = NSRect(x: textX, y: 0, width: available, height: searchHeight)
+    shortcutHint.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - 36,
+      y: (searchHeight - 20) / 2, width: 36, height: 20)
     let textWidth = ceil((searchText as NSString).size(withAttributes:
       [.font: searchLabel.font ?? NSFont.systemFont(ofSize: 15)]).width)
     let offset = min(0, available - textWidth - 6)
@@ -252,8 +299,8 @@ final class PanelContentView: NSView {
     searchCaret.frame = NSRect(x: max(0, offset + textWidth + 2),
       y: (searchHeight - 18) / 2, width: 2, height: 18)
 
-    statusLabel.frame = NSRect(x: searchBox.bounds.width * 0.48, y: (searchHeight - 16) / 2,
-      width: searchBox.bounds.width * 0.52 - 10, height: 16)
+    statusLabel.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - trailingWidth,
+      y: (searchHeight - 16) / 2, width: trailingWidth, height: 16)
     let listTop = padding + headerHeight
     scrollView.frame = NSRect(
       x: padding, y: listTop, width: inner, height: bounds.height - listTop - padding)

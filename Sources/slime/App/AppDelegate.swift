@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func settingsChanged() {
+    panel?.refreshAppearance()
     installStatusItem()
     guard settings.isEnabled != lastEnabled else { return }
     if settings.isEnabled {

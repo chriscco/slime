@@ -434,3 +434,77 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(content.searchBox.accessibilityValue() as? String == placeholder)
   #expect(content.searchLabel.textColor == .labelColor)
 }
+
+@Test @MainActor func savedWhiteBackgroundChangesThePanelAppearance() throws {
+  _ = NSApplication.shared
+  let suite = "slime.theme.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  defaults.set("white", forKey: "panel.background")
+  let panel = PanelWindow()
+  panel.applyGlassSettings(Settings(defaults: defaults))
+  #expect(panel.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
+  #expect(panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.8).cgColor)
+}
+
+@Test(arguments: [320.0, 600.0, 1088.0]) @MainActor
+func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: width, height: 300)
+  content.layoutSubtreeIfNeeded()
+  let hint = try #require(content.searchBox.subviews.compactMap { $0 as? NSTextField }
+    .first { $0.stringValue == "⌘F" })
+  #expect(!hint.isHidden)
+  #expect(content.searchIcon.superview === content)
+  #expect(content.searchIcon.frame.width == 32)
+  #expect(content.searchIcon.frame.maxX + 10 == content.searchBox.frame.minX)
+  content.setSearchFocused(true)
+  #expect(hint.isHidden)
+  content.setSearchFocused(false)
+  #expect(!hint.isHidden)
+  content.showStatus("Close failed")
+  content.layoutSubtreeIfNeeded()
+  #expect(hint.isHidden)
+  content.showStatus(nil)
+  content.layoutSubtreeIfNeeded()
+  #expect(!hint.isHidden)
+  content.setSearchText(String(repeating: "wide query ", count: 30))
+  content.layoutSubtreeIfNeeded()
+  let clip = try #require(content.searchLabel.superview)
+  #expect(clip.frame.maxX < hint.frame.minX)
+  #expect(content.searchCaret.frame.maxX <= clip.bounds.width)
+}
+
+@Test @MainActor func systemAppearanceRefreshKeepsTheQueryFocusAndSelection() throws {
+  _ = NSApplication.shared
+  let suite = "slime.live-theme.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  settings.panelBackground = .system
+  let controller = PanelController(settings: settings)
+  controller.handle(state: .lingering(query: "", selection: 0), effects: [])
+  controller.setWindows([window("App", "Alpha", id: 301), window("App", "Beta", id: 302)])
+  controller.handle(state: .lingering(query: "a", selection: 0), effects: [.appendQuery("a")])
+  controller.refreshAppearance()
+  #expect(controller.panel.appearance == nil)
+  let content = controller.panel.content
+  let selection = controller.selection
+  let originalAppearance = NSApp.appearance
+  defer { NSApp.appearance = originalAppearance }
+  NSApp.appearance = NSAppearance(named: .aqua)
+  content.layoutSubtreeIfNeeded()
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.8).cgColor)
+  #expect(content.searchFocused)
+  #expect(content.searchLabel.stringValue == "a")
+  #expect(controller.selection == selection)
+  NSApp.appearance = NSAppearance(named: .darkAqua)
+  content.layoutSubtreeIfNeeded()
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.black.withAlphaComponent(0.8).cgColor)
+  settings.panelBackground = .white
+  controller.refreshAppearance()
+  #expect(controller.panel.appearance?.name == .aqua)
+  #expect(content.searchFocused)
+  #expect(content.searchLabel.stringValue == "a")
+  controller.dismiss()
+}

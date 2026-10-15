@@ -13,6 +13,26 @@ struct Settings {
     }
   }
 
+  enum PanelBackground: String, CaseIterable {
+    case black, white, deepBlue, system
+
+    func isDark(systemIsDark: Bool) -> Bool {
+      self == .system ? systemIsDark : self != .white
+    }
+
+    func baseColor(systemIsDark: Bool) -> NSColor {
+      if self == .deepBlue {
+        return NSColor(srgbRed: 10.0 / 255, green: 44.0 / 255, blue: 55.0 / 255, alpha: 1)
+      }
+      return isDark(systemIsDark: systemIsDark) ? .black : .white
+    }
+  }
+
+  var panelBackground: PanelBackground {
+    get { defaults.string(forKey: "panel.background").flatMap(PanelBackground.init(rawValue:)) ?? .black }
+    nonmutating set { defaults.set(newValue.rawValue, forKey: "panel.background") }
+  }
+
   static let cornerRadiusRange: ClosedRange<Double> = 0...40
   static let defaultCornerRadius: Double = 20
 

@@ -10,6 +10,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private let content = NSView()
   private let sidebar = NSStackView()
   private let body = NSStackView()
+  private let bodyScroll = NSScrollView()
+  private var backgroundButtons: [PanelBackgroundButton] = []
   private var loginSwitch: NSSwitch?
   private var loginStatus: NSTextField?
   private var loginBusy = false
@@ -45,10 +47,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     body.orientation = .vertical
     body.alignment = .leading
     body.spacing = 0
-    let backdrop = NSView()
-    backdrop.wantsLayer = true
-    backdrop.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-    for view in [backdrop, sidebar, body] {
+    let backdrop = SettingsBackdropView()
+    bodyScroll.drawsBackground = false
+    bodyScroll.hasVerticalScroller = true
+    bodyScroll.autohidesScrollers = true
+    let document = SettingsDocumentView()
+    document.translatesAutoresizingMaskIntoConstraints = false
+    bodyScroll.documentView = document
+    body.translatesAutoresizingMaskIntoConstraints = false
+    document.addSubview(body)
+    for view in [backdrop, sidebar, bodyScroll] {
       view.translatesAutoresizingMaskIntoConstraints = false
       content.addSubview(view)
     }
@@ -60,9 +68,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       sidebar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
       sidebar.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -12),
       sidebar.topAnchor.constraint(equalTo: content.topAnchor, constant: 28),
-      body.leadingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: 28),
-      body.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
-      body.topAnchor.constraint(equalTo: content.topAnchor, constant: 26),
+      bodyScroll.leadingAnchor.constraint(equalTo: backdrop.trailingAnchor),
+      bodyScroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+      bodyScroll.topAnchor.constraint(equalTo: content.topAnchor),
+      bodyScroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+      document.widthAnchor.constraint(equalTo: bodyScroll.contentView.widthAnchor),
+      document.heightAnchor.constraint(greaterThanOrEqualTo: bodyScroll.contentView.heightAnchor),
+      body.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
+      body.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -28),
+      body.topAnchor.constraint(equalTo: document.topAnchor, constant: 26),
+      body.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -26),
     ])
     rebuild()
     return window
@@ -78,6 +93,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
     }
     loginSwitch = nil; loginStatus = nil
+    backgroundButtons = []
     let names = [text("General", "通用"), text("Appearance", "外观"),
       text("Shortcuts", "快捷键"), text("About", "关于")]
     let symbols = ["switch.2", "paintpalette", "keyboard", "info.circle"]
@@ -151,6 +167,35 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   }
 
   private func appearance() {
+    let names = [text("Black", "黑色"), text("White", "白色"),
+      text("Deep Blue", "深蓝"), text("System", "跟随系统")]
+    let themes = Settings.PanelBackground.allCases
+    for rowIndex in 0..<2 {
+      let previews = NSStackView()
+      previews.orientation = .horizontal
+      previews.distribution = .fillEqually
+      previews.spacing = 12
+      for index in (rowIndex * 2)..<(rowIndex * 2 + 2) {
+        let button = PanelBackgroundButton(theme: themes[index], title: names[index],
+          target: self, action: #selector(backgroundChanged(_:)))
+        button.state = settings.panelBackground == themes[index] ? .on : .off
+        backgroundButtons.append(button)
+        previews.addArrangedSubview(button)
+        button.heightAnchor.constraint(equalToConstant: 102).isActive = true
+      }
+      body.addArrangedSubview(previews)
+      previews.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+      previews.heightAnchor.constraint(equalToConstant: 102).isActive = true
+      body.setCustomSpacing(12, after: previews)
+    }
+    let explanation = NSTextField(wrappingLabelWithString: text(
+      "Theme previews are illustrative. Glass strength and your desktop affect the actual color; full transparency removes the background color.",
+      "预览为主题示意。玻璃强度和桌面会影响实际颜色；完全透明时不显示背景底色。"))
+    explanation.font = .systemFont(ofSize: 11)
+    explanation.textColor = .secondaryLabelColor
+    body.addArrangedSubview(explanation)
+    explanation.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+    body.setCustomSpacing(12, after: explanation)
     let style = NSSegmentedControl(labels: [text("Regular", "标准"), text("Clear", "通透")],
       trackingMode: .selectOne, target: self, action: #selector(styleChanged(_:)))
     style.selectedSegment = settings.glassStyle == .regular ? 0 : 1
@@ -260,7 +305,20 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
   }
 
-  @objc private func selectSection(_ sender: NSButton) { section = sender.tag; rebuild() }
+  @objc private func selectSection(_ sender: NSButton) {
+    section = sender.tag
+    rebuild()
+    content.layoutSubtreeIfNeeded()
+    bodyScroll.documentView?.scroll(.zero)
+  }
+  @objc private func backgroundChanged(_ sender: PanelBackgroundButton) {
+    settings.panelBackground = sender.theme
+    for button in backgroundButtons {
+      button.state = button.theme == sender.theme ? .on : .off
+      button.needsDisplay = true
+    }
+    onChange?()
+  }
   @objc private func enabledChanged(_ sender: NSSwitch) { settings.isEnabled = sender.state == .on; onChange?() }
   @objc private func groupChanged(_ sender: NSSwitch) { settings.groupByApp = sender.state == .on; onChange?() }
   @objc private func languageChanged(_ sender: NSPopUpButton) {
@@ -302,5 +360,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if let window { await alert.beginSheetModal(for: window) }
       }
     }
+  }
+}
+
+private final class SettingsDocumentView: NSView {
+  override var isFlipped: Bool { true }
+}
+
+private final class SettingsBackdropView: NSView {
+  override func draw(_ dirtyRect: NSRect) {
+    NSColor.controlBackgroundColor.setFill()
+    bounds.fill()
+  }
+
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    needsDisplay = true
   }
 }

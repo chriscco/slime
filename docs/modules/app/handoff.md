@@ -14,8 +14,11 @@ appearance callbacks refresh cached colors without changing query, focus, or sel
 Glass strength still controls mask opacity; at full transparency no base color remains.
 
 Settings shows four static, keyboard-accessible preview buttons in a two-column grid.
-The body scrolls inside the original window dimensions. A square bundled slime icon
-sits beside search, and a passive ⌘F keycap yields to focus or close status text.
+The body scrolls inside the original window dimensions. A rounded bundled slime icon
+aligns with search and the preview inset. A plain ⌘F hint yields to focus or close
+status text. Placeholder and query use semantic primary text in both appearances.
+Theme preview buttons use a full rectangular native cell hit region; the previous
+borderless radio cell returned no trackable area despite performClick tests passing.
 No new thumbnail capture, AX operations, polling, or continuous animations were added.
 
 ## Verification and next steps

@@ -39,3 +39,11 @@ The owner confirmed there are no other existing users and requested resetting al
 ## 2026-10-15 · Static theme previews in a scrolling settings body
 
 Show four selectable native button illustrations instead of screenshot assets or live glass surfaces. A split illustration explains System independently of the current appearance. Previews deliberately show opaque base colors; copy explains how glass changes the actual result. Scroll only the body, keeping the sidebar fixed and all existing controls reachable at 720×510 pt. Keep selection controls alive to preserve keyboard focus.
+
+## 0.0.7 owner feedback · Native preview hit regions
+
+The custom drawing covered a large card, but a borderless radio cell did not expose
+that rectangle as a trackable mouse area. Direct performClick tests bypassed the bug.
+Use a bordered shadowless-square push cell for full native tracking while retaining
+custom drawing and explicit radio accessibility. Test actual cell hit regions at
+several positions as well as the settings action.

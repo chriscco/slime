@@ -10,8 +10,10 @@ final class PanelBackgroundButton: NSButton {
     self.title = title
     self.target = target
     self.action = action
-    setButtonType(.radio)
-    isBordered = false
+    // Use a full-rectangle cell hit region; draw(_:) supplies the custom appearance.
+    setButtonType(.pushOnPushOff)
+    bezelStyle = .shadowlessSquare
+    isBordered = true
     focusRingType = .exterior
     setAccessibilityElement(true)
     setAccessibilityRole(.radioButton)

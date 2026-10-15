@@ -127,3 +127,9 @@ Owner feedback removes end-caret travel; the previous 90 ms animation is superse
 ## 2026-10-15 · 0.0.7 theme presets and branded search
 
 Keep black as the default and let System opt into inherited AppKit appearance. Refresh cached CGColors from effective-appearance callbacks rather than polling, and retain the existing glass mask formula. White uses Aqua so text and fallback previews remain readable. The square bundled icon sits outside the field; a passive ⌘F keycap disappears during focus or close status. No new query semantics or caret movement animation are introduced.
+
+## 0.0.7 owner feedback · Readable aligned header
+
+Round the existing logo through view clipping, share the card image inset for header
+alignment, and remove the shortcut hint's separate fill. Both placeholder and query
+use semantic primary text so dark themes are readable without breaking white mode.

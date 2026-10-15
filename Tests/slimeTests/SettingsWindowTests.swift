@@ -125,3 +125,22 @@ import Testing
   document.scrollToVisible(rect)
   #expect(scroll.documentVisibleRect.intersects(rect))
 }
+
+@Test @MainActor func backgroundPreviewAcceptsClicksAcrossTheWholeCard() throws {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Appearance" })
+  appearance.performClick(nil)
+  window.contentView?.layoutSubtreeIfNeeded()
+  let button = try #require(descendants(window.contentView!).compactMap { $0 as? PanelBackgroundButton }.first)
+  for point in [NSPoint(x: 20, y: 20), NSPoint(x: button.bounds.midX, y: button.bounds.midY), NSPoint(x: 20, y: 85)] {
+    let location = button.convert(point, to: nil)
+    let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
+      modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+      eventNumber: 1, clickCount: 1, pressure: 1))
+    let hit = try #require(button.cell?.hitTest(for: event, in: button.bounds, of: button))
+    #expect(hit.contains(.trackableArea), "Click at \(point) returned \(hit)")
+    #expect(window.contentView?.hitTest(window.contentView!.convert(location, from: nil)) === button)
+  }
+}

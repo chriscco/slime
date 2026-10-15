@@ -58,7 +58,7 @@ Login items use macOS status and may require approval in System Settings.
 
 When direct access is unavailable, slime attempts to reveal the target app and revalidate the window. The panel dismisses and does not return automatically after closing or confirmation. Ambiguous targets are never guessed. Automatic identification, retries, and confirmation share a three-second budget; system AX calls may return later than the requested timeout.
 
-Typing after `⌘Tab` keeps the panel open when you release Command; `⌘F` is optional. Without typing, releasing Command still switches immediately. The square slime logo sits beside the search field. An unfocused field shows a `⌘F` keycap; focusing or typing hides it, and close status messages take priority. Search focus has a 2pt accent border with a subtle neutral edge and an end caret that updates immediately without sliding. Typing appends to the query, Backspace deletes its final character, and arrows still select windows. This version does not implement text selection, arbitrary caret placement, or IME composition.
+Typing after `⌘Tab` keeps the panel open when you release Command; `⌘F` is optional. Without typing, releasing Command still switches immediately. The rounded slime logo sits beside the search field. An unfocused field shows a `⌘F` text hint; focusing or typing hides it, and close status messages take priority. Search focus has a 2pt accent border with a subtle neutral edge and an end caret that updates immediately without sliding. Typing appends to the query, Backspace deletes its final character, and arrows still select windows. This version does not implement text selection, arbitrary caret placement, or IME composition.
 
 ## Requirements
 

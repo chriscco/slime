@@ -113,12 +113,11 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   }
 }
 
-// 搜索行：空查询显示占位提示（次要色、不抢视觉），有查询显示查询文本（主色）。
-// 无框 pill / 放大镜的观感走人工验收，这里只钉住文本语义。
+// Both placeholder and query use readable semantic text in either appearance.
 @Test @MainActor func searchRowShowsPlaceholderOnlyWhenTheQueryIsEmpty() {
   let content = PanelContentView()
   #expect(content.searchLabel.stringValue == PanelContentView.searchPlaceholder)
-  #expect(content.searchLabel.textColor == .secondaryLabelColor)
+  #expect(content.searchLabel.textColor == .labelColor)
 
   content.setSearchText("chr")
   #expect(content.searchLabel.stringValue == "chr")
@@ -507,4 +506,33 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   #expect(content.searchFocused)
   #expect(content.searchLabel.stringValue == "a")
   controller.dismiss()
+}
+
+@Test @MainActor func searchHeaderAlignsRoundedLogoAndUsesThemeAwareTextWithoutHintFill() throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 1088, height: 300)
+  content.render(rows: (1...5).map { window("App", "Window", id: UInt32($0)) })
+  let first = try #require(content.gridView.card(for: 1))
+  let last = try #require(content.gridView.card(for: 5))
+  let firstPreview = content.convert(first.preview.bounds, from: first.preview)
+  let lastPreview = content.convert(last.preview.bounds, from: last.preview)
+  #expect(content.searchIcon.frame.minX == firstPreview.minX)
+  #expect(content.searchBox.frame.maxX == lastPreview.maxX)
+  #expect(content.searchIcon.frame.minY == content.searchBox.frame.minY)
+  #expect(content.searchIcon.frame.maxY == content.searchBox.frame.maxY)
+  #expect(content.searchIcon.layer?.cornerRadius == 10)
+  #expect(content.searchIcon.layer?.masksToBounds == true)
+  #expect(content.shortcutHint.layer?.backgroundColor == nil
+    || content.shortcutHint.layer?.backgroundColor?.alpha == 0)
+  for name in [NSAppearance.Name.darkAqua, .aqua] {
+    content.appearance = NSAppearance(named: name)
+    content.setSearchText("")
+    #expect(content.searchLabel.textColor == .labelColor)
+    content.effectiveAppearance.performAsCurrentDrawingAppearance {
+      let text = content.searchLabel.textColor!.usingColorSpace(.sRGB)!
+      #expect(name == .darkAqua ? text.redComponent > 0.8 : text.redComponent < 0.2)
+    }
+    content.setSearchText("query")
+    #expect(content.searchLabel.textColor == .labelColor)
+  }
 }

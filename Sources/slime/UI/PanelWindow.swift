@@ -146,6 +146,9 @@ final class PanelContentView: NSView {
     if let url = Bundle.main.url(forResource: "slime", withExtension: "icns") {
       searchIcon.image = NSImage(contentsOf: url)
     }
+    searchIcon.wantsLayer = true
+    searchIcon.layer?.cornerRadius = 10
+    searchIcon.layer?.masksToBounds = true
     searchIcon.setAccessibilityElement(false)
     searchIcon.imageScaling = .scaleProportionallyUpOrDown
     searchLabel.font = .systemFont(ofSize: 15)
@@ -153,10 +156,8 @@ final class PanelContentView: NSView {
     setSearchText("")
     addSubview(searchIcon)
     shortcutHint.font = .systemFont(ofSize: 12, weight: .medium)
-    shortcutHint.textColor = .secondaryLabelColor
+    shortcutHint.textColor = .labelColor
     shortcutHint.alignment = .center
-    shortcutHint.wantsLayer = true
-    shortcutHint.layer?.cornerRadius = 5
     searchBox.addSubview(shortcutHint)
     searchClip.wantsLayer = true
     searchClip.layer?.masksToBounds = true
@@ -192,15 +193,14 @@ final class PanelContentView: NSView {
 
   required init?(coder: NSCoder) { fatalError("面板只从代码建") }
 
-  /// 空查询显示占位提示（secondaryLabelColor），有查询显示查询文本
-  /// （labelColor）。文本与纯状态机的 query 永远一致（design.md）。
+  /// Placeholder and query share readable semantic text; appearance supplies the color.
   func setSearchText(_ text: String) {
     let value = text.isEmpty ? Self.searchPlaceholder : text
     guard searchText != text || searchLabel.stringValue != value else { return }
     searchText = text
     let isEmpty = text.isEmpty
     searchLabel.stringValue = isEmpty ? Self.searchPlaceholder : text
-    searchLabel.textColor = isEmpty ? .secondaryLabelColor : .labelColor
+    searchLabel.textColor = .labelColor
     searchBox.setAccessibilityValue(text)
     needsLayout = true
   }
@@ -240,7 +240,6 @@ final class PanelContentView: NSView {
       edge.shadowBlurRadius = 1
       edge.shadowOffset = .zero
       searchBox.shadow = searchFocused ? edge : nil
-      shortcutHint.layer?.backgroundColor = neutral.withAlphaComponent(0.08).cgColor
       searchCaret.layer?.backgroundColor = neutral.cgColor
     }
   }
@@ -276,11 +275,12 @@ final class PanelContentView: NSView {
     // 起，面板高度公式（panelHeight）才对得上。
     let searchHeight = headerHeight - padding
     let inner = bounds.width - padding * 2
-    searchIcon.frame = NSRect(x: padding, y: padding + (searchHeight - Self.searchIconSide) / 2,
+    let previewInset = CardView.previewInset
+    searchIcon.frame = NSRect(x: padding + previewInset, y: padding + (searchHeight - Self.searchIconSide) / 2,
       width: Self.searchIconSide, height: Self.searchIconSide)
     let searchX = searchIcon.frame.maxX + Self.searchIconGap
     searchBox.frame = NSRect(x: searchX, y: padding,
-      width: max(0, bounds.width - padding - searchX), height: searchHeight)
+      width: max(0, bounds.width - padding - previewInset - searchX), height: searchHeight)
     searchLabel.sizeToFit()
     let textX = Self.searchLeadingInset
     let hasStatus = !statusLabel.stringValue.isEmpty

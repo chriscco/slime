@@ -88,3 +88,30 @@ preference; unavailable Glass remains saved for a future capable system.
 macOS 15 CI checks compilation, tests, and permission-free startup. Actual TCC, Spaces,
 Stage Manager, and multi-display behavior remain unverified on 15, so support is
 experimental. No VM is installed. Revisit macOS 14 only with sustained test coverage.
+
+## 2026-10-16 — Sparkle for confirmed in-app updates
+
+- **Context:** The owner selected downloading, installation after confirmation, and relaunch.
+  A release-page link does not satisfy that workflow. Safe executable replacement needs
+  authenticated archives, extraction, helper lifetime management, and failure recovery.
+- **Decision:** Add Sparkle 2.10.0 as the first third-party runtime dependency, pinned exactly
+  through SwiftPM. This supersedes the no-dependencies portion of the 2026-10-11 language
+  decision. Keep Sparkle imports in `System/AppUpdater`; use its standard user driver and
+  explicit `SPUUpdater.start()` so startup failure can be shown in settings.
+- **Alternatives rejected:** A custom self-replacing installer duplicates security-sensitive
+  platform work; check-only release navigation cannot deliver the requested installation.
+- **Cost:** Embed and sign nested framework helpers, maintain an independent Ed25519 update
+  key, and publish authenticated appcasts with every future stable release. Automatic checks
+  remain opt-in; automatic download/install and profiling stay disabled. Ed25519 signing
+  does not make the existing selfsigned distribution notarized.
+- **Revisit:** A changed distribution/signing policy, upstream support/security requirements,
+  or an updater workflow that Sparkle's standard driver cannot support. Retain full native
+  install/TCC acceptance when changing signing identity or updater integration.
+
+## 2026-10-16 — Local settings closure and bundled About artwork
+
+Handle Command-W in the settings window rather than a global shortcut. Reuse the supplied
+3:1 banner as a local bundle resource with clipping and accessible text, falling back to
+the app name when unavailable. A fixed image container constrains intrinsic image size
+inside the existing scrolling settings body. Keep version, repository, and update controls
+in that same section; artwork loading and update checks do not depend on the checkout.

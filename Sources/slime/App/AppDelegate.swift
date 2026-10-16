@@ -12,9 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var lastEnabled = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    updater.start()
     settingsWindow.onChange = { [weak self] in self?.settingsChanged() }
     installStatusItem()
+    updater.start()
     if settings.isEnabled { enable() }
   }
 

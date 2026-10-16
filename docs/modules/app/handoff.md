@@ -44,3 +44,29 @@ release packaging, and launch smoke. Resolve Package.swift by retaining the 15 m
 and Sparkle dependency; retain both sets of settings initializer parameters/properties;
 combine design/decision/handoff documentation. These temporary resolutions were not
 merged into either PR branch. No release, tag, or update key changes were made.
+
+## 2026-10-16 — Settings and signed updates (0.0.8)
+
+Current branch: `feat/settings-updates`; implementation issue [#73](https://github.com/chriscco/slime/issues/73).
+Earlier sections describe historical work; 0.0.7 is published and 0.0.8 remains unreleased.
+
+Settings now closes locally with Command-W and About contains the bundled rounded banner,
+version/repository controls, manual update check, and opt-in automatic checks. App startup
+owns a Sparkle adapter; the standard driver handles download and confirmed installation.
+Unconfigured local builds expose a clear unavailable state. Sparkle is the justified first
+runtime dependency, pinned to 2.10.0; packaging signs its nested helpers with the existing
+identity and release CI requires the separate public variable/private update secret.
+
+The isolated signed updater smoke completed download, replacement from build 1 to 2,
+and relaunch with a receipt for both zip and DMG updates on arm64 macOS 27.0. Runtime cancellation-before-download, offline, equal/downgrade,
+unsupported OS, corrupt/bad-signature archives, and read-only-DMG rejection also preserved
+the original isolated app. Script tests reject wrong keys and modified signed data.
+See [the durable validation record](../../releases/0.0.8-updates-validation.md) for exact
+coverage and gaps. macOS 26 runtime acceptance, standard-dialog interaction, and real slime Accessibility/Screen Recording continuity
+after upgrading remain native acceptance work. Light/dark offscreen About renders using
+the actual controller and packaged artwork passed visual inspection at 720 pt. No production update key was created/exported, no secret configured, and no release
+published. The first updater-enabled version must be installed manually.
+
+Finish PR review/CI and the remaining native gates before the owner merges or publishes.
+Follow [the release guide](../../releases/README.md) for one-time update key setup and
+release preparation; publishing every future latest release with its appcast is required.

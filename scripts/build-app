@@ -35,6 +35,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp docs/assets/slime-banner.png "$APP/Contents/Resources/slime-banner.png"
 cp Resources/slime.icns "$APP/Contents/Resources/slime.icns"
+cp .build/artifacts/sparkle/Sparkle/LICENSE "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 cp "$BIN" "$APP/Contents/MacOS/slime"
 
 cat > "$APP/Contents/Info.plist" <<EOF

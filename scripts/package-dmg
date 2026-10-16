@@ -15,6 +15,7 @@ case "$archs" in
 esac
 codesign --verify --deep --strict "$app"
 test -s "$app/Contents/Resources/slime.icns"
+cmp .build/artifacts/sparkle/Sparkle/LICENSE "$app/Contents/Resources/Sparkle-LICENSE.txt"
 cmp docs/assets/slime-banner.png "$app/Contents/Resources/slime-banner.png"
 test -L "$app/Contents/Frameworks/Sparkle.framework/Versions/Current"
 otool -L "$app/Contents/MacOS/slime" | grep -q '@rpath/Sparkle.framework/Versions/B/Sparkle'
@@ -48,6 +49,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$mount/s
 cmp "$plist" "$mount/slime.app/Contents/Info.plist"
 cmp "$app/Contents/MacOS/slime" "$mount/slime.app/Contents/MacOS/slime"
 cmp "$app/Contents/Resources/slime.icns" "$mount/slime.app/Contents/Resources/slime.icns"
+cmp "$app/Contents/Resources/Sparkle-LICENSE.txt" "$mount/slime.app/Contents/Resources/Sparkle-LICENSE.txt"
 cmp "$app/Contents/Resources/slime-banner.png" "$mount/slime.app/Contents/Resources/slime-banner.png"
 codesign --verify --deep --strict "$mount/slime.app"
 hdiutil detach "$mount" >/dev/null

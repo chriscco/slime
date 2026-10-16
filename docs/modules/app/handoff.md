@@ -92,8 +92,8 @@ relaunch passed using the isolated 8001/8002 fixture. See the updates validation
 record for the evidence and limits. Permission continuity is still pending.
 
 The owner found that enabling the untrusted app showed an extra slime permission
-alert. `Permission.promptAccessibility` now registers the system request and opens
-the Accessibility privacy pane directly, including repeat attempts; AppDelegate
-shows manual instructions only if the URL cannot be opened. All 188 tests pass.
-Rebuild the isolated fixture and verify the actual pane before resuming the
-permission-grant / upgrade / continuity check. No production permissions changed.
+alert. The final requested behavior is system-prompt-only: call
+`AXIsProcessTrustedWithOptions` with prompting enabled, without a slime alert or
+forced navigation to System Settings. The user chooses in the macOS dialog; macOS
+controls repeat-prompt suppression. Verify this in the rebuilt isolated fixture
+before resuming permission continuity. No production permissions changed.

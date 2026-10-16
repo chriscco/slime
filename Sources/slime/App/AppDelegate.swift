@@ -35,11 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard Permission.isAccessibilityTrusted else {
       settings.isEnabled = false
       settingsWindow.refresh()
-      if !Permission.promptAccessibility() {
-        Self.alert(localized("Could not open System Settings", "无法打开系统设置"),
-          localized("Enable slime in System Settings → Privacy & Security → Accessibility, then restart slime.",
-            "请在系统设置 → 隐私与安全性 → 辅助功能中开启 slime，然后重启 slime。"))
-      }
+      Permission.promptAccessibility()
       return
     }
     if let eventTap {

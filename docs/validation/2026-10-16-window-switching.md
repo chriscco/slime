@@ -57,13 +57,13 @@ No periodic refresh was added; tests cover event coalescing and stop cancellatio
   has one unminimize, one raise, and one focused-window read, with request checks between
   calls. This operation count is not a measured physical latency guarantee.
 
-## Native acceptance still required
+## Native acceptance and remaining coverage
 
 - Owner confirmed window switching is correct after visiting the Warp windows.
-- **Still failing:** owner confirmed the Chrome card reaches the expected window but retains its old title after switching tabs. Redacted native diagnostics show the stale card has no mapped native target; app-only fallback activates a different accepted CG identity whose fresh AX title is already displayed correctly. The stale card remains offscreen. This is an unresolved candidate-liveness/identity issue, not evidence that the title observer missed the live window update.
-- Switch windows within one app outside slime; verify current first, previous selected.
-- Rapidly switch twice; verify a delayed old request does not steal final focus.
-- Verify same-title/Stage Manager/minimized/other-Space windows retain safe fallback.
+- Owner subsequently withdrew the stale Chrome title report, saying they had mistaken the situation and believed it was resolved. No additional title or candidate-filter change was made in response.
+- Remaining coverage: switch windows within one app outside slime; verify current first, previous selected.
+- Remaining coverage: rapidly switch twice; verify a delayed old request does not steal final focus.
+- Remaining coverage: verify same-title/Stage Manager/minimized/other-Space windows retain safe fallback.
 
 No real user document is closed for these checks. Unit tests and process measurements
 cannot certify native multiwindow/Space behavior by themselves.
@@ -76,6 +76,6 @@ with a retained AX target and a fresh AX title, and two offscreen without native
 The reported stale-title card was one of the unmatched offscreen candidates. Selecting
 it used application fallback and reached the onscreen identity; it did not demonstrate
 exact switching to the stale candidate. Do not copy that foreground title onto the
-unmatched card or infer closure solely from an incomplete AX list. The actual count of
-independent Chrome windows is awaiting owner confirmation before changing admission.
+unmatched card or infer closure solely from an incomplete AX list. The owner subsequently withdrew this bug report. The diagnostic alone does not
+prove that an unmatched candidate is closed; no broader admission rule was introduced.
 Temporary probe source is removed; no user browsing content is committed.

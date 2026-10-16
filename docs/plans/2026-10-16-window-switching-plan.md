@@ -51,6 +51,6 @@ for physical input latency. Do not merge or publish a release.
 
 Implementation and independent code review completed in PR #80, stacked on #75.
 The review caught and fixed reverse CG/AX claimant ambiguity and cancellation after
-newer cross-app/same-app user actions. Native checks listed in the validation record
-remain pending; keep the PR draft until owner acceptance rather than treating injected
-tests as real-window validation. User performs the merge.
+newer cross-app/same-app user actions. The owner confirmed window switching and later
+withdrew the stale Chrome title report. Remaining native coverage is explicitly listed
+in the validation record; it is not claimed as passed. User performs the merge.

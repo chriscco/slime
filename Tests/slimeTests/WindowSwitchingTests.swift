@@ -86,7 +86,7 @@ private final class FocusReadCounter: @unchecked Sendable {
   for _ in 0..<100 where counter.count == 0 { try await Task.sleep(for: .milliseconds(10)) }
   #expect(counter.count == 1)
   for _ in 0..<30 { observer.signal() }
-  try await Task.sleep(for: .milliseconds(100))
+  for _ in 0..<100 where counter.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
   #expect(counter.count == 2)
   observer.signal()
   observer.stop()

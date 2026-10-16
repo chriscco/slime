@@ -203,11 +203,13 @@ extension PanelAndThumbnailTests {
   let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, raise: { _, _ in await gate.raise() }) }
   for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
   firstRequest.cancel()
-  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }) }
+  let secondRequest = AXRequest(seconds: 2)
+  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: secondRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }) }
   for _ in 0..<100 where apps.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
   front = 30
   NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
     userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
+  #expect(secondRequest.isCancelled)
   front = 10 // The older in-flight raise can itself bring its app forward.
   await gate.finish()
   #expect(await first.value == .cancelled)

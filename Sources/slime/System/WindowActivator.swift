@@ -26,7 +26,9 @@ enum WindowActivator {
     let center = NSWorkspace.shared.notificationCenter
     let observer = center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { notification in
       guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-      MainActor.assumeIsolated { if !ownedPIDs.contains(app.processIdentifier) { externalFocus = true } }
+      MainActor.assumeIsolated {
+        if !ownedPIDs.contains(app.processIdentifier) { externalFocus = true; request.cancel() }
+      }
     }
     defer { center.removeObserver(observer) }
     // Immediate app fallback never waits behind enumeration or an older AX operation.

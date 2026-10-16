@@ -88,6 +88,9 @@ scripts/package-dmg
 
 The script builds release configuration, names the DMG from the actual architecture, mounts it read-only, verifies version/signature/icon/binary/Applications link, and generates a SHA-256 file. Artifacts are in `build/`. Local self-signing stabilizes development permissions; it is not Developer ID signing or Apple notarization.
 
+Tag-triggered publishing and the English release-note template are documented in the
+[publishing guide](docs/releases/README.md).
+
 ## Known limitations
 
 Public AX information can cover only part of the available Spaces. Never-observed windows may be missing and ambiguous close targets are refused. Offscreen previews can be stale; a window closed outside slime may take time to disappear if macOS retains its surface. Secure Input uses the system switcher. Unassigned Command-letter combinations remain filter input while the panel is open. Login launch and permission behavior follow system approval prompts.

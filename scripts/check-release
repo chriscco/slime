@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Validate reviewed notes and bundle versions before publishing a stable release."""
+import argparse
+import json
+from pathlib import Path
+import plistlib
+import re
+import subprocess
+import sys
+
+
+def run(*args):
+    return subprocess.check_output(args, text=True).strip()
+
+
+def version(tag):
+    if not re.fullmatch(r'v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag):
+        raise ValueError('Expected a stable version tag: vX.Y.Z')
+    return tag[1:]
+
+
+def check_notes(tag, repository):
+    release_version = version(tag)
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
+        raise ValueError('Expected an owner/repository name')
+    target = run('git', 'rev-parse', f'refs/tags/{tag}^{{commit}}')
+    if run('git', 'merge-base', target, 'origin/main') != target:
+        raise ValueError('Release tag must point to a commit merged into main')
+    previous = run('git', 'describe', '--tags', '--abbrev=0', '--first-parent',
+                   '--match', 'v[0-9]*', f'{target}^')
+    if tuple(map(int, version(previous).split('.'))) >= tuple(map(int, release_version.split('.'))):
+        raise ValueError('Release version must increase from the previous tag')
+    notes = Path(f'docs/releases/{release_version}.md')
+    if not notes.is_file():
+        raise ValueError(f'Missing release notes: {notes}')
+    text = notes.read_text()
+    if not text.startswith(f'# slime {tag}\n') or re.search(r'\b(?:TODO|TBD)\b|\{\{', text):
+        raise ValueError('Release notes need the matching heading and no placeholders')
+    pattern = re.compile(
+        r'^- .+ \(\[#([0-9]+)\]\(https://github\.com/' + re.escape(repository)
+        + r'/pull/\1\)\) — @([A-Za-z0-9-]+(?:\[bot\])?)$', re.MULTILINE)
+    entries = pattern.findall(text)
+    authors = {int(number): author for number, author in entries}
+    if len(authors) != len(entries):
+        raise ValueError('Each PR must have exactly one release-note entry')
+    expected = {}
+    # Repository policy uses merge commits; first-parent excludes nested feature merges.
+    merges = run('git', 'rev-list', '--first-parent', '--merges', f'{previous}..{target}').splitlines()
+    for sha in merges:
+        pages = json.loads(run('gh', 'api', '--paginate', '--slurp',
+                              f'repos/{repository}/commits/{sha}/pulls?per_page=100'))
+        matches = [pr for page in pages for pr in page
+                   if pr['merge_commit_sha'] == sha and pr['merged_at'] and pr['base']['ref'] == 'main']
+        if len(matches) != 1:
+            raise ValueError(f'Cannot identify exactly one merged main PR for {sha}')
+        pr = matches[0]
+        expected[pr['number']] = pr['user']['login']
+    if not expected or authors != expected:
+        raise ValueError(f'PR entries must match merged PR authors exactly. Expected: {expected}; found: {authors}')
+    print(f'Validated {notes}: {len(expected)} PRs since {previous}')
+    return notes
+
+
+def check_bundle(tag, path):
+    expected = version(tag)
+    with Path(path).open('rb') as stream:
+        actual = plistlib.load(stream).get('CFBundleShortVersionString')
+    if actual != expected:
+        raise ValueError(f'Bundle version {actual!r} does not match {expected}')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('tag')
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--repository', help='Validate notes against local tags and GitHub PR metadata')
+    mode.add_argument('--bundle', help='Validate the built Info.plist against the tag')
+    args = parser.parse_args()
+    try:
+        if args.repository:
+            check_notes(args.tag, args.repository)
+        else:
+            check_bundle(args.tag, args.bundle)
+    except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
+        print(f'Release check failed: {error}', file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

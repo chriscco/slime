@@ -45,3 +45,18 @@ Unsaved glass strength now defaults to 13%; stored values remain unchanged. Glas
 strength and corner radius show live percentages beside continuous sliders. Corner
 radius remains stored as 0–40 pt, displayed as 0–100% (20 pt = 50%). Readouts update
 in place without rebuilding controls during dragging.
+
+## 2026-10-16 — Independent release automation
+
+The `feat/automated-releases` branch starts from main, independently of #62.
+See [publishing guide](../../releases/README.md) and
+[release spec](../../specs/2026-10-16-automated-releases-spec.md).
+Tag pushes publish reviewed English notes, one entry per merged PR with PR-author
+credit, plus a verified arm64 DMG/checksum. Release signing is mandatory.
+
+Validation: 9 Python release checks, 168 main-branch Swift tests, actionlint, and
+local signed DMG packaging passed. Packaging tested the current main version 0.0.6;
+this candidate is not a new release and must not replace published assets.
+No tag, release, credential export, or secret upload was performed. Repository
+signing secrets still need owner setup before the first tag-triggered release.
+Hosted certificate import and real publication remain unverified until that run.

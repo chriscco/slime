@@ -64,6 +64,22 @@ class ReleaseChecks(unittest.TestCase):
     def test_valid_annotated_tag_and_author(self):
         self.assertEqual(self.check(), self.notes)
 
+    def test_spec_pr_can_omit_notes_with_explicit_label(self):
+        self.metadata[0]['labels'] = [{'name': 'release-notes:skip'}]
+        self.notes.write_text('# slime v0.0.7\n\n## Changes\n')
+        self.assertEqual(self.check(), self.notes)
+
+    def test_unrelated_label_does_not_skip_required_entry(self):
+        self.metadata[0]['labels'] = [{'name': 'documentation'}]
+        self.notes.write_text('# slime v0.0.7\n')
+        with self.assertRaisesRegex(ValueError, 'entries'):
+            self.check()
+
+    def test_exempt_spec_pr_must_not_appear_in_notes(self):
+        self.metadata[0]['labels'] = [{'name': 'release-notes:skip'}]
+        with self.assertRaisesRegex(ValueError, 'entries'):
+            self.check()
+
     def test_invalid_tags(self):
         for tag in ['0.0.7', 'v0.0.7-rc1', 'v0.0.7;echo', 'v00.0.7', '../0.0.7']:
             with self.subTest(tag=tag), self.assertRaises(ValueError):

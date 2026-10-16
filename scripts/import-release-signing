@@ -32,4 +32,10 @@ echo "Configuring private-key access"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" > /dev/null
 security list-keychains -d user -s "$keychain"
 echo "Verifying signing identity"
-security find-identity -v -p codesigning "$keychain" | grep -Fiq "$SIGNING_IDENTITY"
+identities=$(security find-identity -v -p codesigning "$keychain")
+if ! printf '%s\n' "$identities" | grep -Fiq "$SIGNING_IDENTITY"; then
+  echo "[DEBUG-signing] identity policy diagnostics (public certificate metadata only)"
+  security find-identity -p codesigning "$keychain"
+  security verify-cert -c "$certificate" -p codeSign
+  exit 1
+fi

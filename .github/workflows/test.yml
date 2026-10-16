@@ -16,8 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: swift --version
-      - run: python3 -m unittest discover -s scripts/tests
       - run: scripts/test
+      - run: python3 -m unittest discover -s scripts/tests
 
   signing:
     runs-on: macos-26

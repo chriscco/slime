@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Generate and verify a signed feed with the pinned Sparkle distribution's tools."""
+import argparse
+import base64
+import os
+from pathlib import Path
+import plistlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOLS = ROOT / '.build/artifacts/sparkle/Sparkle/bin'
+FEED_URL = 'https://github.com/chriscco/slime/releases/latest/download/appcast.xml'
+SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
+
+
+def public_key(value):
+    try:
+        key = base64.b64decode(value, validate=True)
+    except ValueError:
+        raise ValueError('SPARKLE_PUBLIC_KEY must be a base64 Ed25519 public key') from None
+    if len(key) != 32:
+        raise ValueError('SPARKLE_PUBLIC_KEY must be a base64 Ed25519 public key')
+    return key
+
+
+def sparkle_tool(tool, arguments, secret):
+    environment = dict(os.environ)
+    environment.pop('SPARKLE_PRIVATE_KEY', None)
+    result = subprocess.run([str(tool), *map(str, arguments), '--ed-key-file', '-'],
+                            input=secret + '\n', text=True, capture_output=True, env=environment)
+    # Tool diagnostics are untrusted when processing private key material.
+    if result.returncode:
+        raise ValueError(f'Sparkle {tool.name} failed')
+
+
+def validate_appcast(root, archive, bundle, url):
+    items = root.findall('./channel/item')
+    if len(items) != 1:
+        raise ValueError('Expected exactly one release in appcast')
+    item = items[0]
+    for element, key in [('version', 'CFBundleVersion'), ('shortVersionString', 'CFBundleShortVersionString'),
+                         ('minimumSystemVersion', 'LSMinimumSystemVersion')]:
+        if item.findtext(SPARKLE + element) != bundle[key]:
+            raise ValueError(f'Appcast {element} does not match bundle')
+    if archive.name.endswith('-arm64.dmg') and item.findtext(SPARKLE + 'hardwareRequirements') != 'arm64':
+        raise ValueError('Appcast must require arm64 hardware')
+    enclosures = item.findall('enclosure')
+    if len(enclosures) != 1:
+        raise ValueError('Expected exactly one update archive')
+    enclosure = enclosures[0]
+    if enclosure.get('url') != url or not url.startswith('https://github.com/chriscco/slime/releases/download/'):
+        raise ValueError('Appcast must use the immutable HTTPS release URL')
+    if enclosure.get('length') != str(archive.stat().st_size):
+        raise ValueError('Appcast archive size does not match')
+    signature = enclosure.get(SPARKLE + 'edSignature', '')
+    try:
+        if len(base64.b64decode(signature, validate=True)) != 64:
+            raise ValueError()
+    except ValueError:
+        raise ValueError('Missing or invalid archive signature; check the signing key pair') from None
+    return signature
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('tag')
+    args = parser.parse_args()
+    if not re.fullmatch(r'v\d+\.\d+\.\d+', args.tag):
+        raise ValueError('Expected a stable vX.Y.Z tag')
+    key = os.environ.get('SPARKLE_PUBLIC_KEY', '')
+    public_key(key)
+    secret = os.environ.pop('SPARKLE_PRIVATE_KEY', '').strip()
+    if not secret:
+        raise ValueError('SPARKLE_PRIVATE_KEY is required')
+    with (ROOT / 'build/slime.app/Contents/Info.plist').open('rb') as source:
+        bundle = plistlib.load(source)
+    if bundle.get('SUPublicEDKey') != key or bundle.get('SUFeedURL') != FEED_URL:
+        raise ValueError('Bundle update configuration does not match release configuration')
+    if not bundle.get('SURequireSignedFeed') or not bundle.get('SUVerifyUpdateBeforeExtraction'):
+        raise ValueError('Bundle must require signed feeds and verify before extraction')
+    version = args.tag[1:]
+    if bundle['CFBundleShortVersionString'] != version:
+        raise ValueError('Tag and bundle version differ')
+    archive = ROOT / f'build/slime-{version}-arm64.dmg'
+    subprocess.run(['hdiutil', 'verify', str(archive)], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(['shasum', '-a', '256', '-c', archive.name + '.sha256'], cwd=archive.parent,
+                   check=True, stdout=subprocess.DEVNULL)
+    prefix = f'https://github.com/chriscco/slime/releases/download/{args.tag}/'
+    # A fresh directory prevents stale feeds, deltas, or another release entering this feed.
+    with tempfile.TemporaryDirectory(prefix='slime-appcast-') as directory:
+        stage = Path(directory)
+        shutil.copy2(archive, stage / archive.name)
+        shutil.copy2(ROOT / f'docs/releases/{version}.md', stage / archive.with_suffix('.md').name)
+        feed = stage / 'appcast.xml'
+        sparkle_tool(TOOLS / 'generate_appcast', ['--download-url-prefix', prefix,
+                     '--maximum-deltas', '0', '--embed-release-notes', '-o', feed, stage], secret)
+        signature = validate_appcast(ET.parse(feed).getroot(), archive, bundle, prefix + archive.name)
+        # generate_appcast only emits an archive signature when the bundled public key matches.
+        sparkle_tool(TOOLS / 'sign_update', ['--verify', archive, signature], secret)
+        sparkle_tool(TOOLS / 'sign_update', ['--verify', feed], secret)
+        shutil.copy2(feed, ROOT / 'build/appcast.xml')
+    print('Verified signed archive and appcast: build/appcast.xml')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, OSError, subprocess.CalledProcessError, ET.ParseError) as error:
+        sys.exit(str(error))

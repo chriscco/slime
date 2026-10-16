@@ -14,8 +14,13 @@ let package = Package(
   name: "slime",
   // Build with a macOS 26+ SDK; Liquid Glass is runtime-gated.
   platforms: [.macOS("15.0")],
+  dependencies: [
+    .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+  ],
   targets: [
-    .executableTarget(name: "slime"),
+    .executableTarget(name: "slime", dependencies: [
+      .product(name: "Sparkle", package: "Sparkle"),
+    ], linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
     .testTarget(
       name: "slimeTests",
       dependencies: ["slime"]

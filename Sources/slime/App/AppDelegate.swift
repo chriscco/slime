@@ -7,10 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var eventTap: EventTap?
   private var statusItem: NSStatusItem?
   private let settings = Settings()
-  private let settingsWindow = SettingsWindowController()
+  private let updater = AppUpdater()
+  private lazy var settingsWindow = SettingsWindowController(updater: updater)
   private var lastEnabled = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    updater.start()
     settingsWindow.onChange = { [weak self] in self?.settingsChanged() }
     installStatusItem()
     if settings.isEnabled { enable() }

@@ -163,3 +163,21 @@ A file operation already started may finish after the change; preventing that wo
 waiting on disk or transactional storage with no benefit to this non-erasure preference.
 No lock or disk barrier is added to the input/main-thread path. Existing files remain dormant
 in fresh mode. Revisit only if users request a separately specified cache-erasure control.
+
+## 2026-10-16 · Cached native targets and event-driven window recency
+
+Two Warp cards activated the same recent window, and Chrome titles remained stale after
+changing tabs. Native diagnostics found incomplete AX window lists, identical Chrome CG
+frames, and CG names differing from current AX titles. A first frame/title match is not a
+reliable identity. Retain confirmed AX targets while the CG ID/PID remains live, observe
+foreground focus/title events, and prefer fresh AX text. No private window-ID API is added.
+
+The owner chose immediate application fallback over an error when exact targeting is not
+available, and explicitly rejected extra switching-path enumeration/retries. Activate the
+app immediately and bound cached-target operations off the main thread. Only actual focus
+can promote a window; app activation alone cannot prove the requested window was selected.
+
+Current window now appears first, followed by window MRU; initial selection remains the
+previous window. Grouping preserves member recency, while an open panel freezes existing
+card order to avoid moving the user's target. Events are coalesced, without periodic polling.
+Revisit only if native acceptance shows public AX coverage insufficient for common apps.

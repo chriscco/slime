@@ -5,8 +5,9 @@
 | File | Responsibility |
 |---|---|
 | WindowEnumerator.swift | CG window candidates, AX metadata/matching, known-window filtering, and cancellable AX requests |
-| WindowCache.swift | Snapshot publication, coalesced background refresh, app-level MRU, current-window ordering |
-| WindowActivator.swift | Activation and uniquely identified close actions with confirmation |
+| WindowCache.swift | Snapshot publication, coalesced background refresh, window-level MRU, current-window ordering |
+| WindowActivator.swift | Cached-target activation and uniquely identified close actions with confirmation |
+| ForegroundObserver.swift | Coalesced foreground-window focus/title notifications and explicit observer lifetime |
 | Settings.swift / AppIcons.swift | Preferences/localization and application-icon caching |
 | WindowThumbnails.swift | Memory/disk preview cache, background capture/loading, live-identity publication |
 | EventTap.swift | Event translation, interception, reducer ownership, timeout recovery |
@@ -39,11 +40,32 @@ The 0.0.5 authorized native probe reduced Chrome from five cached entries to thr
 
 WindowCache publishes immutable snapshots after checking generation. Refreshes coalesce into one running enumeration and at most one pending refresh. A newer refresh cancels the obsolete AXRequest; the pending refresh starts with current known/MRU state. Cancellation is checked between AX attributes and app groups. Explicit activation/closure invalidates in-flight results.
 
-Snapshot includes every accepted window. Move the current window to the end so the initial target remains another window. Determine it from the first onscreen window belonging to the actual frontmost PID, not the first CG entry across displays. External application activation immediately adjusts MRU/current-window identity. The activation observer lasts until process exit.
+Snapshot includes every accepted window, with the current window first and the rest in
+window-level MRU. Foreground AX focus evidence updates recency even within one application;
+app-only fallback does not promote the requested window. Grouping orders apps by their most
+recent member. The panel initially highlights the previous window by identity, then freezes
+existing card order for that session while applying title changes/removals and appending new
+windows. Search keeps relevance ordering.
+
+Observe only the foreground app and its focused window. Coalesce focus/title/create events
+before bounded background reads; publishing a snapshot can resolve an unknown identity but
+must not initiate another discovery loop. Remove observers on disable and discard obsolete
+completions. Native AX references remain in System, never in Core or persisted caches.
 
 ## Activation and closing
 
-Ordinary activation reads the current CG bounds, matches AX by frame or title, unminimizes/raises in the background, then unhides/activates the app on the main actor. If matching fails, activation can fall back to the app. This heuristic is not sufficient for destructive close.
+Ordinary activation immediately unhides/activates the application, then uses the cached
+same-PID/window AX target off the main thread to unminimize/raise and confirm focus. It does
+not enumerate windows, capture previews, or retry identification. Missing/ambiguous/rejected
+targets retain application fallback without an error popup. The request budget is 150 ms;
+an already-running system IPC can exceed its requested timeout. Overlapping requests cancel
+obsolete work and must not allow a stale completion to update MRU.
+
+Enumeration retains exact AX identities before considering unique frame/title evidence.
+An absent retained identity must not be rebound to a same-frame sibling. Fresh AX titles
+outrank stale CG names; focused-window title events update card/search text independently
+of preview caching. Unobserved offscreen windows may lack an exact native mapping until
+visited; application fallback is the accepted degradation.
 
 Close requires the same PID and a one-to-one frame match on both CG and AX sides, or a nonempty live title unique among eligible CG surfaces and standard AX windows. Read the close button, then reread both sides and require the same CG geometry and AX element immediately before AXPress. No cached-title guessing, private ID mapping, quit, or automatic save confirmation.
 

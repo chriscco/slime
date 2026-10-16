@@ -14,3 +14,12 @@ suite so async close/capture operations cannot interleave fixture state.
 Native read-only capture proved a useful perspective image; see the system handoff. No
 physical-shortcut, multiple-display, or native panel responsiveness acceptance is claimed.
 The release benchmark measures CPU query/layout/offscreen painting only.
+
+## Window switching follow-up (#79)
+
+The cache supplies current-first window MRU. Initial selection follows the previous
+window ID even when grouping places it later. Existing card order is stable during
+an open session; updated titles/removals apply and new windows append. Search remains
+relevance-ranked. As a result, a search or newly appended window can create a repeated
+app section; each contiguous app run gets its own heading. Reopening restores full
+MRU grouping. No extra capture or enumeration is triggered by navigation/search.

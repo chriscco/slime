@@ -57,3 +57,18 @@ as window-identity evidence. No app-specific names, sizes, or private APIs are u
 Regression coverage includes stale caches, enumeration order, confirmed/minimized
 siblings, different PIDs/titles, manual discovery followed by offscreen retention,
 and serialization of the new optional field. The owner subsequently confirmed the duplicate cards are gone in both preview modes.
+
+## Responsive window switching (#79)
+
+The new branch is stacked on #75. Native targets are retained in System and used directly
+for bounded off-main activation; application fallback happens immediately without full
+window enumeration. Foreground focus/title events maintain window MRU and card/search text.
+The current window comes first; the panel initially selects the previous identity and keeps
+existing order stable while open. The observer is explicitly stopped when disabled.
+
+Native diagnostics and baseline process measurements are recorded in
+[window switching validation](../../validation/2026-10-16-window-switching.md).
+Warp's incomplete AX list and Chrome's identical CG frames/stale names were observed;
+actual post-change multiwindow switching/title behavior still needs native acceptance.
+Do not infer exact native behavior from injected activation tests. Keep the immediate
+application fallback for targets that public AX cannot yet identify.

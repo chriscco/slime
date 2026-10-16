@@ -120,3 +120,17 @@ slime switch now reflects actual runtime state, so denying access leaves it off
 without discarding startup intent. Its action is separate from appearance/grouping
 changes to avoid unrelated permission retries. All 190 local tests pass, including
 a denied-enable UI regression. Native confirmation of the switch remains pending.
+
+
+## Rebased update acceptance completed (2026-10-16)
+
+PR #76 rebased onto main after #78; 194 Swift tests, 18 script tests and signed
+release packaging passed. The isolated full-app test1 → test2 update now passes
+at `~/Applications/slime Update Test.app`: the owner granted both permissions,
+restarted the baseline, then confirmed that the update preserves permissions and
+normal panel/previews. Native General showed Enable slime on after replacement.
+An initial Launch Services reopen alert coincided with immediate automation access;
+the repeat without UI access during replacement had no alert and passed owner
+acceptance. Do not read/reactivate a stale app binding during Sparkle replacement.
+See `docs/releases/0.0.8-updates-validation.md` for evidence and remaining pre-release
+checks; no production permissions or releases were changed.

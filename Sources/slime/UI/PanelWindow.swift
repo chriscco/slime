@@ -133,7 +133,6 @@ final class PanelContentView: NSView {
   /// panelHeight）也是它算的，内容视图再自带一组 padding / headerHeight
   /// 就会把文档视图摆偏（同一份常量只能有一个来源）。
   private static let metrics = GridLayout(count: 0)
-  private static let searchIconSide: CGFloat = 32
   private static let searchLeadingInset: CGFloat = 12
   private static let searchIconGap: CGFloat = 10
 
@@ -276,8 +275,8 @@ final class PanelContentView: NSView {
     let searchHeight = headerHeight - padding
     let inner = bounds.width - padding * 2
     let previewInset = CardView.previewInset
-    searchIcon.frame = NSRect(x: padding + previewInset, y: padding + (searchHeight - Self.searchIconSide) / 2,
-      width: Self.searchIconSide, height: Self.searchIconSide)
+    searchIcon.frame = NSRect(x: padding + previewInset, y: padding,
+      width: searchHeight, height: searchHeight)
     let searchX = searchIcon.frame.maxX + Self.searchIconGap
     searchBox.frame = NSRect(x: searchX, y: padding,
       width: max(0, bounds.width - padding - previewInset - searchX), height: searchHeight)
@@ -289,8 +288,10 @@ final class PanelContentView: NSView {
     let available = max(0, searchBox.bounds.width - textX - Self.searchLeadingInset
       - trailingWidth - (trailingWidth > 0 ? 10 : 0))
     searchClip.frame = NSRect(x: textX, y: 0, width: available, height: searchHeight)
+    shortcutHint.sizeToFit()
+    let hintHeight = shortcutHint.frame.height
     shortcutHint.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - 36,
-      y: (searchHeight - 20) / 2, width: 36, height: 20)
+      y: (searchHeight - hintHeight) / 2, width: 36, height: hintHeight)
     let textWidth = ceil((searchText as NSString).size(withAttributes:
       [.font: searchLabel.font ?? NSFont.systemFont(ofSize: 15)]).width)
     let offset = min(0, available - textWidth - 6)

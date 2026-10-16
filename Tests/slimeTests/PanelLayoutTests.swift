@@ -536,3 +536,15 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
     #expect(content.searchLabel.textColor == .labelColor)
   }
 }
+
+@Test @MainActor func searchHeaderCentersHintAndFillsLogoHeight() throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 1088, height: 300)
+  content.searchIcon.image = NSImage(size: NSSize(width: 32, height: 32))
+  content.layoutSubtreeIfNeeded()
+  let cell = try #require(content.searchIcon.cell as? NSImageCell)
+  let imageRect = cell.imageRect(forBounds: content.searchIcon.bounds)
+  #expect(imageRect.height == content.searchBox.frame.height)
+  #expect(content.shortcutHint.frame.height == content.shortcutHint.cell!.cellSize.height)
+  #expect(content.shortcutHint.frame.midY == content.searchBox.bounds.midY)
+}

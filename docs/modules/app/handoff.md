@@ -30,3 +30,11 @@ acceptance. Permission behavior and public AX limitations are unchanged.
 Review and merge the combined spec/implementation PR after native acceptance.
 0.0.7 is not tagged or published by this change. A later release must build from the
 merged commit and explicitly complete the release gates; the existing 0.0.6 DMG remains.
+
+## 2026-10-16 header alignment follow-up
+
+The shortcut hint now sizes to its native 15 pt text height before centering, replacing
+a 20 pt box that made the glyphs sit high. Logo width/height share the search-row
+height directly. Tests confirm a 32 pt image drawing rect and field height; the
+reported visible logo-height mismatch remains unreplicated and needs a screenshot
+from the running app (including whether search is focused). All 178 tests pass.

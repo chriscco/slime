@@ -54,8 +54,10 @@ def check_notes(tag, repository):
         if len(matches) != 1:
             raise ValueError(f'Cannot identify exactly one merged main PR for {sha}')
         pr = matches[0]
+        if any(label['name'] == 'release-notes:skip' for label in pr.get('labels', [])):
+            continue
         expected[pr['number']] = pr['user']['login']
-    if not expected or authors != expected:
+    if not merges or authors != expected:
         raise ValueError(f'PR entries must match merged PR authors exactly. Expected: {expected}; found: {authors}')
     print(f'Validated {notes}: {len(expected)} PRs since {previous}')
     return notes

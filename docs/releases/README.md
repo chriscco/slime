@@ -9,7 +9,12 @@ The workflow publishes the file unchanged; it never substitutes generated commit
 
 1. Every PR updates the current version's document in the same PR, including
    features, bug fixes, documentation, maintenance, and release preparation.
-   Write exactly one English bullet describing the PR's final changes, crediting
+   Spec-focused PRs are exempt: omit their entries and apply `release-notes:skip`.
+   Reviewers verify the PR primarily specifies future work; feature implementations,
+   bug fixes, and ordinary documentation/maintenance PRs still require notes. If a
+   spec PR grows into implementation, remove the label and add its entry. Supporting
+   spec-workflow changes may stay in a spec-focused PR, as in #74.
+   For each non-exempt PR, write one English bullet describing its final changes, crediting
    the **PR author** by GitHub username:
 
    ```markdown
@@ -19,7 +24,9 @@ The workflow publishes the file unchanged; it never substitutes generated commit
 2. Open a draft PR to obtain its number, then add its entry before requesting
    review. Keep the entry accurate as the scope changes; consolidate rather than
    append another bullet for the same PR. Bot authors use `@name[bot]`.
-3. Reviewers check the entry against the final diff before marking the PR Ready.
+3. Reviewers check the entry or spec exemption against the final diff before marking
+   the PR Ready. The release validator excludes PRs labeled `release-notes:skip`;
+   retain the reviewed label after merge so future release validation remains consistent.
    If another version is frozen before merge, move the entry to the new current
    version and recheck coverage.
 4. Frozen version documents stay unchanged. After a version is frozen, the first
@@ -36,8 +43,9 @@ preparation; do not add development-version notices to the READMEs.
 1. Finalize the current notes using [`../templates/release.md`](../templates/release.md):
    replace `Unreleased.` with a summary, add installation instructions and known
    limitations, and remove every placeholder.
-2. Verify exactly one entry for every PR merged into `main` since the preceding
-   stable tag, including the preparation PR itself. The validator checks coverage
+2. Verify exactly one entry for every non-exempt PR merged into `main` since the
+   preceding stable tag, including the preparation PR itself. Spec-focused PRs
+   labeled `release-notes:skip` must have no entry. The validator checks coverage
    and usernames against GitHub; review checks wording and accuracy.
 3. Update `CFBundleShortVersionString` and `CFBundleVersion` in `scripts/build-app`.
    Review the notes and native acceptance results in the PR, then have the owner merge.

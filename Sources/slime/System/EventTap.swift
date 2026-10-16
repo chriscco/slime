@@ -116,7 +116,7 @@ final class EventTap: @unchecked Sendable {
       .handle(type: type, event: event)
   }
 
-  private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+  func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       if type == .tapDisabledByTimeout {
         consecutiveDisables += 1
@@ -135,6 +135,11 @@ final class EventTap: @unchecked Sendable {
     let code = event.getIntegerValueField(.keyboardEventKeycode)
     if type == .keyUp {
       return swallowKeyUp(keycode: code) ? nil : Unmanaged.passUnretained(event)
+    }
+    // Dismissal clears the session, but a held modifier sends no new flagsChanged.
+    if type == .keyDown, code == 48, state == .idle {
+      if event.flags.contains(.maskCommand) { state = .armed(.cmd) }
+      else if event.flags.contains(.maskAlternate) { state = .armed(.opt) }
     }
     let swallow = process(Self.translate(type: type, event: event),
       isKeyDown: type == .keyDown,

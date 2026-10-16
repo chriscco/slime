@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 import Testing
 @testable import slime
@@ -88,5 +89,28 @@ import Testing
     tap.configure(enabled: enabled)
     #expect(!tap.swallowKeyUp(keycode: 48))
     #expect(!tap.swallowKeyUp(keycode: 0))
+  }
+}
+
+@Test @MainActor func escapeAllowsReopeningWithTheStillHeldModifier() async throws {
+  for (modifier, flags) in [(Modifier.cmd, CGEventFlags.maskCommand), (.opt, .maskAlternate)] {
+    var delivered: [Effect] = []
+    let tap = EventTap(onEffects: { _, effects in delivered += effects }, onDegraded: {})
+    func key(_ code: CGKeyCode, flags: CGEventFlags) throws -> Bool {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = flags
+      return tap.handle(type: .keyDown, event: event) == nil
+    }
+    tap.process(.modifierDown(modifier))
+    #expect(try key(48, flags: flags))
+    #expect(try key(53, flags: flags))
+    #expect(try key(48, flags: flags))
+    #expect(try key(53, flags: flags))
+    #expect(try !key(48, flags: []), "Plain Tab must pass after release")
+    await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+    #expect(delivered.filter { $0 == .showPanel(modifier) }.count == 2)
+    tap.configure(enabled: false)
+    #expect(try !key(48, flags: flags), "Disabled slime must not intercept")
+    await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
   }
 }

@@ -70,3 +70,17 @@ published. The first updater-enabled version must be installed manually.
 Finish PR review/CI and the remaining native gates before the owner merges or publishes.
 Follow [the release guide](../../releases/README.md) for one-time update key setup and
 release preparation; publishing every future latest release with its appcast is required.
+
+## 2026-10-16 — Full-app update acceptance in progress
+
+The owner approved testing signed full-app builds before merge/release. The isolated
+fixture is `/tmp/slime76-acceptance/installed/slime Update Test.app` (8001), with 8002
+in a signed DMG. A temporary HTTPS tunnel serves only the signed appcast/DMG; unique
+bundle preferences keep the test disabled and automatic checks off. Code signatures
+and the HTTPS feed are verified; real dialogs and permissions are not yet accepted.
+Native automation times out on the menu-bar-only app. Await the owner's opening of
+Settings → About (0.0.8-test1), then continue the standard-dialog checks. Granting
+Accessibility/Screen Recording for the test identity needs a user action; no permission
+has been granted by setup. Do not mark this PR Ready from fixture preparation alone.
+The spec now distinguishes merge checks from unavailable-environment pre-release gates.
+Stop the fixture server/tunnel after acceptance; never serve the workspace or keys.

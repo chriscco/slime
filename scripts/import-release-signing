@@ -32,10 +32,9 @@ echo "Configuring private-key access"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" > /dev/null
 security list-keychains -d user -s "$keychain"
 echo "Verifying signing identity"
+# Capture before matching: grep -q can close a pipe while security is still writing.
 identities=$(security find-identity -v -p codesigning "$keychain")
 if ! printf '%s\n' "$identities" | grep -Fiq "$SIGNING_IDENTITY"; then
-  echo "[DEBUG-signing] identity policy diagnostics (public certificate metadata only)"
-  security find-identity -p codesigning "$keychain"
-  security verify-cert -c "$certificate" -p codeSign
+  echo "Configured signing identity is not valid in the temporary keychain." >&2
   exit 1
 fi

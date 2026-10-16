@@ -34,7 +34,7 @@ scripts/import-release-signing
 cp /bin/echo "$fixture/echo"
 codesign --force --sign "$SIGNING_IDENTITY" "$fixture/echo"
 codesign --verify --strict "$fixture/echo"
-codesign --display --extract-certificates "$fixture/signer" "$fixture/echo"
+codesign --display --extract-certificates="$fixture/signer" "$fixture/echo"
 actual=$(/usr/bin/openssl x509 -inform DER -in "$fixture/signer0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
 test "$actual" = "$SIGNING_IDENTITY"
 echo "Disposable identity imported and verified on a signed executable."

@@ -44,7 +44,7 @@ extension PanelAndThumbnailTests {
 extension PanelAndThumbnailTests {
 @Test @MainActor func activationFallbackDoesNotReportAnExactWindow() async {
   var applications: [pid_t] = []
-  let result = await WindowActivator.activate(w(1), target: nil, request: AXRequest(seconds: 0.2), activateApp: { applications.append($0); return true })
+  let result = await WindowActivator.activate(w(1), target: nil, request: AXRequest(seconds: 0.2), activateApp: { applications.append($0); return true }, frontmostPID: { applications.last })
   #expect(result == .application)
   #expect(applications == [10])
 }
@@ -104,10 +104,10 @@ extension PanelAndThumbnailTests {
   let gate = ActivationGate()
   var applications: [pid_t] = []
   let firstRequest = AXRequest(seconds: 2)
-  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { applications.append($0); return true }, raise: { _, _ in await gate.raise() }) }
+  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { applications.append($0); return true }, frontmostPID: { applications.last }, raise: { _, _ in await gate.raise() }) }
   for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
   firstRequest.cancel()
-  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { applications.append($0); return true }) }
+  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { applications.append($0); return true }, frontmostPID: { applications.last }) }
   for _ in 0..<100 where applications.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
   #expect(applications == [10, 20])
   await gate.finish()
@@ -139,7 +139,7 @@ extension PanelAndThumbnailTests {
 @Test @MainActor func exactActivationUsesOneMaintainedTargetOperation() async {
   let counter = FocusReadCounter()
   let target = NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10))
-  let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, raise: { target, _ in
+  let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, frontmostPID: { 10 }, raise: { target, _ in
     #expect(target.pid == 10 && target.windowID == 1)
     _ = counter.read()
     return true
@@ -149,7 +149,7 @@ extension PanelAndThumbnailTests {
 }
 @Test @MainActor func mismatchedTargetNeverReachesNativeRaise() async {
   for target in [NativeWindowTarget(pid: 20, windowID: 1, element: AXUIElementCreateApplication(20)), NativeWindowTarget(pid: 10, windowID: 2, element: AXUIElementCreateApplication(10))] {
-    let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, raise: { _, _ in Issue.record("mismatched target raised"); return true })
+    let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, frontmostPID: { 10 }, raise: { _, _ in Issue.record("mismatched target raised"); return true })
     #expect(result == .application)
   }
 }
@@ -168,5 +168,50 @@ extension PanelAndThumbnailTests {
   panel.setWindows([w(1)])
   #expect(panel.rows.isEmpty)
   panel.dismiss()
+}
+}
+@Test func partialAXSnapshotCannotBeClaimedByAnotherSameFrameCGWindow() {
+  #expect(!WindowEnumerator.canClaim(windowID: 2, frameMatches: [1, 2], titleMatches: [1], visibleFrameMatches: [1, 2]))
+  #expect(WindowEnumerator.canClaim(windowID: 1, frameMatches: [1, 2], titleMatches: [1], visibleFrameMatches: [1, 2]))
+  #expect(!WindowEnumerator.canClaim(windowID: 2, frameMatches: [1, 2], titleMatches: [], visibleFrameMatches: [1]))
+  #expect(WindowEnumerator.canClaim(windowID: 1, frameMatches: [1, 2], titleMatches: [], visibleFrameMatches: [1]))
+}
+extension PanelAndThumbnailTests {
+@Test @MainActor func externalFocusWinsOverAnOverlappingSwitchCompletion() async throws {
+  let gate = ActivationGate()
+  var front: pid_t = 10
+  var apps: [pid_t] = []
+  let firstRequest = AXRequest(seconds: 2)
+  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, raise: { _, _ in await gate.raise() }) }
+  for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
+  firstRequest.cancel()
+  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }) }
+  for _ in 0..<100 where apps.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
+  front = 30
+  await gate.finish()
+  #expect(await first.value == .cancelled)
+  #expect(await second.value == .cancelled)
+  #expect(apps == [10, 20])
+}
+}
+extension PanelAndThumbnailTests {
+@Test @MainActor func externalActivationEventPreventsRestorationEvenIfOldRaiseReturnsToItsApp() async throws {
+  let gate = ActivationGate()
+  var front: pid_t = 10
+  var apps: [pid_t] = []
+  let firstRequest = AXRequest(seconds: 2)
+  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, raise: { _, _ in await gate.raise() }) }
+  for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
+  firstRequest.cancel()
+  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }) }
+  for _ in 0..<100 where apps.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
+  front = 30
+  NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
+    userInfo: [NSWorkspace.applicationUserInfoKey: NSRunningApplication.current])
+  front = 10 // The older in-flight raise can itself bring its app forward.
+  await gate.finish()
+  #expect(await first.value == .cancelled)
+  #expect(await second.value == .cancelled)
+  #expect(apps == [10, 20])
 }
 }

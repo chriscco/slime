@@ -122,8 +122,8 @@ enum WindowEnumerator {
         if identity == nil {
           let frames = group.filter { AXWindows.isSameFrame($0.bounds, match.frame) }
           let titles = group.filter { $0.title == match.title && !match.title.isEmpty }
-          guard frames.count == 1 || titles.count == 1
-            || (window.onscreen && frames.filter(\.onscreen).count == 1) else { continue }
+          guard canClaim(windowID: window.windowID, frameMatches: frames.map(\.windowID),
+            titleMatches: titles.map(\.windowID), visibleFrameMatches: frames.filter(\.onscreen).map(\.windowID)) else { continue }
         }
         claimed.insert(index)
         axInfo[window.windowID] = entries[index]
@@ -228,6 +228,10 @@ enum WindowEnumerator {
       return true
     }
     return result
+  }
+
+  static func canClaim(windowID: UInt32, frameMatches: [UInt32], titleMatches: [UInt32], visibleFrameMatches: [UInt32]) -> Bool {
+    frameMatches == [windowID] || titleMatches == [windowID] || visibleFrameMatches == [windowID]
   }
 
   static func displayBounds() -> [CGRect] {

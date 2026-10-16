@@ -7,36 +7,49 @@ enum WindowActivationResult: Equatable { case exact, application, cancelled }
 enum WindowActivator {
   @MainActor private static var pending: Task<WindowActivationResult, Never>?
   @MainActor private static var generation = 0
+  @MainActor private static var pendingPIDs: Set<pid_t> = []
 
   @MainActor static func activate(_ window: Window, target: NativeWindowTarget?, request: AXRequest,
     activateApp: @escaping @MainActor (pid_t) -> Bool = { pid in
       guard let app = NSRunningApplication(processIdentifier: pid) else { return false }
       app.unhide()
       return app.activate(options: [])
-    }, raise: @escaping @Sendable (NativeWindowTarget, AXRequest) async -> Bool = raise) async -> WindowActivationResult {
+    }, frontmostPID: @escaping @MainActor () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+    raise: @escaping @Sendable (NativeWindowTarget, AXRequest) async -> Bool = raise) async -> WindowActivationResult {
     guard request.isActive else { return .cancelled }
     generation += 1
     let generation = generation
     let previous = pending
+    pendingPIDs.insert(window.pid)
+    let ownedPIDs = pendingPIDs
+    var externalFocus = false
+    let center = NSWorkspace.shared.notificationCenter
+    let observer = center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { notification in
+      guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+      MainActor.assumeIsolated { if !ownedPIDs.contains(app.processIdentifier) { externalFocus = true } }
+    }
+    defer { center.removeObserver(observer) }
     // Immediate app fallback never waits behind enumeration or an older AX operation.
     _ = activateApp(window.pid)
     let operation = Task { @MainActor in
       if let previous {
         _ = await previous.value
-        guard !request.isCancelled, generation == Self.generation else { return WindowActivationResult.cancelled }
+        guard !request.isCancelled, !externalFocus, generation == Self.generation,
+              frontmostPID().map({ ownedPIDs.contains($0) }) == true else { return WindowActivationResult.cancelled }
         // An already-sent AXRaise cannot be revoked; restore only the latest app after it drains.
         _ = activateApp(window.pid)
       }
-      guard !request.isCancelled, generation == Self.generation else { return .cancelled }
+      guard !request.isCancelled, !externalFocus, generation == Self.generation else { return .cancelled }
       guard request.isActive, let target, target.pid == window.pid,
             target.windowID == window.windowID else { return .application }
       let exact = await raise(target, request)
-      guard !request.isCancelled, generation == Self.generation else { return .cancelled }
+      guard !request.isCancelled, !externalFocus, generation == Self.generation else { return .cancelled }
+      guard frontmostPID() == window.pid else { return .cancelled }
       return exact ? .exact : .application
     }
     pending = operation
     let result = await operation.value
-    if generation == Self.generation { pending = nil }
+    if generation == Self.generation { pending = nil; pendingPIDs.removeAll() }
     return result
   }
 

@@ -23,3 +23,7 @@ an open session; updated titles/removals apply and new windows append. Search re
 relevance-ranked. As a result, a search or newly appended window can create a repeated
 app section; each contiguous app run gets its own heading. Reopening restores full
 MRU grouping. No extra capture or enumeration is triggered by navigation/search.
+
+## 2026-10-17 — Search reuse and opening latency (#83)
+
+Search now reuses detached cards, with tests for title updates, closed-window eviction, changed owners, and dismissal release. Fresh presentation remains deferred. Cached show timings begin inside the controller and do not establish physical key-to-photon latency; the user's stored Fresh preference is consistent with the audit's 196–315 ms show timings.

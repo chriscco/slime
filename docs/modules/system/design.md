@@ -141,3 +141,7 @@ scheduling. Disk tasks are background/cancellable and serialize writes/pruning t
 fresh mode schedules no new disk work and is not a secure-delete feature. The existing 300 ms
 presentation deadline is unchanged. Fresh validation permits transparent corners, rejects
 transparent/solid samples, and uses the existing proportional image canvas.
+
+## Preview notification scope (0.0.8)
+
+`WindowCache.onChange` publishes titles/order to the panel. `onRefreshPreviews` runs before it for enumeration, window removal, and focus changes; title-only changes on the current window skip the icon/thumbnail batch. Cached mode still warms in the background for Stage Manager. Existing pending/refreshing sets deduplicate capture work. `WindowThumbnails` schedules pruning only for a changed live-ID set or the first cached snapshot after a source reset.

@@ -3,7 +3,7 @@ import AppKit
 /// app 图标，按 bundle id 缓存。
 ///
 /// 取图标是主线程 API（`NSWorkspace`），而枚举在后台线程（红线 4）。所以启动时
-/// 那次枚举完成后先预热一遍（`AppIcons.warm`，从 `WindowCache.onChange` 调，
+/// 那次枚举完成后先预热一遍（`AppIcons.warm`，从 `WindowCache.onRefreshPreviews` 调，
 /// 那里天然在主线程），快捷键路径上只读缓存、一次都不取。
 ///
 /// `@MainActor` 是必需的，不是装饰：`NSWorkspace` / `NSRunningApplication`

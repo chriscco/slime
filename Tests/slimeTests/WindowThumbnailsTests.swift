@@ -475,3 +475,34 @@ extension PanelAndThumbnailTests {
     #expect(gate.count == 1)
   }
 }
+
+private final class PrunedSnapshots: @unchecked Sendable {
+  private let lock = NSLock()
+  private var values: [Set<UInt32>] = []
+  func record(_ ids: Set<UInt32>) { lock.withLock { values.append(ids) } }
+  var snapshots: [Set<UInt32>] { lock.withLock { values } }
+}
+
+extension PanelAndThumbnailTests {
+  @Test @MainActor func cachedPruningOnlyRunsForMembershipChangesAndSourceReset() async throws {
+    WindowThumbnails.configure(source: .fresh)
+    WindowThumbnails.configure(source: .cached)
+    defer { WindowThumbnails.configure(source: .fresh); WindowThumbnails.configure(source: .cached) }
+    let pruned = PrunedSnapshots()
+    func warm(_ windows: [Window]) {
+      WindowThumbnails.warm(windows, diskLoader: { _ in [:] }, captureImages: { _ in [:] },
+        pruneImages: { pruned.record($0) }, saveImages: { _ in })
+    }
+    warm([window(999_981), window(999_982)])
+    for _ in 0..<100 where pruned.snapshots.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+    for _ in 0..<20 { warm([window(999_982), window(999_981)]) }
+    warm([window(999_982)])
+    for _ in 0..<100 where pruned.snapshots.last != [999_982] { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(pruned.snapshots == [[999_981, 999_982], [999_982]])
+    WindowThumbnails.configure(source: .fresh)
+    WindowThumbnails.configure(source: .cached)
+    warm([window(999_982)])
+    for _ in 0..<100 where pruned.snapshots.count < 3 { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(pruned.snapshots == [[999_981, 999_982], [999_982], [999_982]])
+  }
+}

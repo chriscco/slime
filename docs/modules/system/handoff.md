@@ -80,3 +80,7 @@ the session without generating another modifier-down event. The callback still
 checks disabled/degraded state first; active sessions retain their current mode.
 The callback regression failed before the fix and all 212 tests pass afterward.
 Native keyboard acceptance remains pending; no AX work or waiting was added.
+
+## 2026-10-17 — Background work audit follow-up (#83)
+
+Split list publication from preview refresh and deduplicate cached disk pruning by live IDs. Tests cover title bursts, real focus, closing, membership changes and preview-source resets. No change to AX identity validation or capture concurrency. The user's stored source was Fresh during latency investigation; the 300 ms presentation deadline remains intentional and deferred.

@@ -2,20 +2,41 @@ import AppKit
 
 /// Cards are reused by window identity; only the underline travels between cells.
 final class CardGridView: NSView {
+  private var retainedCards: [UInt32: (pid: pid_t, card: CardView)] = [:]
+  private var sessionOwners: [UInt32: pid_t] = [:]
+
+  func retainCards(for windows: [Window]) {
+    sessionOwners = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0.pid) })
+    retainedCards = retainedCards.filter { sessionOwners[$0.key] == $0.value.pid }
+  }
+
+  func releaseRetainedCards() {
+    retainedCards.removeAll()
+    sessionOwners.removeAll()
+  }
+
   var rows: [Window] = [] {
     didSet {
-      if rows.map(\.windowID) == oldValue.map(\.windowID) {
+      if rows.map(\.windowID) == oldValue.map(\.windowID), rows.map(\.pid) == oldValue.map(\.pid) {
         for (window, card) in zip(rows, cards) { card.update(window: window) }
         return
       }
-      var pool = Dictionary(uniqueKeysWithValues: zip(oldValue, cards).map { ($0.windowID, $1) })
+      var pool = retainedCards
+      for (window, card) in zip(oldValue, cards) { pool[window.windowID] = (window.pid, card) }
       cards = rows.map { window in
-        let card = pool.removeValue(forKey: window.windowID) ?? CardView(window: window)
+        let previous = pool.removeValue(forKey: window.windowID)
+        let card: CardView
+        if let previous, previous.pid == window.pid { card = previous.card }
+        else {
+          previous?.card.removeFromSuperview()
+          card = CardView(window: window)
+        }
         card.update(window: window)
         if card.superview == nil { addSubview(card) }
         return card
       }
-      for card in pool.values { card.removeFromSuperview() }
+      for entry in pool.values { entry.card.removeFromSuperview() }
+      retainedCards = pool.filter { sessionOwners[$0.key] == $0.value.pid }
       addSubview(highlight, positioned: .above, relativeTo: nil)
       updateLayout()
     }

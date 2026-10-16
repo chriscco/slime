@@ -181,3 +181,7 @@ Current window now appears first, followed by window MRU; initial selection rema
 previous window. Grouping preserves member recency, while an open panel freezes existing
 card order to avoid moving the user's target. Events are coalesced, without periodic polling.
 Revisit only if native acceptance shows public AX coverage insufficient for common apps.
+
+## 2026-10-17 — Do not recapture every window for a title notification
+
+Title-only updates use the list callback without the full preview callback. Real focus changes and enumeration retain preview warming; title changes alone no longer promise a new screenshot. This bounds terminal/browser title activity without adding a timer or dropping Stage Manager background caching. Revisit with targeted, measured content refresh if users need fresher active-window images. Fresh capture and the first-frame wait remain unchanged.

@@ -616,3 +616,56 @@ extension PanelAndThumbnailTests {
     #expect(refreshes == 0)
   }
 }
+
+extension PanelAndThumbnailTests {
+  @Test @MainActor func searchReusesCardsAndReleasesRemovedOrDismissedResults() async throws {
+    _ = NSApplication.shared
+    let panel = PanelController()
+    defer { panel.dismiss() }
+    let state = State.lingering(query: "", selection: 0)
+    let first = window("Test", "Alpha", id: 901)
+    let second = window("Test", "Beta", id: 902)
+    panel.handle(state: state, effects: [])
+    panel.setWindows([first, second])
+    let grid = panel.panel.content.gridView
+    weak var original = grid.card(for: first.windowID)
+    panel.handle(state: state, effects: [.appendQuery("z")])
+    #expect(panel.rows.isEmpty)
+    #expect(grid.card(for: first.windowID) == nil)
+    #expect(original != nil, "Filtering must retain the detached card for this session")
+    let renamed = window("Test", "Updated title", id: first.windowID)
+    panel.setWindows([renamed, second])
+    panel.handle(state: state, effects: [.deleteQueryChar])
+    #expect(grid.card(for: first.windowID) === original)
+    #expect(grid.card(for: first.windowID)?.subviews.compactMap { $0 as? NSTextField }.first?.stringValue == "Updated title")
+    panel.handle(state: state, effects: [.appendQuery("z")])
+    panel.setWindows([second])
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(original == nil, "A closed window must leave the reuse pool")
+    panel.handle(state: state, effects: [.deleteQueryChar])
+    weak var remaining = grid.card(for: second.windowID)
+    panel.handle(state: state, effects: [.appendQuery("z")])
+    #expect(remaining != nil)
+    panel.dismiss()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(remaining == nil, "Dismissal must release filtered cards")
+  }
+
+  @Test(arguments: [false, true]) @MainActor
+  func searchDoesNotReuseCardsAcrossWindowOwners(_ filtered: Bool) throws {
+    _ = NSApplication.shared
+    let panel = PanelController()
+    defer { panel.dismiss() }
+    let state = State.lingering(query: "", selection: 0)
+    let first = window("Test", "Alpha", id: 903)
+    panel.handle(state: state, effects: [])
+    panel.setWindows([first])
+    let original = try #require(panel.panel.content.gridView.card(for: first.windowID))
+    if filtered { panel.handle(state: state, effects: [.appendQuery("z")]) }
+    let replacement = Window(pid: 2, windowID: first.windowID, appName: "Other", title: "Beta", isMinimized: false)
+    panel.setWindows([replacement])
+    if filtered { panel.handle(state: state, effects: [.deleteQueryChar]) }
+    #expect(panel.panel.content.gridView.card(for: replacement.windowID) !== original)
+    #expect(panel.rows == [replacement])
+  }
+}

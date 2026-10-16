@@ -115,6 +115,7 @@ final class PanelController {
 
   private func hide(cancelClose: Bool = true) {
     WindowThumbnails.endSession()
+    panel.content.gridView.releaseRetainedCards()
     if cancelClose { closeRequest?.cancel() }
     session += 1
     closing = false
@@ -135,6 +136,7 @@ final class PanelController {
   }
 
   private func rerank(following id: UInt32?, animateResize: Bool = false) {
+    panel.content.gridView.retainCards(for: windows)
     let previousRows = rows
     rows = Search.rank(windows, query: query)
 

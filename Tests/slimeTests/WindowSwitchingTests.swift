@@ -242,3 +242,23 @@ extension PanelAndThumbnailTests {
   #expect(removed)
 }
 }
+
+@Test @MainActor func titleChangesPublishWithoutRefreshingEveryPreview() {
+  let cache = WindowCache(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+  var previewRefreshes = 0
+  var published: [Window] = []
+  cache.onRefreshPreviews = { _ in previewRefreshes += 1 }
+  cache.onChange = { published = $0 }
+  cache.apply([w(1), w(2)], frontWindowID: 1, known: [:], generation: 0)
+  #expect(previewRefreshes == 1)
+  for title in ["one", "two", "three"] {
+    cache.noteFocused(windowID: 1, pid: 10, title: title)
+    #expect(published.first?.title == title)
+  }
+  #expect(previewRefreshes == 1, "Title-only updates must not schedule screenshots or icon warming")
+  cache.noteFocused(windowID: 2, pid: 10, title: "focused")
+  #expect(previewRefreshes == 2, "Actual window focus must preserve background preview refresh")
+  cache.noteClosed(w(1))
+  #expect(previewRefreshes == 3)
+  #expect(published.map(\.windowID) == [2])
+}

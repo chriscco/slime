@@ -36,6 +36,7 @@ enum WindowThumbnails {
   private static var refreshing: Set<UInt32> = []
   /// 当前快照里的窗口（`warm` 每次都重设）。
   private static var live: Set<UInt32> = []
+  private static var prunedIDs: Set<UInt32>?
   private static var owners: [UInt32: pid_t] = [:]
   private static var tickets: [UInt32: UUID] = [:]
   private static var diskChecked: Set<UInt32> = []
@@ -78,6 +79,7 @@ enum WindowThumbnails {
     cache.removeAll(); tickets.removeAll(); pending.removeAll(); refreshing.removeAll()
     diskChecked.removeAll(); unrenderable.removeAll(); attempted.removeAll()
     whenSettledCallback = nil
+    prunedIDs = nil
   }
 
   /// Cancellation prevents queued work; a filesystem operation already started may finish.
@@ -223,7 +225,10 @@ enum WindowThumbnails {
     unrenderable.formIntersection(live)
 
     let survivors = live
-    if source == .cached { onDisk { pruneImages(survivors) } }
+    if source == .cached, prunedIDs != survivors {
+      prunedIDs = survivors
+      onDisk { pruneImages(survivors) }
+    }
 
     let plan = source == .fresh ? (needed: windows.filter { window in
       let previous = attempted[window.windowID]

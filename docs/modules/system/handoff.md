@@ -44,3 +44,16 @@ WindowServer/GPU cost and physical event-tap latency are excluded. Native matrix
 Review follow-up: queued warm tasks validate tickets before starting disk loading. Disk-read
 jobs are tracked/cancelled with captures; cancellation propagates to detached reads and stops
 between files. A read/write/delete already underway can finish, without a main-thread barrier.
+
+## Same-title offscreen admission follow-up
+
+Owner-approved rule: if the same PID has a confirmed live window with the same
+nonempty title, discard unconfirmed offscreen candidates and their stale known
+entries. `KnownWindow.observedOnscreen` persists manual onscreen discovery alongside
+standard AX/minimization evidence. Two-pass filtering is independent of CG order.
+Unseen genuine same-title windows on another Space may need one manual visible
+visit; the owner explicitly accepted this boundary. Screenshot validity is not used
+as window-identity evidence. No app-specific names, sizes, or private APIs are used.
+Regression coverage includes stale caches, enumeration order, confirmed/minimized
+siblings, different PIDs/titles, manual discovery followed by offscreen retention,
+and serialization of the new optional field. Native owner confirmation is pending.

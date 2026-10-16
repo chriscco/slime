@@ -139,3 +139,27 @@ Cost: externally closed protected siblings may linger if AX remains unavailable 
 The 0.0.6 performance review found that per-call AX timeouts did not bound a full close, stale-generation rejection did not stop queued work, and disk cache reads still ran on the main actor. Add a shared three-second monotonic AXRequest with per-call remaining-time checks and cancellation; keep one close transaction through application handoff. Retry identity acquisition only before AXPress. Detect save sheets positively and stop guessing closure from an app-wide empty list.
 
 Coalesce enumeration to one running/one pending refresh and check cancellation between IPC calls. Load thumbnail PNGs off the main thread, remember misses for the current lifetime, and use per-window publication tickets/owner checks so a late disk result cannot overwrite a fresh capture or revive a removed identity. No general scheduler, observer framework, or dependencies are introduced. Native and release-build performance measurements remain required.
+
+## 2026-10-16 · Fresh previews are session snapshots, not video
+
+Keep cached previews as the default. A `preview.source` preference selects fresh captures,
+which skip disk loading, saving, and pruning, and discard images/attempts on session end.
+A window is attempted once per session, with one additional opportunity when a previously
+failed offscreen window becomes visible. Search and selection never request captures.
+ScreenCaptureKit remains the only capture API; no activation or Space switching is used.
+
+Fresh validation accepts transparent corners while requiring at least two quantized colors
+among opaque samples. This retains perspective renders without stretching them; blank or
+unavailable results keep the icon fallback. The existing aspect-fit card renderer suffices.
+A read-only macOS 27.0 (26A428) probe produced a recognizable tilted two-pane application image that
+cached validation rejects and fresh validation accepts. This proves useful output exists,
+not that every minimized or other-Space window is capturable.
+
+Move persistence out of capture and behind main-actor identity-ticket acceptance. Mode
+changes cancel capture and pending disk tasks; fresh session boundaries also cancel capture.
+A small disk actor serializes writes/pruning so moving saves after capture cannot overlap PNG writes.
+Task cancellation is checked before background file work and between screenshots/files.
+A file operation already started may finish after the change; preventing that would require
+waiting on disk or transactional storage with no benefit to this non-erasure preference.
+No lock or disk barrier is added to the input/main-thread path. Existing files remain dormant
+in fresh mode. Revisit only if users request a separately specified cache-erasure control.

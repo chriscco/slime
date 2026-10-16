@@ -23,12 +23,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    WindowThumbnails.configure(source: settings.previewSource)
     installStatusItem()
     updater.start()
     if settings.isEnabled { enable() }
   }
 
   private func settingsChanged() {
+    if WindowThumbnails.configure(source: settings.previewSource), let cache {
+      WindowThumbnails.warm(cache.allWindows)
+    }
     panel?.refreshAppearance()
     installStatusItem()
   }

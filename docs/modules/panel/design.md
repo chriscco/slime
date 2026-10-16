@@ -34,3 +34,11 @@ Unchanged ordered results skip grid rendering. Cards avoid wrapping an unchanged
 `handle(state:effects:)`, `setWindows`, and `dismiss` connect to activation, refresh, settings, cache closure, tap completion, and cancellation callbacks. Injected close/reveal operations test restoration, cancellation, and session isolation. Layout tests cover geometry, navigation, identity reuse, portrait rounding, and underline behavior.
 
 Offscreen rendering does not certify glass composition, system focus, physical keyboard behavior, or perceived smoothness. The 0.0.6 spec defines native acceptance and the release performance matrix. Historical native-window/underline checks from 0.0.5 remain evidence for that version, not proof that every new path is validated.
+
+Appearance includes a localized Preview source popup: Cached previews (recommended) / Fresh
+captures. Its explanation states that fresh captures skip stored previews and some windows
+remain unavailable. The controller starts/ends fresh image lifetime with its own session,
+clears old card images on reopening, and keeps the existing 300 ms presentation timer.
+Image updates do not re-rank rows or request new capture; perspective margins remain transparent
+inside the existing aspect-fit preview. A source change resets images and warms the active
+snapshot through AppDelegate; a closed panel does not start fresh capture.

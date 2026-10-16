@@ -70,6 +70,19 @@ Open Settings from the menu bar or press `⌘,` in the panel.
 - **Shortcuts**: view key bindings.
 - **About**: version and GitHub repository link.
 
+## Performance
+
+Measured on an Apple M4 / 16 GiB Mac running macOS 27 with two displays, **Stage Manager enabled and windows set aside on the left**. Both modes used the same 11 windows and 12 open/search/dismiss cycles over 20 seconds after warm-up.
+
+| Preview source | Average CPU | Peak memory | Previews available |
+|---|---:|---:|---:|
+| Cached previews | 9.9% | 29.0 MiB | 3 / 11 |
+| Fresh captures (no stored previews) | 10.1% | 34.6 MiB | 8 / 11 |
+
+Choose the mode in **Settings → Appearance → Preview source**. Fresh captures still retain images within one panel session; typing does not trigger another capture.
+
+These are process measurements from an isolated release-build harness running the real panel code. CPU 100% means one core; memory is physical footprint. This short, mixed-window sample excludes WindowServer/GPU costs and does not establish a worst-case limit. [Method and full results](docs/validation/2026-10-16-slime-0.0.8-performance.md#stage-manager-follow-up-for-the-readme).
+
 ## Requirements
 
 - **macOS 15+**. Liquid Glass requires macOS 26+; macOS 15 uses a solid background and remains experimental.

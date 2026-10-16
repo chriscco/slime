@@ -30,6 +30,7 @@ private actor CloseGate {
   return panel
 }
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func closeWaitsForConfirmationAndSelectsNextNeighbor() async throws {
   let gate = CloseGate()
   let panel = controller(gate)
@@ -52,7 +53,9 @@ private actor CloseGate {
   #expect(panel.rows[panel.selection].windowID == 2)
   #expect(!panel.closing)
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func failedCloseRestoresTheTarget() async throws {
   let gate = CloseGate()
   let panel = controller(gate)
@@ -68,7 +71,9 @@ private actor CloseGate {
   #expect(panel.panel.content.gridView.card(for: 1)?.preview.layer?.opacity == 1)
   #expect(!panel.panel.content.statusLabel.stringValue.isEmpty)
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func dismissedCloseCannotRewriteANewSession() async throws {
   let gate = CloseGate()
   let panel = controller(gate)
@@ -87,7 +92,9 @@ private actor CloseGate {
   #expect(panel.rows.map(\.windowID) == [9])
   #expect(!completed)
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func closingLastWindowSelectsPreviousAndEmptyCloseCompletes() async throws {
   let gate = CloseGate()
   let panel = controller(gate)
@@ -106,7 +113,9 @@ private actor CloseGate {
   #expect(!panel.closing)
   #expect(panel.rows.isEmpty)
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func closingFollowsTheNextSurvivingNeighborAcrossRefresh() async throws {
   let gate = CloseGate()
   let panel = controller(gate)
@@ -119,7 +128,9 @@ private actor CloseGate {
   for _ in 0..<100 where panel.closing { try await Task.sleep(for: .milliseconds(20)) }
   #expect(panel.rows[panel.selection].windowID == 4)
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func inaccessibleCloseRevealsTargetAndDoesNotReopenPanel() async throws {
   _ = NSApplication.shared
   let gate = CloseGate()
@@ -142,7 +153,9 @@ private actor CloseGate {
   for _ in 0..<100 where await gate.calls < 2 { try await Task.sleep(for: .milliseconds(20)) }
   #expect(await gate.calls == 2)
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func cancellingCloseStopsItsRequestAndCannotStartAnotherUntilItReturns() async throws {
   let gate = CloseGate()
   let panel = PanelController(closeWindow: { window, request in
@@ -161,7 +174,9 @@ private actor CloseGate {
   #expect(await gate.calls == 1)
   await gate.finish(.failed)
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func intentionalHandoffDoesNotCancelItsOwnRequestOrPressAgainForASheet() async throws {
   _ = NSApplication.shared
   var revealCount = 0
@@ -186,7 +201,9 @@ private actor CloseGate {
   #expect(!panel.panel.isVisible)
   panel.onCancelSession = nil
 }
+}
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func themeChangeDuringClosePreservesTheTransaction() async throws {
   _ = NSApplication.shared
   let suite = "slime.close-theme.\(UUID().uuidString)"
@@ -211,4 +228,5 @@ private actor CloseGate {
   #expect(controller.rows.map(\.windowID) == [2])
   #expect(!controller.closing)
   controller.dismiss()
+}
 }

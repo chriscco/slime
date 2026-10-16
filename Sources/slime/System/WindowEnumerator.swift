@@ -10,6 +10,8 @@ struct KnownWindow: Sendable, Equatable, Codable {
   var title: String
   var minimized: Bool
   var axVerified: Bool? = nil
+  var observedOnscreen: Bool? = nil
+  var confirmed: Bool { axVerified == true || observedOnscreen == true || minimized }
   var closed: Bool? = nil
   // shortcut: retain unseen siblings until AX sees them again; external closes with retained CG surfaces need per-window AX observation.
   var survivedClose: Bool? = nil
@@ -175,6 +177,7 @@ enum WindowEnumerator {
       if titled, candidate.matched?.title.isEmpty != false, let title = candidate.cgTitle {
         info.title = title
       }
+      info.observedOnscreen = candidate.onscreen || remembered?.observedOnscreen == true ? true : nil
       info.closed = nil
       info.survivedClose = candidate.matched == nil ? remembered?.survivedClose : nil
       result.known[candidate.windowID] = info
@@ -189,6 +192,20 @@ enum WindowEnumerator {
           isOnscreen: candidate.onscreen
         )
       )
+    }
+    var confirmedTitles: [pid_t: Set<String>] = [:]
+    for window in result.windows where !window.title.isEmpty {
+      if result.known[window.windowID]?.confirmed == true {
+        confirmedTitles[window.pid, default: []].insert(window.title)
+      }
+    }
+    // shortcut: unseen same-title windows on other Spaces need one visible visit; revisit when public APIs provide stronger identity.
+    result.windows.removeAll { window in
+      guard !window.isOnscreen, !window.title.isEmpty,
+            result.known[window.windowID]?.confirmed != true,
+            confirmedTitles[window.pid]?.contains(window.title) == true else { return false }
+      result.known.removeValue(forKey: window.windowID)
+      return true
     }
     return result
   }

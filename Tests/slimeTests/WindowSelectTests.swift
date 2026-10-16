@@ -64,6 +64,7 @@ private func candidate(
   let known: [UInt32: KnownWindow] = [
     1: KnownWindow(appName: "ZCode", title: "项目", minimized: false),
     2: KnownWindow(appName: "Chrome", title: "GitHub", minimized: true),
+    3: KnownWindow(appName: "App", title: "Seen", minimized: false, observedOnscreen: true),
   ]
   let stored = known.map { StoredKnownWindow(id: $0.key, entry: $0.value) }
   let data = try JSONEncoder().encode(stored)
@@ -252,4 +253,49 @@ private let displays: [CGRect] = [
   let reopened = WindowEnumerator.select(accessibleAgain, known: refreshed.known)
   #expect(reopened.windows.map(\.windowID) == [1, 2, 3, 4])
   #expect(reopened.known[4]?.closed == nil)
+}
+
+private func titledCandidate(_ id: UInt32, pid: pid_t = 1, title: String = "Conversation",
+                              onscreen: Bool = false, verified: Bool = false) -> WindowCandidate {
+  WindowCandidate(windowID: id, pid: pid, appName: "App", onscreen: onscreen,
+    matched: verified ? KnownWindow(appName: "App", title: title, minimized: false, axVerified: true) : nil,
+    helper: false, cgTitle: title, axAvailable: true, appHasWindows: true)
+}
+
+@Test func unverifiedOffscreenDuplicatesAreRemovedEvenFromOldCaches() {
+  let real = titledCandidate(1, verified: true)
+  let extra = titledCandidate(2)
+  let stale = [UInt32(2): KnownWindow(appName: "App", title: "Conversation", minimized: false)]
+  for rows in [[real, extra], [extra, real]] {
+    let result = WindowEnumerator.select(rows, known: stale)
+    #expect(result.windows.map(\.windowID) == [1])
+    #expect(result.known[2] == nil)
+  }
+}
+
+@Test func duplicateFilteringPreservesVerifiedMinimizedAndDifferentTargets() {
+  let known: [UInt32: KnownWindow] = [
+    2: KnownWindow(appName: "App", title: "Conversation", minimized: false, axVerified: true),
+    3: KnownWindow(appName: "App", title: "Conversation", minimized: true),
+  ]
+  let result = WindowEnumerator.select([
+    titledCandidate(1, verified: true), titledCandidate(2), titledCandidate(3),
+    titledCandidate(4, pid: 2), titledCandidate(5, title: "Another conversation"),
+  ], known: known)
+  #expect(result.windows.map(\.windowID) == [1, 2, 3, 4, 5])
+}
+
+@Test func manuallyShowingAnUnverifiedWindowKeepsItAfterItGoesOffscreen() {
+  let real = titledCandidate(1, verified: true)
+  let first = WindowEnumerator.select([real, titledCandidate(2)], known: [:])
+  #expect(first.windows.map(\.windowID) == [1])
+  let shown = WindowEnumerator.select([real, titledCandidate(2, onscreen: true)], known: first.known)
+  #expect(shown.windows.map(\.windowID) == [1, 2])
+  let hidden = WindowEnumerator.select([real, titledCandidate(2)], known: shown.known)
+  #expect(hidden.windows.map(\.windowID) == [1, 2])
+}
+
+@Test func unverifiedOffscreenWindowWithoutAConfirmedSiblingIsStillDiscoverable() {
+  let result = WindowEnumerator.select([titledCandidate(1), titledCandidate(2)], known: [:])
+  #expect(result.windows.map(\.windowID) == [1, 2])
 }

@@ -90,6 +90,8 @@ final class PanelController {
     panel.content.showStatus(nil)
     panel.content.setSearchFocused(false)
     refreshAppearance()
+    WindowThumbnails.beginSession(source: settings.previewSource)
+    if settings.previewSource == .fresh { WindowThumbnails.warm(windows) }
     rerank(following: nil)
     let generation = session
     var presented = false
@@ -106,6 +108,7 @@ final class PanelController {
   }
 
   private func hide(cancelClose: Bool = true) {
+    WindowThumbnails.endSession()
     if cancelClose { closeRequest?.cancel() }
     session += 1
     closing = false

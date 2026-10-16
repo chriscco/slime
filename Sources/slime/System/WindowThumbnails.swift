@@ -1,7 +1,8 @@
 import CoreGraphics
 import ScreenCaptureKit
 
-/// 窗口缩略图（spec §5）。三件事：按 windowID 缓存、后台抓取、按快照边界清理。
+/// Cached previews retain good renders; fresh previews live only for one panel session.
+/// Both use background screenshots, identity tickets, and the same bounded panel deadline.
 /// **不碰 AppKit 的视图** —— 视图那边只问它要一张图（`image(for:)`）。
 ///
 /// 线程模型：缓存 / `pending` / `live` / `onChange` 全在主线程（`@MainActor`）；
@@ -41,6 +42,55 @@ enum WindowThumbnails {
   /// 负缓存：抓过、失败了、**而且当时不在屏上**的窗口 —— 本来就没渲染，重试
   /// 多少次都一样。等它真的在屏上（或关掉）时 `warm` 把条目清掉，再抓。
   private static var unrenderable: Set<UInt32> = []
+
+  private static var source: Settings.PreviewSource = .cached
+  private static var sessionOpen = false
+  private static var attempted: [UInt32: Bool] = [:]
+  private static var imageTasks: [UUID: Task<[UInt32: CGImage], Never>] = [:]
+  private static let diskQueue = ThumbnailDiskQueue()
+  private static var diskTasks: [UUID: Task<Void, Never>] = [:]
+
+  @discardableResult
+  static func configure(source newSource: Settings.PreviewSource) -> Bool {
+    guard source != newSource else { return false }
+    source = newSource
+    resetImages()
+    for task in diskTasks.values { task.cancel() }
+    diskTasks.removeAll()
+    onChange?()
+    return true
+  }
+
+  static func beginSession(source: Settings.PreviewSource) {
+    configure(source: source)
+    sessionOpen = true
+    if source == .fresh { resetImages(); onChange?() }
+  }
+
+  static func endSession() {
+    sessionOpen = false
+    if source == .fresh { resetImages() }
+  }
+
+  private static func resetImages() {
+    for task in imageTasks.values { task.cancel() }
+    imageTasks.removeAll()
+    cache.removeAll(); tickets.removeAll(); pending.removeAll(); refreshing.removeAll()
+    diskChecked.removeAll(); unrenderable.removeAll(); attempted.removeAll()
+    whenSettledCallback = nil
+  }
+
+  /// Cancellation prevents queued work; a filesystem operation already started may finish.
+  private static func onDisk(_ body: @escaping @Sendable () -> Void) {
+    let id = UUID()
+    let queue = diskQueue
+    diskTasks[id] = Task.detached(priority: .utility) {
+      await queue.perform(body)
+      await diskFinished(id)
+    }
+  }
+
+  private static func diskFinished(_ id: UUID) { diskTasks.removeValue(forKey: id) }
 
   /// 有新图可显示时的回调（主线程）—— 面板就地把卡片刷新一遍。
   static var onChange: (() -> Void)?
@@ -124,6 +174,7 @@ enum WindowThumbnails {
     let files = (try? FileManager.default.contentsOfDirectory(
       at: thumbsDirectory, includingPropertiesForKeys: nil)) ?? []
     for file in files {
+      guard !Task.isCancelled else { return }
       guard let id = UInt32(file.deletingPathExtension().lastPathComponent) else { continue }
       if survivors.contains(id) { continue }
       try? FileManager.default.removeItem(at: file)
@@ -139,10 +190,16 @@ enum WindowThumbnails {
   /// ⌘Tab 时缓存已经就绪（spec §5.3 要的「第一帧就是完整的」）。
   static func warm(_ windows: [Window],
     diskLoader: @escaping @Sendable ([UInt32]) async -> [UInt32: CGImage] = { await loadDiskImages($0) },
-    captureImages: @escaping @Sendable ([UInt32]) async -> [UInt32: CGImage] = { await capture($0) },
-    pruneImages: @escaping @Sendable (Set<UInt32>) -> Void = { pruneDisk(keeping: $0) }) {
+    captureImages: (@Sendable ([UInt32]) async -> [UInt32: CGImage])? = nil,
+    pruneImages: @escaping @Sendable (Set<UInt32>) -> Void = { pruneDisk(keeping: $0) },
+    saveImages: @escaping @Sendable ([UInt32: CGImage]) -> Void = { images in
+      for (id, image) in images where !Task.isCancelled { save(id, image) }
+    }) {
+    guard source == .cached || sessionOpen else { return }
+    let requestSource = source
     live = Set(windows.map(\.windowID))
     tickets = tickets.filter { live.contains($0.key) }
+    attempted = attempted.filter { live.contains($0.key) }
     diskChecked.formIntersection(live)
     pending.formIntersection(live)
     refreshing.formIntersection(live)
@@ -153,6 +210,7 @@ enum WindowThumbnails {
       pending.remove(window.windowID)
       refreshing.remove(window.windowID)
       unrenderable.remove(window.windowID)
+      attempted.removeValue(forKey: window.windowID)
     }
     owners = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0.pid) })
     // 缓存按快照边界清理（spec §4.5）：窗口关掉就不会再显示 —— 没有任何东西
@@ -165,39 +223,80 @@ enum WindowThumbnails {
     unrenderable.formIntersection(live)
 
     let survivors = live
-    Task.detached(priority: .utility) { pruneImages(survivors) }
+    if source == .cached { onDisk { pruneImages(survivors) } }
 
-    let plan = Self.capturePlan(
+    let plan = source == .fresh ? (needed: windows.filter { window in
+      let previous = attempted[window.windowID]
+      return previous == nil || (previous == false && window.isOnscreen && cache[window.windowID] == nil
+        && !pending.contains(window.windowID))
+    }.map(\.windowID), refresh: [UInt32]()) : Self.capturePlan(
       windows: windows,
       cached: Set(cache.keys),
       busy: pending.union(refreshing),
       unrenderable: unrenderable
     )
     guard !plan.needed.isEmpty || !plan.refresh.isEmpty else { return }
+    if source == .fresh {
+      let needed = Set(plan.needed)
+      for window in windows where needed.contains(window.windowID) { attempted[window.windowID] = window.isOnscreen }
+    }
     pending.formUnion(plan.needed)
     refreshing.formUnion(plan.refresh)
 
-    let readIDs = plan.needed.filter { !diskChecked.contains($0) }
+    let readIDs = source == .cached ? plan.needed.filter { !diskChecked.contains($0) } : []
     diskChecked.formUnion(readIDs)
     let expected = tickets
     let onscreen = Set(windows.filter(\.isOnscreen).map(\.windowID))
     Task {
-      let loaded = await diskLoader(readIDs)
+      guard (plan.needed + plan.refresh).contains(where: { tickets[$0] == expected[$0] }) else {
+        notifySettledIfIdle()
+        return
+      }
+      var loaded: [UInt32: CGImage] = [:]
+      let currentReadIDs = readIDs.filter { tickets[$0] == expected[$0] }
+      if requestSource == .cached && !currentReadIDs.isEmpty {
+        let loadID = UUID()
+        let task = Task.detached(priority: .utility) { await diskLoader(currentReadIDs) }
+        imageTasks[loadID] = task
+        loaded = await task.value
+        imageTasks.removeValue(forKey: loadID)
+      }
       publishDisk(loaded, expected: expected)
       let ids = (plan.needed.filter { loaded[$0] == nil || onscreen.contains($0) } + plan.refresh)
         .filter { tickets[$0] == expected[$0] }
-      let captured = await Task.detached(priority: .utility) { await captureImages(ids) }.value
-      Self.publish(captured, needed: plan.needed, refresh: plan.refresh, expected: expected)
+      guard !ids.isEmpty else {
+        Self.publish([:], needed: plan.needed, refresh: plan.refresh, expected: expected)
+        return
+      }
+      let captureID = UUID()
+      let task = Task.detached(priority: .utility) {
+        if let captureImages { return await captureImages(ids) }
+        return await capture(ids, source: requestSource)
+      }
+      imageTasks[captureID] = task
+      let captured = await task.value
+      imageTasks.removeValue(forKey: captureID)
+      let accepted = captured.filter { tickets[$0.key] == expected[$0.key] }
+      if requestSource == .cached && !accepted.isEmpty { onDisk { saveImages(accepted) } }
+      Self.publish(accepted, needed: plan.needed, refresh: plan.refresh, expected: expected)
     }
   }
 
   static func loadDiskImages(_ ids: [UInt32],
     loader: @escaping @Sendable (UInt32) -> CGImage? = { load($0) }) async -> [UInt32: CGImage] {
-    await Task.detached(priority: .utility) {
+    let task = Task.detached(priority: .utility) {
       var images: [UInt32: CGImage] = [:]
-      for id in ids { if let image = loader(id) { images[id] = image } }
+      for id in ids {
+        guard !Task.isCancelled else { break }
+        if let image = loader(id) { images[id] = image }
+      }
       return images
-    }.value
+    }
+    return await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
+    }
   }
 
   private static func publishDisk(_ images: [UInt32: CGImage], expected: [UInt32: UUID]) {
@@ -257,7 +356,7 @@ enum WindowThumbnails {
   // MARK: - 后台（红线 4：这一节不碰主线程状态）
 
   /// 没权限 / 抓不到都返回空字典 —— 调用方只管「有没有图」。
-  private nonisolated static func capture(_ ids: [UInt32]) async -> [UInt32: CGImage] {
+  private nonisolated static func capture(_ ids: [UInt32], source: Settings.PreviewSource) async -> [UInt32: CGImage] {
     guard !ids.isEmpty else { return [:] }
     // 没权限就别白跑：每次枚举都去试一遍是无谓的 IPC，SCK 的报错还会刷满日志。
     // 这里用 CoreGraphics 直接问，不走 `App/Permission` —— `System/` 不许依赖
@@ -282,14 +381,13 @@ enum WindowThumbnails {
     //           `warmUpDeadline` 封顶，真觉得慢时再回并发 + 限流
     var result: [UInt32: CGImage] = [:]
     for id in ids {
+      guard !Task.isCancelled else { break }
       guard let scWindow = byID[id] else { continue }
       guard
         let (capturedID, image) = await shot(of: scWindow),
-        looksLikeWindowRender(image)
+        looksLikeWindowRender(image, source: source)
       else { continue }
       result[capturedID] = image
-      // 落盘也在后台（红线 4）：20–40 KB 的 PNG 编码 + 写盘不该压主线程。
-      save(capturedID, image)
     }
     return result
   }
@@ -328,7 +426,7 @@ enum WindowThumbnails {
   ///
   /// shortcut: 判据会误杀「整扇窗只有一个颜色」的窗口（全白的空文档）—— 那时
   ///           退回 app 图标，不是白屏。真的误导人时再细化（spec §14）
-  nonisolated static func looksLikeWindowRender(_ image: CGImage) -> Bool {
+  nonisolated static func looksLikeWindowRender(_ image: CGImage, source: Settings.PreviewSource = .cached) -> Bool {
     let side = 32
     var pixels = [UInt8](repeating: 0, count: side * side * 4)
     // 采样一律走 `buffer`（`bytes`），**不回头读 `pixels`** —— 那是对同一个
@@ -351,13 +449,13 @@ enum WindowThumbnails {
       for (x, y) in [
         (corner, corner), (side - 1 - corner, corner),
         (corner, side - 1 - corner), (side - 1 - corner, side - 1 - corner),
-      ] where bytes[(y * side + x) * 4 + 3] < 250 {
+      ] where source == .cached && bytes[(y * side + x) * 4 + 3] < 250 {
         return false
       }
 
       // 每通道取高 4 位做桶：抗抖动 / 抗压缩噪声，同时「纯色」还是只有一个桶。
       var seen: Set<UInt32> = []
-      for index in stride(from: 0, to: bytes.count, by: 4) {
+      for index in stride(from: 0, to: bytes.count, by: 4) where bytes[index + 3] >= 250 {
         let key =
           UInt32(bytes[index] >> 4) << 8 | UInt32(bytes[index + 1] >> 4) << 4
           | UInt32(bytes[index + 2] >> 4)
@@ -366,5 +464,14 @@ enum WindowThumbnails {
       }
       return false
     }
+  }
+}
+
+
+/// Serialize PNG writes/pruning without making the main actor wait for filesystem work.
+private actor ThumbnailDiskQueue {
+  func perform(_ body: @Sendable () -> Void) {
+    guard !Task.isCancelled else { return }
+    body()
   }
 }

@@ -6,3 +6,6 @@ DerivedData/
 build/
 .signing/*.key
 .signing/*.p12
+
+# Python release-check test caches
+__pycache__/

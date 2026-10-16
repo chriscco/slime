@@ -47,3 +47,13 @@ that rectangle as a trackable mouse area. Direct performClick tests bypassed the
 Use a bordered shadowless-square push cell for full native tracking while retaining
 custom drawing and explicit radio accessibility. Test actual cell hit regions at
 several positions as well as the settings action.
+
+## 2026-10-16 — Reviewed notes and stable signing for tag releases
+
+Release automation publishes the reviewed English version file, not generated commit
+logs. Every merged main PR is credited to its GitHub author, validated against commit
+association metadata. The existing merge-commit policy defines the first-parent range.
+A stable self-signing identity is imported from repository secrets; release mode fails
+closed instead of silently changing to ad-hoc. This keeps the current unnotarized
+distribution policy. Revisit signing and install guidance together when Developer ID
+and notarization become available. See the release spec and publishing guide.

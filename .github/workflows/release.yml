@@ -1,0 +1,83 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate tag and reviewed release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin main --tags
+          scripts/check-release "$GITHUB_REF_NAME" --repository "$GITHUB_REPOSITORY"
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: scripts/test
+      - name: Import release signing identity
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.RELEASE_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.RELEASE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.RELEASE_SIGNING_IDENTITY }}
+        run: |
+          : "${CERTIFICATE_BASE64:?Set RELEASE_CERTIFICATE_BASE64}"
+          : "${P12_PASSWORD:?Set RELEASE_CERTIFICATE_PASSWORD}"
+          : "${SIGNING_IDENTITY:?Set RELEASE_SIGNING_IDENTITY}"
+          printf '%s' "$SIGNING_IDENTITY" | grep -Eq '^[0-9A-Fa-f]{40}$'
+          umask 077
+          keychain="$RUNNER_TEMP/slime-release.keychain-db"
+          certificate="$RUNNER_TEMP/slime-release.crt"
+          archive="$RUNNER_TEMP/slime-release.p12"
+          trap 'rm -f "$archive" "$certificate"' EXIT
+          password=$(openssl rand -hex 32)
+          echo "::add-mask::$password"
+          printf '%s' "$CERTIFICATE_BASE64" | /usr/bin/base64 --decode > "$archive"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$archive" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          /usr/bin/openssl pkcs12 -in "$archive" -nokeys -clcerts -passin env:P12_PASSWORD -out "$certificate"
+          security add-trusted-cert -p codeSign -k "$keychain" "$certificate"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -Fiq "$SIGNING_IDENTITY"
+      - name: Build and verify arm64 DMG
+        env:
+          SIGNING_IDENTITY: ${{ secrets.RELEASE_SIGNING_IDENTITY }}
+          REQUIRE_SIGNING: '1'
+        run: |
+          test "$(uname -m)" = arm64
+          scripts/package-dmg
+          scripts/check-release "$GITHUB_REF_NAME" --bundle build/slime.app/Contents/Info.plist
+      - name: Publish reviewed notes and assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          image="slime-$version-arm64.dmg"
+          (cd build && shasum -a 256 -c "$image.sha256")
+          gh release create "$GITHUB_REF_NAME" "build/$image" "build/$image.sha256" \
+            --verify-tag --title "slime $GITHUB_REF_NAME" \
+            --notes-file "docs/releases/$version.md"
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          keychain="$RUNNER_TEMP/slime-release.keychain-db"
+          if [ -f "$keychain" ]; then security delete-keychain "$keychain"; fi

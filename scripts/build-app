@@ -56,13 +56,17 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 
 # 自签证书的 hash 从 keychain 里找（setup-signing 建的 CN = slime Local Signing）。
-identity=$(security find-identity -v -p codesigning 2>/dev/null \
-  | sed -n 's/.*) \([0-9A-Fa-f]\{40\}\) "slime Local Signing".*/\1/p')
+identity=${SIGNING_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | sed -n 's/.*) \([0-9A-Fa-f]\{40\}\) "slime Local Signing".*/\1/p')}
 
 if [ -n "$identity" ]; then
   codesign --force --sign "$identity" "$APP"
   echo "✓ ${APP}（自签证书，辅助功能权限可扛 rebuild）"
 else
+  if [ "${REQUIRE_SIGNING:-0}" = 1 ]; then
+    echo "Release signing identity is required; refusing ad-hoc signing." >&2
+    exit 1
+  fi
   codesign --force --sign - "$APP"
   echo "⚠ ${APP}（ad-hoc 签名：每次 rebuild 都要去系统设置里重新勾一遍辅助功能权限）"
   echo "  一次性解决：scripts/setup-signing"

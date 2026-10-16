@@ -6,10 +6,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var panel: PanelController?
   private var eventTap: EventTap?
   private var statusItem: NSStatusItem?
-  private let settings = Settings()
+  private let settings: Settings
   private let updater = AppUpdater()
-  private lazy var settingsWindow = SettingsWindowController(updater: updater)
+  private lazy var settingsWindow = SettingsWindowController(settings: settings, updater: updater)
   private var lastEnabled = false
+
+  init(settings: Settings = Settings()) {
+    self.settings = settings
+    super.init()
+  }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     settingsWindow.onChange = { [weak self] in self?.settingsChanged() }
@@ -31,11 +36,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  private func enable() {
-    guard Permission.isAccessibilityTrusted else {
-      settings.isEnabled = false
-      settingsWindow.refresh()
-      Permission.promptAccessibility()
+  func enable(
+    isAccessibilityTrusted: () -> Bool = { Permission.isAccessibilityTrusted },
+    promptAccessibility: () -> Void = { Permission.promptAccessibility() }
+  ) {
+    guard isAccessibilityTrusted() else {
+      settingsWindow.hideForPermissionPrompt()
+      promptAccessibility()
       return
     }
     if let eventTap {
@@ -99,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func beginScreenRecordingOnboarding() {
     guard !Permission.hasScreenRecording else { return }
+    settingsWindow.hideForPermissionPrompt()
     let granted = Permission.requestScreenRecording()
     Self.alert(localized("Enable window previews", "开启窗口预览"),
       granted

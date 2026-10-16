@@ -97,3 +97,20 @@ alert. The final requested behavior is system-prompt-only: call
 forced navigation to System Settings. The user chooses in the macOS dialog; macOS
 controls repeat-prompt suppression. Verify this in the rebuilt isolated fixture
 before resuming permission continuity. No production permissions changed.
+
+### Permission dialog visibility and enabled startup
+
+Owner acceptance found that the floating Settings window could cover the system
+permission dialog. Both Accessibility and Screen Recording requests now hide an
+existing Settings window before invoking macOS; reopening Settings still works.
+A regression test fails without this behavior, including a delayed key-window
+notification. This avoids relying on the system dialog to transfer key status.
+
+Missing Accessibility previously persisted `enabled = false`. It now preserves the
+user's preference, so a fresh installation (enabled by default) requests access at
+launch and resumes startup after permission is granted and the app restarts.
+Explicit user opt-out still persists. The actual enable path is tested with denied
+permission across two simulated launches using isolated preferences. All 189 local
+tests pass; native visibility and upgrade permission continuity remain pending.
+The isolated fixture should now start enabled, replacing its earlier intentionally
+disabled setup. Production preferences and permissions remain untouched.

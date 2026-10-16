@@ -50,6 +50,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
   func refresh() { if window != nil { rebuild() } }
 
+  // System permission dialogs do not reliably make a floating window resign key.
+  func hideForPermissionPrompt() { window?.orderOut(nil) }
+
   func makeWindow() -> NSWindow {
     if let window { return window }
     let window = SettingsWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 510),

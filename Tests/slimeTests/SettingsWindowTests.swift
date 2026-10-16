@@ -316,3 +316,17 @@ func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool)
     .contains { $0.accessibilityLabel() == "Panel corners" })
 }
 
+@Test @MainActor func settingsCannotCoverASystemPermissionPromptWhileStillKey() {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  defer { window.orderOut(nil) }
+  window.orderFront(nil)
+  #expect(window.isVisible)
+  controller.hideForPermissionPrompt()
+  #expect(!window.isVisible)
+  controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+  #expect(!window.isVisible, "A delayed focus notification must not restore settings above the prompt")
+  controller.show()
+  #expect(window.isVisible, "The menu-bar Settings action must still reopen the window")
+}

@@ -2,6 +2,99 @@ import AppKit
 import Testing
 @testable import slime
 
+@Test @MainActor func commandWClosesSettingsFromEverySectionWithoutQuitting() throws {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  defer { window.orderOut(nil) }
+  for section in 0..<4 {
+    let button = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+      .first { $0.tag == section && $0.action == NSSelectorFromString("selectSection:") })
+    button.performClick(nil)
+    window.orderFront(nil)
+    let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+      modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
+      context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13))
+    #expect(window.performKeyEquivalent(with: event))
+    #expect(!window.isVisible)
+  }
+}
+
+@Test @MainActor func aboutFitsTheFullRoundedBannerAboveVersionAndLinks() throws {
+  _ = NSApplication.shared
+  let artwork = NSImage(size: NSSize(width: 2172, height: 724))
+  let controller = SettingsWindowController(banner: artwork)
+  let window = controller.makeWindow()
+  let about = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.tag == 3 && $0.action != nil })
+  about.performClick(nil)
+  window.contentView?.layoutSubtreeIfNeeded()
+  let banner = try #require(descendants(window.contentView!).compactMap { $0 as? NSImageView }.first)
+  #expect(banner.image === artwork)
+  #expect(banner.imageScaling == .scaleProportionallyUpOrDown)
+  #expect(banner.layer?.cornerRadius == 12)
+  #expect(banner.layer?.masksToBounds == true)
+  #expect(banner.accessibilityLabel() == "slime")
+  #expect(abs(banner.frame.width / banner.frame.height - 3) < 0.01)
+  #expect(window.contentView!.frame.width == 720, "Artwork must not expand the settings window")
+  #expect(banner.frame.width <= 490)
+  let labels = descendants(window.contentView!).compactMap { $0 as? NSTextField }.map(\.stringValue)
+  #expect(!labels.contains("slime"), "The banner already includes the name")
+  #expect(labels.contains { $0.hasPrefix("Version ") })
+}
+
+@Test @MainActor func aboutUpdateControlsReflectAvailabilityAndPersistOptIn() throws {
+  _ = NSApplication.shared
+  let (url, bundle) = try updateTestBundle()
+  defer {
+    UserDefaults.standard.removePersistentDomain(forName: bundle.bundleIdentifier!)
+    try? FileManager.default.removeItem(at: url)
+  }
+  let updater = AppUpdater(bundle: bundle)
+  updater.start()
+  let controller = SettingsWindowController(updater: updater)
+  let window = controller.makeWindow()
+  let about = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.tag == 3 && $0.action != nil })
+  about.performClick(nil)
+  let check = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.title == "Check for Updates…" })
+  #expect(check.isEnabled)
+  let automatic = try #require(descendants(window.contentView!).compactMap { $0 as? NSSwitch }
+    .first { $0.accessibilityLabel() == "Automatically check" })
+  #expect(automatic.state == .off)
+  automatic.state = .on
+  NSApp.sendAction(try #require(automatic.action), to: automatic.target, from: automatic)
+  #expect(updater.automaticallyChecksForUpdates)
+  automatic.state = .off
+  NSApp.sendAction(try #require(automatic.action), to: automatic.target, from: automatic)
+  #expect(!updater.automaticallyChecksForUpdates)
+  #expect(automatic.window === window, "Changing update preferences must not rebuild focused controls")
+}
+
+@Test @MainActor func unconfiguredBuildsExplainWhyUpdatesAreDisabled() throws {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  let about = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.tag == 3 && $0.action != nil })
+  about.performClick(nil)
+  let check = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.title == "Check for Updates…" })
+  #expect(!check.isEnabled)
+  #expect(descendants(window.contentView!).compactMap { $0 as? NSTextField }
+    .contains { $0.stringValue.contains("Updates are not configured") })
+}
+
+@Test @MainActor func settingsYieldsWindowLevelToUpdateDialogs() {
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: window))
+  #expect(window.level == .normal, "Sparkle dialogs must not sit behind floating settings")
+  controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+  #expect(window.level == .floating)
+}
+
 @Test @MainActor func settingsLanguageControlPersistsAndRebuildsTheWindow() throws {
   _ = NSApplication.shared
   let suite = "slime.settings-ui.\(UUID().uuidString)"
@@ -33,6 +126,7 @@ import Testing
   let controller = SettingsWindowController(settings: settings)
   var changes = 0
   controller.onChange = { changes += 1 }
+  controller.onEnabledChange = { changes += 1 }
   let window = controller.makeWindow()
   let switches = descendants(window.contentView!).compactMap { $0 as? NSSwitch }
   let enabled = try #require(switches.first { $0.accessibilityLabel() == "Enable slime" })
@@ -55,7 +149,7 @@ import Testing
   #expect(window.collectionBehavior.contains(.fullScreenAuxiliary))
 }
 
-@Test @MainActor func aboutContainsOnlyNameVersionAndRepository() throws {
+@Test @MainActor func aboutFallsBackToTheNameWhenArtworkIsMissing() throws {
   _ = NSApplication.shared
   let controller = SettingsWindowController()
   let window = controller.makeWindow()
@@ -63,7 +157,6 @@ import Testing
     .first { $0.tag == 3 && $0.action != nil })
   NSApp.sendAction(try #require(about.action), to: about.target, from: about)
   let labels = descendants(window.contentView!).compactMap { $0 as? NSTextField }.map(\.stringValue)
-  #expect(labels.count == 2, "Labels: \(labels)")
   #expect(labels.contains("slime"))
   #expect(!descendants(window.contentView!).contains { $0 is NSVisualEffectView })
 }
@@ -222,4 +315,52 @@ func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool)
   #expect(descendants(window.contentView!).contains { $0 is NSColorWell })
   #expect(descendants(window.contentView!).compactMap { $0 as? NSSlider }
     .contains { $0.accessibilityLabel() == "Panel corners" })
+}
+
+@Test @MainActor func settingsCannotCoverASystemPermissionPromptWhileStillKey() {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  defer { window.orderOut(nil) }
+  window.orderFront(nil)
+  #expect(window.isVisible)
+  controller.hideForPermissionPrompt()
+  #expect(!window.isVisible)
+  controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+  #expect(!window.isVisible, "A delayed focus notification must not restore settings above the prompt")
+  controller.show()
+  #expect(window.isVisible, "The menu-bar Settings action must still reopen the window")
+}
+
+@Test @MainActor func enableSwitchShowsRuntimeStateAndOnlyItsActionRequestsEnable() throws {
+  _ = NSApplication.shared
+  let suite = "slime.runtime-switch.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = SettingsWindowController(settings: settings)
+  var running = false
+  var enableRequests = 0
+  controller.isRunning = { running }
+  controller.onEnabledChange = { enableRequests += 1 }
+  let window = controller.makeWindow()
+  let enabled = try #require(descendants(window.contentView!).compactMap { $0 as? NSSwitch }
+    .first { $0.accessibilityLabel() == "Enable slime" })
+  #expect(settings.isEnabled)
+  #expect(enabled.state == .off)
+  enabled.state = .on
+  NSApp.sendAction(try #require(enabled.action), to: enabled.target, from: enabled)
+  #expect(enableRequests == 1)
+  #expect(enabled.state == .off, "Denied authorization must not leave the switch on")
+  #expect(settings.isEnabled, "Retain startup intent for the next launch")
+  let group = try #require(descendants(window.contentView!).compactMap { $0 as? NSSwitch }
+    .first { $0.accessibilityLabel() == "Group windows by app" })
+  group.state = .on
+  NSApp.sendAction(try #require(group.action), to: group.target, from: group)
+  #expect(enableRequests == 1, "Unrelated settings must not request authorization again")
+  running = true
+  controller.refresh()
+  let refreshed = try #require(descendants(window.contentView!).compactMap { $0 as? NSSwitch }
+    .first { $0.accessibilityLabel() == "Enable slime" })
+  #expect(refreshed.state == .on)
 }

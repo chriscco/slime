@@ -139,6 +139,11 @@ class SigningPolicy(unittest.TestCase):
             root = Path(folder)
             (root / 'scripts').mkdir()
             (root / 'Resources').mkdir()
+            (root / 'docs/assets').mkdir(parents=True)
+            (root / 'docs/assets/slime-banner.png').write_bytes(b'fixture')
+            (root / 'scripts/sign-updates').write_text(SCRIPT.with_name('sign-updates').read_text())
+            (root / '.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework').mkdir(parents=True)
+            (root / '.build/artifacts/sparkle/Sparkle/LICENSE').write_bytes(b'Sparkle license fixture')
             (root / 'Resources/slime.icns').write_bytes(b'fixture')
             script = root / 'scripts/build-app'
             script.write_text(build_script)
@@ -154,7 +159,8 @@ class SigningPolicy(unittest.TestCase):
                 path.chmod(0o755)
             env = {**os.environ, 'PATH': f'{commands}:/usr/bin:/bin',
                    'SIGN_LOG': str(root / 'sign.log'), 'CONFIG': 'debug',
-                   'SIGNING_IDENTITY': '', 'REQUIRE_SIGNING': '1'}
+                   'SIGNING_IDENTITY': '', 'REQUIRE_SIGNING': '1',
+                   'SPARKLE_PUBLIC_KEY': '', 'REQUIRE_UPDATES': '0'}
             result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('refusing ad-hoc', result.stderr)
@@ -163,6 +169,24 @@ class SigningPolicy(unittest.TestCase):
             result = subprocess.run(['sh', str(script)], env=env, capture_output=True)
             self.assertEqual(result.returncode, 0)
             self.assertIn('--sign ' + 'A' * 40, (root / 'sign.log').read_text())
+            self.assertEqual((root / 'build/slime.app/Contents/Resources/Sparkle-LICENSE.txt').read_bytes(),
+                             b'Sparkle license fixture')
+            info = plistlib.loads((root / 'build/slime.app/Contents/Info.plist').read_bytes())
+            self.assertNotIn('SUFeedURL', info)
+            self.assertNotIn('SUPublicEDKey', info)
+            for key in ('SUEnableAutomaticChecks', 'SUAutomaticallyUpdate', 'SUAllowsAutomaticUpdates', 'SUSendProfileInfo'):
+                self.assertFalse(info[key])
+            env['REQUIRE_UPDATES'] = '1'
+            result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('SPARKLE_PUBLIC_KEY is required', result.stderr)
+            env['SPARKLE_PUBLIC_KEY'] = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+            result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            info = plistlib.loads((root / 'build/slime.app/Contents/Info.plist').read_bytes())
+            self.assertEqual(info['SUPublicEDKey'], env['SPARKLE_PUBLIC_KEY'])
+            self.assertTrue(info['SURequireSignedFeed'])
+            self.assertTrue(info['SUVerifyUpdateBeforeExtraction'])
             env['SIGN_RESULT'] = '1'
             result = subprocess.run(['sh', str(script)], env=env, capture_output=True)
             self.assertNotEqual(result.returncode, 0)

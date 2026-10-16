@@ -17,7 +17,7 @@ Disabling immediately dismisses the panel and calls `configure(false)`, releasin
 
 ## Settings
 
-A 720×510 pt AppKit window contains flat General, Appearance, Shortcuts, and About sections. The sidebar uses solid surfaces and borderless navigation. The body scrolls, keeping appearance controls reachable beneath a two-column theme preview grid. Preview buttons draw static opaque schematics, expose native radio-button state, and remain alive when selection changes so keyboard focus is retained. The floating window moves to the active Space, supports full-screen auxiliary presentation, and explicitly orders itself frontmost. About contains only slime, the bundle version, and the repository link.
+A 720×510 pt AppKit window contains flat General, Appearance, Shortcuts, and About sections. The sidebar uses solid surfaces and borderless navigation. The body scrolls, keeping appearance controls reachable beneath a two-column theme preview grid. Preview buttons draw static opaque schematics, expose native radio-button state, and remain alive when selection changes so keyboard focus is retained. The window moves to the active Space, supports full-screen auxiliary presentation, and explicitly orders itself frontmost. It floats while key and returns to normal level when resigning key so Sparkle dialogs can appear above it. About shows the bundled 3:1 banner with 12 pt clipped corners, the bundle version, repository link, and update controls. Missing artwork falls back to the name. A settings-local Command-W handler calls `performClose`, preserving other windows' shortcuts.
 
 Settings accepts isolated UserDefaults for tests. English is the default. Existing glass preferences remain; default panel corner radius is 20 pt. In 0.0.6 the sole existing user's saved accent resets once to sRGB #96D76A; later customization persists. The settings selection and panel share the configured accent.
 
@@ -40,3 +40,26 @@ constructs NSGlassEffectView; Solid removes that host and uses an opaque content
 Changing materials preserves search, selection, focus, color, radius, and glass values.
 The shared Appearance page offers the selector on 26+ and a static explanation on 15;
 style/strength rows exist only for effective Glass. No capture or enumeration is triggered.
+
+## Signed updates (0.0.8)
+
+`AppDelegate` owns one main-actor `AppUpdater` and starts it at launch. The adapter
+constructs `SPUUpdater` with `SPUStandardUserDriver` only when bundle metadata contains
+an HTTPS feed and a 32-byte Ed25519 public key. Calling `start()` explicitly lets startup
+errors become a localized unavailable state in settings. Sparkle owns its schedule,
+download validation, installation, and relaunch; none of this runs on the event tap.
+
+Settings yields its floating level when it resigns key status so update dialogs stay visible;
+becoming key restores its foreground level. Settings receives the adapter, observes its
+check/preference changes, and refreshes the
+existing controls in place. Check availability prevents overlapping requests. Automatic
+checks opt in through Sparkle's own persisted preference; no duplicate settings key or
+timer is maintained. Bundle policy disables automatic downloads/installations and profile
+submission. Standard Sparkle UI asks users to download and install/relaunch.
+
+Packaging embeds/signs Sparkle's framework and nested helpers, copies the About banner,
+and requires signed feeds plus archive verification before extraction. Local builds can
+omit the public key and remain unavailable for updates; tagged release builds fail closed.
+The release pipeline signs and verifies the DMG and appcast before publishing them with
+the checksum and reviewed notes. See [publishing setup](../../releases/README.md) for key
+ownership and [validation](../../releases/0.0.8-updates-validation.md) for tested boundaries.

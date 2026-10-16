@@ -29,8 +29,8 @@ jobs:
         run: |
           git fetch origin main --tags
           scripts/check-release "$GITHUB_REF_NAME" --repository "$GITHUB_REPOSITORY"
-      - run: python3 -m unittest discover -s scripts/tests
       - run: scripts/test
+      - run: python3 -m unittest discover -s scripts/tests
       - name: Import release signing identity
         timeout-minutes: 2
         env:
@@ -42,10 +42,17 @@ jobs:
         env:
           SIGNING_IDENTITY: ${{ secrets.RELEASE_SIGNING_IDENTITY }}
           REQUIRE_SIGNING: '1'
+          REQUIRE_UPDATES: '1'
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           test "$(uname -m)" = arm64
           scripts/package-dmg
           scripts/check-release "$GITHUB_REF_NAME" --bundle build/slime.app/Contents/Info.plist
+      - name: Sign and verify update archive and appcast
+        env:
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: scripts/sign-updates "$GITHUB_REF_NAME"
       - name: Publish reviewed notes and assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,7 +60,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           image="slime-$version-arm64.dmg"
           (cd build && shasum -a 256 -c "$image.sha256")
-          gh release create "$GITHUB_REF_NAME" "build/$image" "build/$image.sha256" \
+          gh release create "$GITHUB_REF_NAME" "build/$image" "build/$image.sha256" build/appcast.xml \
             --verify-tag --title "slime $GITHUB_REF_NAME" \
             --notes-file "docs/releases/$version.md"
       - name: Remove temporary signing keychain

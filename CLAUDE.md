@@ -18,7 +18,7 @@ Before writing code, climb this ladder and **stop at the first viable step**:
 2. Does it already exist in the repository? Search before writing. Duplicating an implementation a few files away is a common source of waste.
 3. Can the standard library or language built-ins do it?
 4. **Does the platform already provide it?** Use AppKit and system APIs where they cover the need.
-5. Can an installed dependency solve it? **This project has zero third-party dependencies**; adding one requires a separate justification.
+5. Can an installed dependency solve it? **Sparkle is the sole third-party runtime dependency**, scoped to updates; additional dependencies require a separate justification.
 6. Can it be one line?
 7. Only when none of the above works, write the smallest viable implementation.
 
@@ -266,6 +266,7 @@ scripts/      build-app, test, hooks/
 App/      →  UI, System, Core
 UI/       →  System, Core
 System/   →  Core, AppKit, CoreGraphics, ApplicationServices, ScreenCaptureKit
+             Sparkle only in AppUpdater (signed update delivery)
 Core/     →  Foundation, standard library
              ✗ AppKit, CoreGraphics, ApplicationServices, ScreenCaptureKit are forbidden
 ```

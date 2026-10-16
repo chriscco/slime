@@ -13,11 +13,14 @@ enum Permission {
   /// 当前进程是否已取得辅助功能权限。
   static var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
-  /// 弹系统对话框引导用户去授权（对话框带「打开系统设置」）。
-  static func promptAccessibility() {
+  /// Let macOS offer Deny / Open System Settings without opening Settings ourselves.
+  @MainActor
+  static func promptAccessibility(
+    request: (CFDictionary) -> Bool = { AXIsProcessTrustedWithOptions($0) }
+  ) {
     let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
       as CFDictionary
-    _ = AXIsProcessTrustedWithOptions(options)
+    _ = request(options)
   }
 
   /// 引导之后轮询等用户授权。授权成功（或超时）调 `completion`，回主线程。

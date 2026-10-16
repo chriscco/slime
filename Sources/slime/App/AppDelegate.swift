@@ -6,19 +6,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var panel: PanelController?
   private var eventTap: EventTap?
   private var statusItem: NSStatusItem?
-  private let settings = Settings()
-  private let settingsWindow = SettingsWindowController()
+  private let settings: Settings
+  private let updater = AppUpdater()
+  private lazy var settingsWindow: SettingsWindowController = {
+    let controller = SettingsWindowController(settings: settings, updater: updater)
+    controller.isRunning = { [weak self] in self?.lastEnabled ?? false }
+    controller.onChange = { [weak self] in self?.settingsChanged() }
+    controller.onEnabledChange = { [weak self] in self?.enabledChanged() }
+    return controller
+  }()
   private var lastEnabled = false
 
+  init(settings: Settings = Settings()) {
+    self.settings = settings
+    super.init()
+  }
+
   func applicationDidFinishLaunching(_ notification: Notification) {
-    settingsWindow.onChange = { [weak self] in self?.settingsChanged() }
     installStatusItem()
+    updater.start()
     if settings.isEnabled { enable() }
   }
 
   private func settingsChanged() {
     panel?.refreshAppearance()
     installStatusItem()
+  }
+
+  private func enabledChanged() {
     guard settings.isEnabled != lastEnabled else { return }
     if settings.isEnabled {
       enable()
@@ -29,14 +44,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  private func enable() {
-    guard Permission.isAccessibilityTrusted else {
-      settings.isEnabled = false
-      settingsWindow.refresh()
-      Permission.promptAccessibility()
-      Self.alert(localized("Accessibility access required", "需要辅助功能权限"),
-        localized("Enable slime in System Settings → Privacy & Security → Accessibility, then restart slime.",
-          "请在系统设置 → 隐私与安全性 → 辅助功能中开启 slime，然后重启 slime。"))
+  func enable(
+    isAccessibilityTrusted: () -> Bool = { Permission.isAccessibilityTrusted },
+    promptAccessibility: () -> Void = { Permission.promptAccessibility() }
+  ) {
+    guard isAccessibilityTrusted() else {
+      settingsWindow.hideForPermissionPrompt()
+      promptAccessibility()
       return
     }
     if let eventTap {
@@ -100,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func beginScreenRecordingOnboarding() {
     guard !Permission.hasScreenRecording else { return }
+    settingsWindow.hideForPermissionPrompt()
     let granted = Permission.requestScreenRecording()
     Self.alert(localized("Enable window previews", "开启窗口预览"),
       granted

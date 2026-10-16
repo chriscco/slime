@@ -4,9 +4,15 @@ import ServiceManagement
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
   var onChange: (() -> Void)?
+  var onEnabledChange: (() -> Void)?
+  var isRunning: (() -> Bool)?
   private let settings: Settings
   private let supportsGlass: Bool
   private var materialControl: NSSegmentedControl?
+  private let banner: NSImage?
+  private let updater: AppUpdater?
+  private var updateButton: NSButton?
+  private var automaticUpdateSwitch: NSSwitch?
   private var window: NSWindow?
   private var section = 0
   private let content = NSView()
@@ -20,10 +26,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private var loginStatus: NSTextField?
   private var loginBusy = false
 
-  init(settings: Settings = Settings(), supportsGlass: Bool = Settings.supportsGlass) {
+  init(settings: Settings = Settings(), supportsGlass: Bool = Settings.supportsGlass,
+       banner: NSImage? = Bundle.main.url(forResource: "slime-banner", withExtension: "png").flatMap(NSImage.init(contentsOf:)),
+       updater: AppUpdater? = nil) {
     self.settings = settings
     self.supportsGlass = supportsGlass
+    self.banner = banner
+    self.updater = updater
     super.init()
+    updater?.onChange = { [weak self] in self?.syncUpdateControls() }
     for value in [strengthValue, radiusValue] {
       value.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
       value.alignment = .right
@@ -41,9 +52,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
   func refresh() { if window != nil { rebuild() } }
 
+  // System permission dialogs do not reliably make a floating window resign key.
+  func hideForPermissionPrompt() { window?.orderOut(nil) }
+
   func makeWindow() -> NSWindow {
     if let window { return window }
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 510),
+    let window = SettingsWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 510),
       styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
     self.window = window
     window.isReleasedWhenClosed = false
@@ -96,7 +110,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     return window
   }
 
-  func windowDidBecomeKey(_ notification: Notification) { syncLoginStatus() }
+  func windowDidBecomeKey(_ notification: Notification) {
+    window?.level = .floating
+    syncLoginStatus(); syncUpdateControls()
+  }
+
+  func windowDidResignKey(_ notification: Notification) { window?.level = .normal }
 
   private func text(_ english: String, _ chinese: String) -> String { settings.text(english, chinese) }
 
@@ -106,6 +125,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
     }
     loginSwitch = nil; loginStatus = nil
+    updateButton = nil; automaticUpdateSwitch = nil
     backgroundButtons = []
     materialControl = nil
     let names = [text("General", "通用"), text("Appearance", "外观"),
@@ -155,7 +175,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private func general() {
     row(text("Enable slime", "启用 slime"), detail: text(
       "Turn off to use the system window switcher.", "关闭后使用系统原生切换器。"),
-      control: toggle(settings.isEnabled, action: #selector(enabledChanged(_:))))
+      control: toggle(isRunning?() ?? settings.isEnabled, action: #selector(enabledChanged(_:))))
     row(text("Group windows by app", "按应用分组"), detail: text(
       "Give each app its own section.", "每个应用单独一组，另起一行。"),
       control: toggle(settings.groupByApp, action: #selector(groupChanged(_:))))
@@ -266,9 +286,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   }
 
   private func about() {
-    let name = label("slime", size: 36, weight: .semibold)
-    body.addArrangedSubview(name)
-    body.setCustomSpacing(10, after: name)
+    if let banner {
+      let artwork = NSImageView()
+      artwork.image = banner
+      artwork.imageScaling = .scaleProportionallyUpOrDown
+      artwork.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      artwork.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+      artwork.wantsLayer = true
+      artwork.layer?.cornerRadius = 12
+      artwork.layer?.masksToBounds = true
+      artwork.setAccessibilityLabel("slime")
+      body.addArrangedSubview(artwork)
+      artwork.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+      artwork.heightAnchor.constraint(equalTo: artwork.widthAnchor, multiplier: 1.0 / 3).isActive = true
+      body.setCustomSpacing(20, after: artwork)
+    } else {
+      let name = label("slime", size: 36, weight: .semibold)
+      body.addArrangedSubview(name)
+      body.setCustomSpacing(10, after: name)
+    }
     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
       ?? text("Development", "开发版")
     let versionLabel = label(text("Version ", "版本 ") + version, size: 13, secondary: true)
@@ -277,7 +313,45 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let github = NSButton(title: text("View on GitHub ↗", "在 GitHub 查看 ↗"), target: self, action: #selector(openGitHub))
     github.isBordered = false
     github.contentTintColor = .linkColor
-    body.addArrangedSubview(github)
+    let check = NSButton(title: text("Check for Updates…", "检查更新…"),
+      target: self, action: #selector(checkForUpdates))
+    check.bezelStyle = .rounded
+    updateButton = check
+    let actions = NSStackView(views: [github, check])
+    actions.orientation = .horizontal
+    actions.spacing = 16
+    body.addArrangedSubview(actions)
+    body.setCustomSpacing(16, after: actions)
+    let automatic = toggle(updater?.automaticallyChecksForUpdates == true,
+      action: #selector(automaticUpdatesChanged(_:)))
+    automaticUpdateSwitch = automatic
+    row(text("Automatically check", "自动检查更新"),
+      detail: text("Installation always asks first.", "安装前始终需要确认。"), control: automatic)
+    if updater?.isAvailable != true {
+      let message = updater?.errorMessage == nil
+        ? text("Updates are not configured in this build. Check GitHub for releases.",
+            "此构建未配置应用内更新，请前往 GitHub 获取新版。")
+        : text("Updates could not start. Check GitHub for releases.",
+            "无法启动更新，请前往 GitHub 获取新版。")
+      let notice = NSTextField(wrappingLabelWithString: message)
+      notice.font = .systemFont(ofSize: 11)
+      notice.textColor = .secondaryLabelColor
+      body.addArrangedSubview(notice)
+      notice.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+    }
+    syncUpdateControls()
+  }
+
+  private func syncUpdateControls() {
+    updateButton?.isEnabled = updater?.canCheckForUpdates == true
+    automaticUpdateSwitch?.isEnabled = updater?.isAvailable == true
+    automaticUpdateSwitch?.state = updater?.automaticallyChecksForUpdates == true ? .on : .off
+  }
+
+  @objc private func checkForUpdates() { updater?.checkForUpdates() }
+  @objc private func automaticUpdatesChanged(_ sender: NSSwitch) {
+    updater?.automaticallyChecksForUpdates = sender.state == .on
+    syncUpdateControls()
   }
 
   private func label(_ text: String, size: CGFloat = 13, weight: NSFont.Weight = .regular,
@@ -366,7 +440,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
     onChange?()
   }
-  @objc private func enabledChanged(_ sender: NSSwitch) { settings.isEnabled = sender.state == .on; onChange?() }
+  @objc private func enabledChanged(_ sender: NSSwitch) {
+    settings.isEnabled = sender.state == .on
+    onEnabledChange?()
+    sender.state = (isRunning?() ?? settings.isEnabled) ? .on : .off
+  }
   @objc private func groupChanged(_ sender: NSSwitch) { settings.groupByApp = sender.state == .on; onChange?() }
   @objc private func languageChanged(_ sender: NSPopUpButton) {
     settings.language = sender.indexOfSelectedItem == 1 ? .chinese : .english
@@ -438,5 +516,18 @@ private final class SettingsBackdropView: NSView {
   override func viewDidChangeEffectiveAppearance() {
     super.viewDidChangeEffectiveAppearance()
     needsDisplay = true
+  }
+}
+
+/// This shortcut belongs to settings, never to the system-wide event tap.
+private final class SettingsWindow: NSWindow {
+  override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+    if event.type == .keyDown, modifiers == .command,
+       event.charactersIgnoringModifiers?.lowercased() == "w" {
+      performClose(nil)
+      return true
+    }
+    return super.performKeyEquivalent(with: event)
   }
 }

@@ -80,6 +80,59 @@ signed executable; it never reads production signing secrets.
 This does not add Developer ID signing or notarization. If that distribution policy
 changes, update signing and the installation text together.
 
+## One-time Sparkle update signing setup
+
+Sparkle **2.10.0** is pinned in SwiftPM, including the distribution checksum and its
+`generate_keys`, `generate_appcast`, and `sign_update` tools. Update signing is separate
+from the existing code-signing certificate. Keep the three `RELEASE_*` secrets above.
+The owner must configure these additional Actions values before an updater-enabled release:
+
+| Type | Name | Value |
+|---|---|---|
+| Repository variable | `SPARKLE_PUBLIC_KEY` | Base64 Ed25519 public key printed by Sparkle. |
+| Repository secret | `SPARKLE_PRIVATE_KEY` | Contents of Sparkle's exported private key file. |
+
+After `swift package resolve`, the owner can run the pinned tool once on a trusted Mac:
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys --account slime
+```
+
+Record its public key as the repository variable. Export the matching key using
+`generate_keys --account slime -x <protected-private-key-file>`, from a directory only
+the owner can read (`umask 077`). Upload the file through GitHub Actions secret settings
+or `gh secret set SPARKLE_PRIVATE_KEY < /secure/path/slime-update-private-key`. Keep a secure
+offline backup and remove the temporary export. Never paste the private key into a
+command argument, issue, PR, or log. Key creation/export is an owner setup action;
+packaging and CI do not generate or replace production keys.
+
+`scripts/sign-updates vX.Y.Z` reads the private key from the environment, removes it
+from child environments, and passes it to official Sparkle tools through stdin. It
+uses a fresh temporary directory, embeds the reviewed English notes, checks the bundle
+version, minimum macOS version, arm64 requirement, immutable HTTPS archive URL and size,
+then verifies both archive and feed signatures. The generator only signs an archive
+when its bundled public key matches the supplied private key. Missing or mismatched
+keys stop publication. The temporary directory is removed on success or failure.
+
+Local builds can omit `SPARKLE_PUBLIC_KEY`; they embed Sparkle but have no feed/key,
+and settings reports updates unavailable. Local release configuration works the same
+way. CI sets `REQUIRE_UPDATES=1` and requires a valid public key; feed generation also
+requires the private key. Automatic checks and downloads default off, profiling is
+disabled, and both signed feeds and archive verification before extraction are required.
+
+The stable feed is
+`https://github.com/chriscco/slime/releases/latest/download/appcast.xml`; each enclosure
+uses its immutable `/releases/download/vX.Y.Z/slime-X.Y.Z-arm64.dmg` URL. Feed and archive
+are authenticated independently with Ed25519. Keep all future stable releases on this
+pipeline, since publishing a newer release without `appcast.xml` would break the latest
+feed endpoint. GitHub's initial 404 before the first updater release is expected.
+Version 0.0.7 has no updater, so the first updater-enabled release must be installed
+manually. Signing does not add notarization or eliminate macOS opening prompts.
+
+References: [Sparkle integration and signing](https://sparkle-project.org/documentation/),
+[pinned appcast key matching](https://github.com/sparkle-project/Sparkle/blob/2.10.0/generate_appcast/Appcast.swift),
+[pinned signing tool](https://github.com/sparkle-project/Sparkle/blob/2.10.0/sign_update/main.swift).
+
 ## Publish
 
 From a clean, up-to-date `main`, after owner acceptance:
@@ -98,7 +151,8 @@ only tag actual releases. The existing merge-commit PR policy is required.
 
 The workflow checks main ancestry and notes, runs release-script and Swift tests,
 imports the signing identity, builds and inspects the DMG using `scripts/package-dmg`,
-checks bundle/tag version equality, then uploads DMG + SHA-256 and publishes the notes.
+checks bundle/tag version equality, signs/verifies the archive and appcast, then uploads
+DMG + SHA-256 + appcast in the same `gh release create` call and publishes the notes.
 Missing secrets, missing/incorrect PR entries, API failures, and version mismatch stop
 publication. PR workflows run checks without access to release signing secrets.
 
@@ -107,7 +161,8 @@ publication. PR workflows run checks without access to release signing secrets.
 - For transient service errors or missing secrets, fix the configuration and rerun
   the failed workflow. Do not move an existing version tag.
 - `gh release create` uploads assets before publishing. A failed upload may leave a
-  draft: inspect and remove that unpublished draft manually before retrying. Existing
+  draft: the previous published latest feed remains in place. Inspect and remove that
+  unpublished draft manually before retrying. Existing
   releases/assets are never overwritten automatically.
 - Rerunning an existing tag's failed run uses that tag's original workflow, not a
   subsequently fixed workflow from `main`. A signing-workflow fix therefore cannot

@@ -9,8 +9,6 @@
 A macOS window switcher with two things the system's own switcher doesn't do:
 **type-to-search** and **two trigger gestures**.
 
-> **Development: 0.0.7.** Selectable panel themes and a branded search toolbar. The latest published DMG is still 0.0.6.
-
 ## Installation
 
 ### Download the DMG

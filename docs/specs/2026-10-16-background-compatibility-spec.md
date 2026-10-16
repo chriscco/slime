@@ -1,7 +1,7 @@
 # Background materials and experimental macOS 15 support
 
 - Status: Design confirmed in conversation; written spec for review.
-- Spec issue: [#77](https://github.com/chriscco/slime/issues/77).
+- Issue: [#77](https://github.com/chriscco/slime/issues/77).
 - Target: 0.0.8. This document does not implement compatibility or claim native validation.
 
 ## Goal
@@ -21,7 +21,7 @@ if it lands later, #76 must adopt the new deployment minimum before merging.
 No virtual machine installation, macOS 14 support, Intel/universal distribution,
 new capture API, blur fallback, or updater redesign is included. macOS 14 is deferred
 because sustained runtime testing is unavailable; API availability alone is insufficient.
-Spec-focused PRs do not add release notes. The implementation PR adds one entry to
+This spec and its implementation belong in the same PR, which adds one entry to
 `docs/releases/0.0.8.md` and updates the app design, decisions, and handoff documents.
 
 ## Appearance and preferences
@@ -131,3 +131,8 @@ macOS 15 is the initial older-system target; GitHub has announced retirement of 
 
 - [Apple NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)
 - [GitHub macOS 14 runner retirement](https://github.com/actions/runner-images/issues/13518)
+
+## Revision log
+
+- 2026-10-16 — Keep this single-scope spec and its implementation together in PR #78.
+  Separate spec PRs are reserved for shared designs spanning multiple implementation PRs.

@@ -159,6 +159,11 @@ Other documentation must also pass KISS/YAGNI. Use these thresholds:
 
 Small changes need no spec; open a PR directly. Templates are in `docs/templates/`.
 
+**Spec delivery:** include a spec in its implementation PR when it describes one
+implementation scope. Open a separate spec PR only when the spec coordinates multiple
+features that will be implemented in separate PRs. Review and implement a single-scope
+spec on the same branch; a separate spec merge is not a prerequisite.
+
 **Existing project tradeoffs worth recording in `decision.md`** when documenting the
 relevant module: Swift over Rust; a pure-function trigger state machine; no thumbnails
 in 0.0.1; cached snapshots instead of incremental AXObserver updates; public

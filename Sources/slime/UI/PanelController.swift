@@ -74,16 +74,22 @@ final class PanelController {
     rerank(following: rows.indices.contains(selection) ? rows[selection].windowID : nil)
   }
 
+  func refreshAppearance() {
+    panel.content.accentColor = settings.highlightColor
+    panel.applyGlassSettings(settings)
+    if panel.content.gridView.highlightColor != settings.highlightColor {
+      panel.content.gridView.highlightColor = settings.highlightColor
+    }
+  }
+
   private func show() {
     closeRequest?.cancel()
     session += 1
     closing = false
     query = ""; selection = 0
     panel.content.showStatus(nil)
-    panel.content.accentColor = settings.highlightColor
     panel.content.setSearchFocused(false)
-    panel.applyGlassSettings(settings)
-    panel.content.gridView.highlightColor = settings.highlightColor
+    refreshAppearance()
     rerank(following: nil)
     let generation = session
     var presented = false

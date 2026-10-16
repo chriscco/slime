@@ -28,7 +28,7 @@ import Testing
 
   let settings = Settings(defaults: defaults)
   #expect(settings.glassStyle == .regular)
-  #expect(settings.glassStrength == Settings.defaultGlassStrength)
+  #expect(settings.glassStrength == 0.13)
   #expect(settings.highlightColor == Settings.defaultHighlightColor)
   #expect(settings.glassCornerRadius == 20)
 }
@@ -81,4 +81,36 @@ import Testing
   #expect(reloaded.text("Settings", "设置") == "设置")
   defaults.set("unsupported", forKey: "language")
   #expect(settings.language == .english)
+}
+
+@Test func panelBackgroundPersistsAndUnknownValuesPreserveOtherSettings() throws {
+  let suite = "slime.theme-settings.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  #expect(settings.panelBackground == .black)
+  settings.glassStrength = 0.6
+  settings.highlightColor = .purple
+  for value in Settings.PanelBackground.allCases {
+    settings.panelBackground = value
+    #expect(Settings(defaults: defaults).panelBackground == value)
+  }
+  defaults.set("future-theme", forKey: "panel.background")
+  #expect(settings.panelBackground == .black)
+  #expect(settings.glassStrength == 0.6)
+  #expect(settings.highlightColor == .purple)
+}
+
+@Test func panelBackgroundResolvesFixedAndSystemPalettes() throws {
+  for dark in [false, true] {
+    #expect(Settings.PanelBackground.black.isDark(systemIsDark: dark))
+    #expect(!Settings.PanelBackground.white.isDark(systemIsDark: dark))
+    #expect(Settings.PanelBackground.deepBlue.isDark(systemIsDark: dark))
+    #expect(Settings.PanelBackground.system.isDark(systemIsDark: dark) == dark)
+    #expect(Settings.PanelBackground.system.baseColor(systemIsDark: dark) == (dark ? NSColor.black : NSColor.white))
+    let blue = try #require(Settings.PanelBackground.deepBlue.baseColor(systemIsDark: dark).usingColorSpace(.sRGB))
+    #expect(abs(blue.redComponent * 255 - 10) < 0.001)
+    #expect(abs(blue.greenComponent * 255 - 44) < 0.001)
+    #expect(abs(blue.blueComponent * 255 - 55) < 0.001)
+  }
 }

@@ -165,6 +165,7 @@ final class CardGridView: NSView {
 }
 
 final class CardView: NSView {
+  static let previewInset: CGFloat = 8
   let preview = WindowPreviewView()
   private let label = NSTextField(labelWithString: "")
   private var thumbnail: CGImage?
@@ -228,7 +229,8 @@ final class CardView: NSView {
 
   override func layout() {
     super.layout()
-    preview.frame = NSRect(x: 8, y: 8, width: max(0, bounds.width - 16),
+    preview.frame = NSRect(x: Self.previewInset, y: 8,
+      width: max(0, bounds.width - 2 * Self.previewInset),
       height: max(0, bounds.height - 45))
     label.frame = NSRect(x: 6, y: bounds.height - 30,
       width: max(0, bounds.width - 12), height: 17)

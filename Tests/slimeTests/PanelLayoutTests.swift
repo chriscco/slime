@@ -113,12 +113,11 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   }
 }
 
-// 搜索行：空查询显示占位提示（次要色、不抢视觉），有查询显示查询文本（主色）。
-// 无框 pill / 放大镜的观感走人工验收，这里只钉住文本语义。
+// Both placeholder and query use readable semantic text in either appearance.
 @Test @MainActor func searchRowShowsPlaceholderOnlyWhenTheQueryIsEmpty() {
   let content = PanelContentView()
   #expect(content.searchLabel.stringValue == PanelContentView.searchPlaceholder)
-  #expect(content.searchLabel.textColor == .secondaryLabelColor)
+  #expect(content.searchLabel.textColor == .labelColor)
 
   content.setSearchText("chr")
   #expect(content.searchLabel.stringValue == "chr")
@@ -433,4 +432,119 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   content.setSearchText(placeholder)
   #expect(content.searchBox.accessibilityValue() as? String == placeholder)
   #expect(content.searchLabel.textColor == .labelColor)
+}
+
+@Test @MainActor func savedWhiteBackgroundChangesThePanelAppearance() throws {
+  _ = NSApplication.shared
+  let suite = "slime.theme.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  defaults.set("white", forKey: "panel.background")
+  let panel = PanelWindow()
+  panel.applyGlassSettings(Settings(defaults: defaults))
+  #expect(panel.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
+  #expect(panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.87).cgColor)
+}
+
+@Test(arguments: [320.0, 600.0, 1088.0]) @MainActor
+func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: width, height: 300)
+  content.layoutSubtreeIfNeeded()
+  let hint = try #require(content.searchBox.subviews.compactMap { $0 as? NSTextField }
+    .first { $0.stringValue == "⌘F" })
+  #expect(!hint.isHidden)
+  #expect(content.searchIcon.superview === content)
+  #expect(content.searchIcon.frame.width == 32)
+  #expect(content.searchIcon.frame.maxX + 10 == content.searchBox.frame.minX)
+  content.setSearchFocused(true)
+  #expect(hint.isHidden)
+  content.setSearchFocused(false)
+  #expect(!hint.isHidden)
+  content.showStatus("Close failed")
+  content.layoutSubtreeIfNeeded()
+  #expect(hint.isHidden)
+  content.showStatus(nil)
+  content.layoutSubtreeIfNeeded()
+  #expect(!hint.isHidden)
+  content.setSearchText(String(repeating: "wide query ", count: 30))
+  content.layoutSubtreeIfNeeded()
+  let clip = try #require(content.searchLabel.superview)
+  #expect(clip.frame.maxX < hint.frame.minX)
+  #expect(content.searchCaret.frame.maxX <= clip.bounds.width)
+}
+
+@Test @MainActor func systemAppearanceRefreshKeepsTheQueryFocusAndSelection() throws {
+  _ = NSApplication.shared
+  let suite = "slime.live-theme.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  settings.panelBackground = .system
+  let controller = PanelController(settings: settings)
+  controller.handle(state: .lingering(query: "", selection: 0), effects: [])
+  controller.setWindows([window("App", "Alpha", id: 301), window("App", "Beta", id: 302)])
+  controller.handle(state: .lingering(query: "a", selection: 0), effects: [.appendQuery("a")])
+  controller.refreshAppearance()
+  #expect(controller.panel.appearance == nil)
+  let content = controller.panel.content
+  let selection = controller.selection
+  let originalAppearance = NSApp.appearance
+  defer { NSApp.appearance = originalAppearance }
+  NSApp.appearance = NSAppearance(named: .aqua)
+  content.layoutSubtreeIfNeeded()
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.87).cgColor)
+  #expect(content.searchFocused)
+  #expect(content.searchLabel.stringValue == "a")
+  #expect(controller.selection == selection)
+  NSApp.appearance = NSAppearance(named: .darkAqua)
+  content.layoutSubtreeIfNeeded()
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.black.withAlphaComponent(0.87).cgColor)
+  settings.panelBackground = .white
+  controller.refreshAppearance()
+  #expect(controller.panel.appearance?.name == .aqua)
+  #expect(content.searchFocused)
+  #expect(content.searchLabel.stringValue == "a")
+  controller.dismiss()
+}
+
+@Test @MainActor func searchHeaderAlignsRoundedLogoAndUsesThemeAwareTextWithoutHintFill() throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 1088, height: 300)
+  content.render(rows: (1...5).map { window("App", "Window", id: UInt32($0)) })
+  let first = try #require(content.gridView.card(for: 1))
+  let last = try #require(content.gridView.card(for: 5))
+  let firstPreview = content.convert(first.preview.bounds, from: first.preview)
+  let lastPreview = content.convert(last.preview.bounds, from: last.preview)
+  #expect(content.searchIcon.frame.minX == firstPreview.minX)
+  #expect(content.searchBox.frame.maxX == lastPreview.maxX)
+  #expect(content.searchIcon.frame.minY == content.searchBox.frame.minY)
+  #expect(content.searchIcon.frame.maxY == content.searchBox.frame.maxY)
+  #expect(content.searchIcon.layer?.cornerRadius == 10)
+  #expect(content.searchIcon.layer?.masksToBounds == true)
+  #expect(content.shortcutHint.layer?.backgroundColor == nil
+    || content.shortcutHint.layer?.backgroundColor?.alpha == 0)
+  for name in [NSAppearance.Name.darkAqua, .aqua] {
+    content.appearance = NSAppearance(named: name)
+    content.setSearchText("")
+    #expect(content.searchLabel.textColor == .labelColor)
+    content.effectiveAppearance.performAsCurrentDrawingAppearance {
+      let text = content.searchLabel.textColor!.usingColorSpace(.sRGB)!
+      #expect(name == .darkAqua ? text.redComponent > 0.8 : text.redComponent < 0.2)
+    }
+    content.setSearchText("query")
+    #expect(content.searchLabel.textColor == .labelColor)
+  }
+}
+
+@Test @MainActor func searchHeaderCentersHintAndFillsLogoHeight() throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 1088, height: 300)
+  content.searchIcon.image = NSImage(size: NSSize(width: 32, height: 32))
+  content.layoutSubtreeIfNeeded()
+  let cell = try #require(content.searchIcon.cell as? NSImageCell)
+  let imageRect = cell.imageRect(forBounds: content.searchIcon.bounds)
+  #expect(imageRect.height == content.searchBox.frame.height)
+  #expect(content.shortcutHint.frame.height == content.shortcutHint.cell!.cellSize.height)
+  #expect(content.shortcutHint.frame.midY == content.searchBox.bounds.midY)
 }

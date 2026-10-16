@@ -21,7 +21,7 @@ import Testing
 }
 
 @MainActor private func descendants(_ view: NSView) -> [NSView] {
-  [view] + view.subviews.flatMap(descendants)
+  [view] + (view is NSButton ? [] : view.subviews.flatMap(descendants))
 }
 
 @Test @MainActor func generalSwitchesPersistAndNotifyTheApp() throws {
@@ -63,7 +63,7 @@ import Testing
     .first { $0.tag == 3 && $0.action != nil })
   NSApp.sendAction(try #require(about.action), to: about.target, from: about)
   let labels = descendants(window.contentView!).compactMap { $0 as? NSTextField }.map(\.stringValue)
-  #expect(labels.count == 2)
+  #expect(labels.count == 2, "Labels: \(labels)")
   #expect(labels.contains("slime"))
   #expect(!descendants(window.contentView!).contains { $0 is NSVisualEffectView })
 }
@@ -85,4 +85,93 @@ import Testing
   NSApp.sendAction(try #require(well.action), to: well.target, from: well)
   #expect(selected.contentTintColor == .systemPink)
   #expect(well.window === window)
+}
+
+@Test @MainActor func backgroundPreviewsPersistSelectionAndKeepAllControlsReachable() throws {
+  _ = NSApplication.shared
+  let suite = "slime.theme-ui.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = SettingsWindowController(settings: settings)
+  var changes = 0
+  controller.onChange = { changes += 1 }
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Appearance" })
+  NSApp.sendAction(try #require(appearance.action), to: appearance.target, from: appearance)
+  let white = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.accessibilityLabel() == "White" })
+  white.performClick(nil)
+  #expect(defaults.string(forKey: "panel.background") == "white")
+  #expect(white.state == .on)
+  #expect(white.accessibilityValue() as? Int == 1)
+  #expect(white.accessibilityRole() == .radioButton)
+  #expect(changes == 1)
+  #expect(white.window === window)
+  let black = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.accessibilityLabel() == "Black" })
+  #expect(black.state == .off)
+  window.contentView?.layoutSubtreeIfNeeded()
+  for button in descendants(window.contentView!).compactMap({ $0 as? PanelBackgroundButton }) {
+    #expect(button.frame.height == 102)
+  }
+  let scroll = try #require(descendants(window.contentView!).compactMap { $0 as? NSScrollView }.first)
+  let document = try #require(scroll.documentView)
+  #expect(document.frame.height > scroll.contentSize.height)
+  let lastSlider = try #require(descendants(document).compactMap { $0 as? NSSlider }
+    .first { $0.accessibilityLabel() == "Panel corners" })
+  let rect = document.convert(lastSlider.bounds, from: lastSlider)
+  #expect(document.bounds.contains(rect))
+  document.scrollToVisible(rect)
+  #expect(scroll.documentVisibleRect.intersects(rect))
+}
+
+@Test @MainActor func backgroundPreviewAcceptsClicksAcrossTheWholeCard() throws {
+  _ = NSApplication.shared
+  let controller = SettingsWindowController()
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Appearance" })
+  appearance.performClick(nil)
+  window.contentView?.layoutSubtreeIfNeeded()
+  let button = try #require(descendants(window.contentView!).compactMap { $0 as? PanelBackgroundButton }.first)
+  for point in [NSPoint(x: 20, y: 20), NSPoint(x: button.bounds.midX, y: button.bounds.midY), NSPoint(x: 20, y: 85)] {
+    let location = button.convert(point, to: nil)
+    let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
+      modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+      eventNumber: 1, clickCount: 1, pressure: 1))
+    let hit = try #require(button.cell?.hitTest(for: event, in: button.bounds, of: button))
+    #expect(hit.contains(.trackableArea), "Click at \(point) returned \(hit)")
+    #expect(window.contentView?.hitTest(window.contentView!.convert(location, from: nil)) === button)
+  }
+}
+
+
+@Test @MainActor func appearanceSlidersShowLivePercentagesWithoutRebuilding() throws {
+  _ = NSApplication.shared
+  let suite = "slime.slider-percent.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = SettingsWindowController(settings: settings)
+  var changes = 0
+  controller.onChange = { changes += 1 }
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Appearance" })
+  appearance.performClick(nil)
+  let sliders = descendants(window.contentView!).compactMap { $0 as? NSSlider }
+  for (name, initial, maximum) in [("Glass strength", "13%", 1.0), ("Panel corners", "50%", 40.0)] {
+    let slider = try #require(sliders.first { $0.accessibilityLabel() == name })
+    let value = try #require(slider.superview?.subviews.compactMap { $0 as? NSTextField }.first)
+    #expect(value.stringValue == initial)
+    #expect(slider.isContinuous)
+    for fraction in [0.0, 0.25, 1.0] {
+      slider.doubleValue = maximum * fraction
+      NSApp.sendAction(try #require(slider.action), to: slider.target, from: slider)
+      #expect(value.stringValue == "\(Int(fraction * 100))%")
+      #expect(slider.window === window)
+      #expect(name == "Glass strength" ? settings.glassStrength == fraction : settings.glassCornerRadius == maximum * fraction)
+    }
+  }
+  #expect(changes == 6)
+  #expect(Settings(defaults: defaults).glassStrength == 1)
 }

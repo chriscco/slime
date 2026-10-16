@@ -13,14 +13,33 @@ struct Settings {
     }
   }
 
+  enum PanelBackground: String, CaseIterable {
+    case black, white, deepBlue, system
+
+    func isDark(systemIsDark: Bool) -> Bool {
+      self == .system ? systemIsDark : self != .white
+    }
+
+    func baseColor(systemIsDark: Bool) -> NSColor {
+      if self == .deepBlue {
+        return NSColor(srgbRed: 10.0 / 255, green: 44.0 / 255, blue: 55.0 / 255, alpha: 1)
+      }
+      return isDark(systemIsDark: systemIsDark) ? .black : .white
+    }
+  }
+
+  var panelBackground: PanelBackground {
+    get { defaults.string(forKey: "panel.background").flatMap(PanelBackground.init(rawValue:)) ?? .black }
+    nonmutating set { defaults.set(newValue.rawValue, forKey: "panel.background") }
+  }
+
   static let cornerRadiusRange: ClosedRange<Double> = 0...40
   static let defaultCornerRadius: Double = 20
 
   /// 玻璃浓度（spec §7）：0 = 完全看不到面板后面的内容，1 = 完全透明。
   /// 实数上它是遮罩层的 alpha 的补数（`alpha = 1 − strength`），面板自己换算。
   static let strengthRange: ClosedRange<Double> = 0...1
-  /// 默认给偏透明的值，但留出可见余量：1.0 时滑块到底、没有任何变化可看。
-  static let defaultGlassStrength: Double = 0.2
+  static let defaultGlassStrength: Double = 0.13
 
   /// Fixed sRGB accent, independent of the system accent color.
   static let defaultHighlightColor = NSColor(

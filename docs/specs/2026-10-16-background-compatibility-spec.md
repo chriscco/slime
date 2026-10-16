@@ -1,8 +1,8 @@
 # Background materials and experimental macOS 15 support
 
-- Status: Design confirmed in conversation; written spec for review.
+- Status: Implemented in PR #78; macOS 15 desktop acceptance remains pending.
 - Issue: [#77](https://github.com/chriscco/slime/issues/77).
-- Target: 0.0.8. This document does not implement compatibility or claim native validation.
+- Target: 0.0.8. Native compatibility claims are limited by the verification record.
 
 ## Goal
 

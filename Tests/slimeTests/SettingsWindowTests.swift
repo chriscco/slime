@@ -152,7 +152,7 @@ import Testing
   let defaults = try #require(UserDefaults(suiteName: suite))
   defer { defaults.removePersistentDomain(forName: suite) }
   let settings = Settings(defaults: defaults)
-  let controller = SettingsWindowController(settings: settings)
+  let controller = SettingsWindowController(settings: settings, supportsGlass: true)
   var changes = 0
   controller.onChange = { changes += 1 }
   let window = controller.makeWindow()
@@ -174,4 +174,52 @@ import Testing
   }
   #expect(changes == 6)
   #expect(Settings(defaults: defaults).glassStrength == 1)
+}
+
+@Test(arguments: [false, true]) @MainActor
+func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool) throws {
+  _ = NSApplication.shared
+  let suite = "slime.material-ui.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  settings.glassStrength = 0.65
+  settings.glassStyle = .clear
+  let controller = SettingsWindowController(settings: settings, supportsGlass: supportsGlass)
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.title == "Appearance" })
+  appearance.performClick(nil)
+  let selectors = descendants(window.contentView!).compactMap { $0 as? NSSegmentedControl }
+  let material = selectors.first { $0.accessibilityLabel() == "Background material" }
+  #expect((material != nil) == supportsGlass)
+  #expect(defaults.object(forKey: "panel.material") == nil)
+  func hasStrength() -> Bool {
+    descendants(window.contentView!).compactMap { $0 as? NSSlider }
+      .contains { $0.accessibilityLabel() == "Glass strength" }
+  }
+  #expect(hasStrength() == supportsGlass)
+  if let material {
+    var changes = 0
+    controller.onChange = { changes += 1 }
+    material.selectedSegment = 1
+    NSApp.sendAction(try #require(material.action), to: material.target, from: material)
+    #expect(settings.panelMaterial == .solid)
+    #expect(!hasStrength())
+    let replacement = try #require(descendants(window.contentView!).compactMap { $0 as? NSSegmentedControl }
+      .first { $0.accessibilityLabel() == "Background material" })
+    replacement.selectedSegment = 0
+    NSApp.sendAction(try #require(replacement.action), to: replacement.target, from: replacement)
+    #expect(settings.panelMaterial == .glass)
+    #expect(hasStrength())
+    #expect(changes == 2)
+  } else {
+    #expect(descendants(window.contentView!).compactMap { $0 as? NSTextField }
+      .contains { $0.stringValue.contains("requires macOS 26") })
+  }
+  #expect(settings.glassStrength == 0.65)
+  #expect(settings.glassStyle == .clear)
+  #expect(descendants(window.contentView!).contains { $0 is NSColorWell })
+  #expect(descendants(window.contentView!).compactMap { $0 as? NSSlider }
+    .contains { $0.accessibilityLabel() == "Panel corners" })
 }

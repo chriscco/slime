@@ -8,11 +8,10 @@ import AppKit
 final class PanelWindow: NSPanel {
   /// 面板内容，PanelController 从这里摸控件。
   let content = PanelContentView()
-  /// 玻璃面：内容**必须**挂在它的 `contentView` 里（spec §7）。
-  ///
-  /// shortcut: 只有一块玻璃面，没用 NSGlassEffectContainerView —— 每张卡片
-  ///           单独做玻璃时再回来合并渲染
-  private let glass = NSGlassEffectView()
+  // Keep the window's root stable while moving content between material hosts.
+  private let root = NSView()
+  private var glassHost: NSView?
+  private var material = Settings.PanelMaterial.solid
   /// 失去 key（用户点了别的窗口）—— 面板该藏着走，避免留下无主窗口。
   var onResignKey: (@MainActor () -> Void)?
 
@@ -38,13 +37,10 @@ final class PanelWindow: NSPanel {
     // 所有 Space 都能出现、全屏应用上也浮着、不进窗口循环。
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
 
-    // 窗口本身透明；圆角和背景都归玻璃视图（applyGlassSettings）。内容挂在
-    // 玻璃的 contentView 里，不做玻璃的兄弟节点 —— 头文件明说任意子视图的
-    // z-order 不保证（spec §7）。
-    contentView = glass
-    glass.contentView = content
-    // 头文件只保证 contentView 被放进玻璃、不保证自动撑满 —— 尺寸传导
-    // 无论如何都要成立；原生行为若已自动撑满，这行也无副作用。
+    root.frame = NSRect(origin: .zero, size: frame.size)
+    contentView = root
+    content.frame = root.bounds
+    root.addSubview(content)
     content.autoresizingMask = [.width, .height]
     // 内容层留着裁边：空态文字不越出面板边界。
     content.wantsLayer = true
@@ -58,27 +54,42 @@ final class PanelWindow: NSPanel {
   private func refreshBackground() {
     let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     content.layer?.backgroundColor = panelBackground.baseColor(systemIsDark: dark)
-      .withAlphaComponent(1 - glassStrength).cgColor
+      .withAlphaComponent(material == .solid ? 1 : 1 - glassStrength).cgColor
   }
 
-  /// 玻璃参数由设置驱动。内容**必须**挂在 `glass.contentView` 上 ——
-  /// 头文件明说任意子视图的 z-order 不保证（spec §7）。
-  ///
-  /// 浓度不是玻璃的属性：`NSGlassEffectView` 没有 opacity，`tintColor` 的 alpha
-  /// 实测无效（spec §7 那张五个 alpha 长得一模一样的截图）。做法是在玻璃之上、
-  /// 内容之下盖一层实色遮罩，`alpha = 1 − 浓度` —— 背后的内容跟着变淡，
-  /// 而卡片上的文字图标是内容视图的子视图，不受影响。
-  ///
-  /// shortcut: 玻璃浓度是一层遮罩，不是玻璃本身的属性（NSGlassEffectView 没有
-  ///           opacity，tintColor 的 alpha 实测无效）—— Apple 给出真属性时换掉
   func applyGlassSettings(_ settings: Settings) {
+    material = settings.effectivePanelMaterial()
     panelBackground = settings.panelBackground
     glassStrength = settings.glassStrength
     appearance = panelBackground == .system ? nil
       : NSAppearance(named: panelBackground == .white ? .aqua : .darkAqua)
-    glass.style = settings.glassStyle.glassEffectStyle
-    glass.cornerRadius = settings.glassCornerRadius
-    // 遮罩是方的，玻璃是圆的：不给内容层同样的圆角，四角会露出黑方块。
+    if #available(macOS 26.0, *) {
+      if material == .glass {
+        if glassHost == nil {
+          let responder = firstResponder
+          let glass = NSGlassEffectView(frame: root.bounds)
+          glass.autoresizingMask = [.width, .height]
+          content.removeFromSuperview()
+          root.addSubview(glass)
+          glass.contentView = content
+          content.frame = glass.bounds
+          glassHost = glass
+          makeFirstResponder(responder)
+        }
+        if let glass = glassHost as? NSGlassEffectView {
+          glass.style = settings.glassStyle.glassEffectStyle
+          glass.cornerRadius = settings.glassCornerRadius
+        }
+      } else if let glass = glassHost as? NSGlassEffectView {
+        let responder = firstResponder
+        glass.contentView = nil
+        glass.removeFromSuperview()
+        glassHost = nil
+        content.frame = root.bounds
+        root.addSubview(content)
+        makeFirstResponder(responder)
+      }
+    }
     content.layer?.cornerRadius = settings.glassCornerRadius
     refreshBackground()
   }

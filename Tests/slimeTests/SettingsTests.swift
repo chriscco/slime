@@ -114,3 +114,26 @@ import Testing
     #expect(abs(blue.blueComponent * 255 - 55) < 0.001)
   }
 }
+
+@Test func materialDefaultsFollowCapabilityWithoutSavingAndExplicitChoicesSurviveUpgrade() throws {
+  let suite = "slime.material.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  #expect(settings.panelMaterial == nil)
+  #expect(settings.effectivePanelMaterial(supportsGlass: false) == .solid)
+  #expect(settings.effectivePanelMaterial(supportsGlass: true) == .glass)
+  #expect(defaults.object(forKey: "panel.material") == nil)
+  settings.glassStyle = .clear
+  settings.glassStrength = 0.65
+  settings.panelMaterial = .solid
+  #expect(Settings(defaults: defaults).effectivePanelMaterial(supportsGlass: true) == .solid)
+  settings.panelMaterial = .glass
+  #expect(settings.effectivePanelMaterial(supportsGlass: false) == .solid)
+  #expect(Settings(defaults: defaults).effectivePanelMaterial(supportsGlass: true) == .glass)
+  #expect(settings.glassStyle == .clear)
+  #expect(settings.glassStrength == 0.65)
+  defaults.set("unknown", forKey: "panel.material")
+  #expect(settings.effectivePanelMaterial(supportsGlass: true) == .glass)
+  #expect(settings.effectivePanelMaterial(supportsGlass: false) == .solid)
+}

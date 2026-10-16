@@ -5,6 +5,8 @@ import ServiceManagement
 final class SettingsWindowController: NSObject, NSWindowDelegate {
   var onChange: (() -> Void)?
   private let settings: Settings
+  private let supportsGlass: Bool
+  private var materialControl: NSSegmentedControl?
   private var window: NSWindow?
   private var section = 0
   private let content = NSView()
@@ -18,8 +20,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private var loginStatus: NSTextField?
   private var loginBusy = false
 
-  init(settings: Settings = Settings()) {
+  init(settings: Settings = Settings(), supportsGlass: Bool = Settings.supportsGlass) {
     self.settings = settings
+    self.supportsGlass = supportsGlass
     super.init()
     for value in [strengthValue, radiusValue] {
       value.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
@@ -104,6 +107,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
     loginSwitch = nil; loginStatus = nil
     backgroundButtons = []
+    materialControl = nil
     let names = [text("General", "通用"), text("Appearance", "外观"),
       text("Shortcuts", "快捷键"), text("About", "关于")]
     let symbols = ["switch.2", "paintpalette", "keyboard", "info.circle"]
@@ -177,6 +181,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   }
 
   private func appearance() {
+    let usesGlass = settings.effectivePanelMaterial(supportsGlass: supportsGlass) == .glass
+    if supportsGlass {
+      let material = NSSegmentedControl(labels: [text("Liquid Glass", "液态玻璃"), text("Solid", "纯色")],
+        trackingMode: .selectOne, target: self, action: #selector(materialChanged(_:)))
+      material.selectedSegment = usesGlass ? 0 : 1
+      materialControl = material
+      row(text("Background material", "背景材质"), control: material)
+    } else {
+      row(text("Background material", "背景材质"), control: label(text("Solid", "纯色")))
+      let note = label(text("Liquid Glass requires macOS 26 or later.", "液态玻璃需要 macOS 26 或更新版本。"), size: 11, secondary: true)
+      body.addArrangedSubview(note)
+      body.setCustomSpacing(12, after: note)
+    }
     let names = [text("Black", "黑色"), text("White", "白色"),
       text("Deep Blue", "深蓝"), text("System", "跟随系统")]
     let themes = Settings.PanelBackground.allCases
@@ -198,21 +215,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       previews.heightAnchor.constraint(equalToConstant: 102).isActive = true
       body.setCustomSpacing(12, after: previews)
     }
-    let explanation = NSTextField(wrappingLabelWithString: text(
+    let explanation = NSTextField(wrappingLabelWithString: usesGlass ? text(
       "Theme previews are illustrative. Glass strength and your desktop affect the actual color; full transparency removes the background color.",
-      "预览为主题示意。玻璃强度和桌面会影响实际颜色；完全透明时不显示背景底色。"))
+      "预览为主题示意。玻璃强度和桌面会影响实际颜色；完全透明时不显示背景底色。")
+      : text("Solid backgrounds are fully opaque. System follows light and dark appearance.",
+             "纯色背景完全不透明；跟随系统会随浅色和深色外观切换。"))
     explanation.font = .systemFont(ofSize: 11)
     explanation.textColor = .secondaryLabelColor
     body.addArrangedSubview(explanation)
     explanation.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
     body.setCustomSpacing(12, after: explanation)
-    let style = NSSegmentedControl(labels: [text("Regular", "标准"), text("Clear", "通透")],
-      trackingMode: .selectOne, target: self, action: #selector(styleChanged(_:)))
-    style.selectedSegment = settings.glassStyle == .regular ? 0 : 1
-    row(text("Glass style", "玻璃样式"), control: style)
-    let strength = NSSlider(value: settings.glassStrength, minValue: 0, maxValue: 1,
-      target: self, action: #selector(strengthChanged(_:)))
-    row(text("Glass strength", "玻璃强度"), detail: text("Opaque to transparent", "从不透明到透明"), control: percentageSlider(strength, value: strengthValue, title: text("Glass strength", "玻璃强度")))
+    if usesGlass {
+      let style = NSSegmentedControl(labels: [text("Regular", "标准"), text("Clear", "通透")],
+        trackingMode: .selectOne, target: self, action: #selector(styleChanged(_:)))
+      style.selectedSegment = settings.glassStyle == .regular ? 0 : 1
+      row(text("Glass style", "玻璃样式"), control: style)
+      let strength = NSSlider(value: settings.glassStrength, minValue: 0, maxValue: 1,
+        target: self, action: #selector(strengthChanged(_:)))
+      row(text("Glass strength", "玻璃强度"), detail: text("Opaque to transparent", "从不透明到透明"), control: percentageSlider(strength, value: strengthValue, title: text("Glass strength", "玻璃强度")))
+    }
     let color = NSColorWell()
     color.colorWellStyle = .minimal; color.color = settings.highlightColor
     color.target = self; color.action = #selector(colorChanged(_:))
@@ -220,7 +241,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let radius = NSSlider(value: settings.glassCornerRadius, minValue: 0, maxValue: 40,
       target: self, action: #selector(radiusChanged(_:)))
     row(text("Panel corners", "面板圆角"), detail: text("Square to rounded", "从直角到圆角"), control: percentageSlider(radius, value: radiusValue, title: text("Panel corners", "面板圆角")))
-    let note = label(text("Changes appear the next time you open the switcher.", "下次打开切换面板时显示更改。"), size: 11, secondary: true)
+    let note = label(text("Changes apply immediately.", "更改立即生效。"), size: 11, secondary: true)
     body.addArrangedSubview(note)
   }
 
@@ -350,6 +371,13 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   @objc private func languageChanged(_ sender: NSPopUpButton) {
     settings.language = sender.indexOfSelectedItem == 1 ? .chinese : .english
     rebuild(); onChange?()
+  }
+  @objc private func materialChanged(_ sender: NSSegmentedControl) {
+    let hadFocus = window?.firstResponder === sender
+    settings.panelMaterial = sender.selectedSegment == 0 ? .glass : .solid
+    rebuild()
+    if hadFocus, let materialControl { window?.makeFirstResponder(materialControl) }
+    onChange?()
   }
   @objc private func styleChanged(_ sender: NSSegmentedControl) {
     settings.glassStyle = sender.selectedSegment == 0 ? .regular : .clear; onChange?()

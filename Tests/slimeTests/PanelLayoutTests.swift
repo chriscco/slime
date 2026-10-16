@@ -443,7 +443,7 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   let panel = PanelWindow()
   panel.applyGlassSettings(Settings(defaults: defaults))
   #expect(panel.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
-  #expect(panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.87).cgColor)
+  #expect(panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(Settings.supportsGlass ? 0.87 : 1).cgColor)
 }
 
 @Test(arguments: [320.0, 600.0, 1088.0]) @MainActor
@@ -493,7 +493,7 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   defer { NSApp.appearance = originalAppearance }
   NSApp.appearance = NSAppearance(named: .aqua)
   content.layoutSubtreeIfNeeded()
-  #expect(controller.panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.87).cgColor)
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(Settings.supportsGlass ? 0.87 : 1).cgColor)
   #expect(content.searchFocused)
   #expect(content.searchLabel.stringValue == "a")
   #expect(controller.selection == selection)
@@ -547,4 +547,68 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   #expect(imageRect.height == content.searchBox.frame.height)
   #expect(content.shortcutHint.frame.height == content.shortcutHint.cell!.cellSize.height)
   #expect(content.shortcutHint.frame.midY == content.searchBox.bounds.midY)
+}
+
+@Test @MainActor func solidMaterialIsOpaqueAndSwitchingPreservesPanelContent() throws {
+  _ = NSApplication.shared
+  let suite = "slime.material-panel.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  settings.glassStrength = 1
+  let panel = PanelWindow()
+  let content = panel.content
+  panel.content.setSearchText("a query")
+  panel.content.setSearchFocused(true)
+  panel.makeFirstResponder(content)
+  let responder = panel.firstResponder
+  for material in [Settings.PanelMaterial.solid, .glass, .solid] {
+    settings.panelMaterial = material
+    for theme in Settings.PanelBackground.allCases {
+      settings.panelBackground = theme
+      panel.applyGlassSettings(settings)
+      let effective = settings.effectivePanelMaterial()
+      #expect(panel.content === content)
+      #expect(content.searchFocused)
+      #expect(panel.firstResponder === responder)
+      #expect(panel.content.searchLabel.stringValue == "a query")
+      #expect(panel.content.searchBox.accessibilityValue() as? String == "a query")
+      let color = try #require(content.layer?.backgroundColor)
+      #expect(color.alpha == (effective == .solid ? 1 : 0))
+      #expect(content.layer?.cornerRadius == 20)
+      #expect(content.window === panel)
+      if #available(macOS 26.0, *), effective == .solid {
+        #expect(!panel.contentView!.subviews.contains { $0 is NSGlassEffectView })
+      }
+      let dark = panel.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+      #expect(color == theme.baseColor(systemIsDark: dark)
+        .withAlphaComponent(effective == .solid ? 1 : 0).cgColor)
+    }
+  }
+}
+
+@Test @MainActor func materialChangePreservesFilteredSelectionWithoutRefreshingWindows() throws {
+  _ = NSApplication.shared
+  let suite = "slime.material-session.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = PanelController(settings: settings)
+  let state = State.lingering(query: "", selection: 0)
+  controller.handle(state: state, effects: [])
+  controller.setWindows((1...3).map {
+    Window(pid: 1, windowID: UInt32($0), appName: "App", title: "Window \($0)", isMinimized: false)
+  })
+  controller.handle(state: state, effects: [.appendQuery("w"), .moveSelection(axis: .horizontal, step: 1)])
+  let selected = controller.rows[controller.selection].windowID
+  var refreshes = 0
+  controller.onRefresh = { refreshes += 1 }
+  for material in [Settings.PanelMaterial.solid, .glass, .solid] {
+    settings.panelMaterial = material
+    controller.refreshAppearance()
+    #expect(controller.rows[controller.selection].windowID == selected)
+    #expect(controller.panel.content.searchLabel.stringValue == "w")
+    #expect(controller.panel.content.searchFocused)
+    #expect(refreshes == 0)
+  }
 }

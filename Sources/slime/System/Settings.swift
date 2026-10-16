@@ -8,9 +8,26 @@ struct Settings {
   enum GlassStyle: String, CaseIterable {
     case regular, clear
 
+    @available(macOS 26.0, *)
     var glassEffectStyle: NSGlassEffectView.Style {
       self == .regular ? .regular : .clear
     }
+  }
+
+  enum PanelMaterial: String { case glass, solid }
+
+  static var supportsGlass: Bool {
+    if #available(macOS 26.0, *) { return true }
+    return false
+  }
+
+  var panelMaterial: PanelMaterial? {
+    get { defaults.string(forKey: "panel.material").flatMap(PanelMaterial.init(rawValue:)) }
+    nonmutating set { defaults.set(newValue?.rawValue, forKey: "panel.material") }
+  }
+
+  func effectivePanelMaterial(supportsGlass: Bool = Settings.supportsGlass) -> PanelMaterial {
+    supportsGlass ? (panelMaterial ?? .glass) : .solid
   }
 
   enum PanelBackground: String, CaseIterable {

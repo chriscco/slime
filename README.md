@@ -13,7 +13,7 @@ A macOS window switcher with two things the system's own switcher doesn't do:
 
 ### Download the DMG
 
-Requires **macOS 26 or later**. This release's package targets **Apple silicon (arm64)**. Intel users can build from source; this release does not provide a validated Intel package.
+Requires **macOS 15 or later**. macOS 15 support is experimental; desktop permission and window-operation validation is pending. This release's package targets **Apple silicon (arm64)**. Intel users can build from source; this release does not provide a validated Intel package.
 
 1. Download the DMG and its `.sha256` file from [GitHub Releases](https://github.com/chriscco/slime/releases).
 2. In the download directory, verify it with `shasum -a 256 -c slime-0.0.6-arm64.dmg.sha256`.
@@ -66,13 +66,14 @@ Entries represent **windows rather than apps**, so you can switch directly to a 
 Open Settings from the menu bar or press `⌘,` in the panel.
 
 - **General**: enable slime, group windows by app, launch at login, and choose English (default) or 简体中文. Disabling slime restores native `⌘Tab`.
-- **Appearance**: Black, White, Deep Blue, or System background; adjustable glass effects, accent color, and corners. The default accent is slime green `#96D76A`.
+- **Appearance**: Black, White, Deep Blue, or System background; Liquid Glass or Solid on macOS 26+, with adjustable accent color and corners. Glass controls appear only when that material is selected. The default accent is slime green `#96D76A`.
 - **Shortcuts**: view key bindings.
 - **About**: version and GitHub repository link.
 
 ## Requirements
 
-- **macOS 26+** (the panel uses `NSGlassEffectView`).
+- **macOS 15+**. Liquid Glass requires macOS 26+; macOS 15 uses a solid background and remains experimental.
+- Building from source requires a **macOS 26+ SDK** (Xcode 26+ or matching Command Line Tools).
 - **Screen Recording permission** enables previews. Without a preview or same-window cache, slime shows an app icon inside a generic mini-window.
 - **Accessibility permission.** slime reads the window list through the
   Accessibility API and intercepts the keys you press, so macOS has to grant it.

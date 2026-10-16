@@ -12,15 +12,8 @@ import PackageDescription
 
 let package = Package(
   name: "slime",
-  // macOS 26 是 NSGlassEffectView 的门槛（spec §4）。
-  // 不做 NSVisualEffectView 兜底分支：CI 和开发机都在 26 以上，
-  // 回退路径是一段永远没人能执行的死代码。
-  //
-  // 字符串形式而不是 .v26：manifest 是 tools-version 6.0，而 .v26 这个
-  // 枚举值要 6.2 才有（实测 `error: 'v26' is unavailable`）。⚠️ 跟编译器
-  // 版本无关 —— PackageDescription 的 API 面是按 manifest 里声明的
-  // tools-version 选的，所以 CI（Swift 6.3.3）用 tools 6.0 一样编不过。
-  platforms: [.macOS("26.0")],
+  // Build with a macOS 26+ SDK; Liquid Glass is runtime-gated.
+  platforms: [.macOS("15.0")],
   targets: [
     .executableTarget(name: "slime"),
     .testTarget(

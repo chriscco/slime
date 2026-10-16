@@ -38,6 +38,7 @@ struct WindowCandidate: Sendable {
 struct WindowEnumeration: Sendable {
   var windows: [Window] = []
   var known: [UInt32: KnownWindow] = [:]
+  var targets: [UInt32: NativeWindowTarget] = [:]
 }
 
 /// 后台枚举 CG 窗口，用 AX 和可用的 CG 标题排除辅助表面。
@@ -45,7 +46,7 @@ struct WindowEnumeration: Sendable {
 /// 不能单独证明窗口关闭；只有列表为空且 main 明确无值时才清掉该 app。
 enum WindowEnumerator {
   /// 枚举一次。`known` 是上一次的「见过」表（跨次持有，见上）。
-  static func enumerate(known previous: [UInt32: KnownWindow], request: AXRequest = AXRequest()) -> WindowEnumeration {
+  static func enumerate(known previous: [UInt32: KnownWindow], request: AXRequest = AXRequest(), targets previousTargets: [UInt32: NativeWindowTarget] = [:]) -> WindowEnumeration {
     let options: CGWindowListOption = [.optionAll, .excludeDesktopElements]
     guard let rawList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
     else { return WindowEnumeration() }
@@ -95,12 +96,15 @@ enum WindowEnumerator {
     var snapshots: [pid_t: AXWindows.Snapshot] = [:]
     for (pid, group) in Dictionary(grouping: raw, by: { $0.pid }) {
       guard request.isActive else { return WindowEnumeration() }
-      let snapshot = AXWindows.snapshot(pid: pid, request: request)
+      let snapshot = AXWindows.snapshot(pid: pid, request: request, retaining: previousTargets.values.filter { $0.pid == pid })
       snapshots[pid] = snapshot
       let entries = snapshot.entries
       var claimed: Set<Int> = []
       let ordered = group.enumerated()
         .sorted { a, b in
+          let aKnown = previousTargets[a.element.windowID]?.pid == pid
+          let bKnown = previousTargets[b.element.windowID]?.pid == pid
+          if aKnown != bKnown { return aKnown }
           if a.element.onscreen != b.element.onscreen { return a.element.onscreen }
           let aTitled = a.element.title.map { !$0.isEmpty } ?? false
           let bTitled = b.element.title.map { !$0.isEmpty } ?? false
@@ -109,17 +113,24 @@ enum WindowEnumerator {
         }
         .map { $0.element }
       for window in ordered {
-        let matches = entries.indices.filter {
-          !claimed.contains($0) && AXWindows.isSameFrame(entries[$0].frame, window.bounds)
+        let available = entries.indices.filter { !claimed.contains($0) }
+        let identity = previousTargets[window.windowID].flatMap { $0.pid == pid ? $0.element : nil }
+        guard let match = AXWindows.match(bounds: window.bounds, title: window.title,
+          in: available.map { entries[$0] }, identity: identity),
+          let index = available.first(where: { CFEqual(entries[$0].element, match.element) }) else { continue }
+        // A unique AX match is insufficient when multiple CG surfaces claim it.
+        if identity == nil {
+          let frames = group.filter { AXWindows.isSameFrame($0.bounds, match.frame) }
+          let titles = group.filter { $0.title == match.title && !match.title.isEmpty }
+          guard frames.count == 1 || titles.count == 1
+            || (window.onscreen && frames.filter(\.onscreen).count == 1) else { continue }
         }
-        guard let index = matches.first(where: { entries[$0].title == window.title })
-          ?? matches.first else { continue }
         claimed.insert(index)
         axInfo[window.windowID] = entries[index]
       }
     }
 
-    return select(
+    var result = select(
       raw.map { window in
         let match = axInfo[window.windowID]
         return WindowCandidate(
@@ -140,6 +151,14 @@ enum WindowEnumerator {
       },
       known: previous
     )
+    for window in result.windows {
+      if let entry = axInfo[window.windowID] {
+        result.targets[window.windowID] = NativeWindowTarget(pid: window.pid, windowID: window.windowID, element: entry.element)
+      } else if let target = previousTargets[window.windowID], target.pid == window.pid {
+        result.targets[window.windowID] = target
+      }
+    }
+    return result
   }
 
   /// 当轮证据优先于缓存；被否决的条目不会写回，旧幽灵缓存自动清理。
@@ -174,7 +193,8 @@ enum WindowEnumerator {
         candidate.matched
         ?? remembered
         ?? KnownWindow(appName: candidate.appName, title: "", minimized: false)
-      if titled, candidate.matched?.title.isEmpty != false, let title = candidate.cgTitle {
+      let retainedAXTitle = candidate.matched == nil && remembered?.axVerified == true && remembered?.title.isEmpty == false
+      if titled, !retainedAXTitle, candidate.matched?.title.isEmpty != false, let title = candidate.cgTitle {
         info.title = title
       }
       info.observedOnscreen = candidate.onscreen || remembered?.observedOnscreen == true ? true : nil
@@ -249,8 +269,9 @@ final class AXRequest: @unchecked Sendable {
   }
 
   func cancel() { lock.withLock { cancelled = true } }
+  var isCancelled: Bool { lock.withLock { cancelled } }
   var isActive: Bool {
-    !lock.withLock { cancelled } && (deadline.map { ContinuousClock.now < $0 } ?? true)
+    !isCancelled && (deadline.map { ContinuousClock.now < $0 } ?? true)
   }
 
   func pause(milliseconds: Int) async {
@@ -312,7 +333,7 @@ enum AXWindows {
     snapshot(pid: pid, request: request).entries
   }
 
-  static func snapshot(pid: pid_t, request: AXRequest = AXRequest()) -> Snapshot {
+  static func snapshot(pid: pid_t, request: AXRequest = AXRequest(), retaining: [NativeWindowTarget] = []) -> Snapshot {
     let app = AXUIElementCreateApplication(pid)
     var value: CFTypeRef?
     let status = request.copy(app, kAXWindowsAttribute as CFString, &value)
@@ -325,6 +346,12 @@ enum AXWindows {
       }
     }
     let complete = windows.map { entries.count == $0.count } ?? false
+    // AXWindows can omit other Spaces. Read retained identities directly so stale CG
+    // names cannot overwrite a live AX title merely because that list is partial.
+    for target in retaining where !entries.contains(where: { CFEqual($0.element, target.element) }) {
+      guard request.isActive else { break }
+      if let entry = entry(target.element, request: request) { entries.append(entry) }
+    }
     var main: CFTypeRef?
     let mainStatus = request.copy(app, kAXMainWindowAttribute as CFString, &main)
     if mainStatus == .success, let main, CFGetTypeID(main) == AXUIElementGetTypeID() {
@@ -333,7 +360,7 @@ enum AXWindows {
          let entry = entry(element, request: request) { entries.append(entry) }
     }
     return Snapshot(entries: entries, available: complete && request.isActive,
-      hasNoWindows: complete && windows?.isEmpty == true && mainStatus == .noValue)
+      hasNoWindows: complete && entries.isEmpty && windows?.isEmpty == true && mainStatus == .noValue)
   }
 
   private static func entry(_ element: AXUIElement, request: AXRequest) -> Entry? {
@@ -345,19 +372,20 @@ enum AXWindows {
     return Entry(element: element, frame: frame, title: title, subrole: subrole, minimized: minimized)
   }
 
-  /// 把 CGWindow 和 AX 窗口对上：先按 frame 近似匹配；对不上（或没有 frame）
-  /// 再退到标题。
-  ///
-  /// 为什么要退到标题：台前调度搁在左侧条带里的窗口，CG 报的是条带方框、
-  /// AX 报的可能是真实位置 —— frame 对不上时按标题找是次优但可行的锚。
-  /// 标题匹配在同名窗口（同 app 两个「未命名」）上可能选错 —— 代价是
-  /// 标题/最小化状态可能张冠李戴，激活仍会落到这个 app。见 decision.md。
-  static func match(bounds: CGRect?, title: String?, in entries: [Entry]) -> Entry? {
-    if let bounds, let hit = entries.first(where: { Self.isSameFrame($0.frame, bounds) }) {
-      return hit
+  /// Retained native identity wins; otherwise both frame and title matches must be unique.
+  static func match(bounds: CGRect?, title: String?, in entries: [Entry], identity: AXUIElement? = nil) -> Entry? {
+    if let identity { return entries.first(where: { CFEqual($0.element, identity) }) }
+    if let bounds {
+      let matches = entries.filter { Self.isSameFrame($0.frame, bounds) }
+      if matches.count == 1 { return matches[0] }
+      if let title, !title.isEmpty {
+        let titled = matches.filter { $0.title == title }
+        if titled.count == 1 { return titled[0] }
+      }
     }
     guard let title, !title.isEmpty else { return nil }
-    return entries.first { $0.title == title }
+    let matches = entries.filter { $0.title == title }
+    return matches.count == 1 ? matches[0] : nil
   }
 
   static func isSameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
@@ -414,4 +442,11 @@ enum AXWindows {
     else { return nil }
     return n
   }
+}
+
+/// AX references stay in System; the immutable wrapper crosses background queues.
+struct NativeWindowTarget: @unchecked Sendable {
+  let pid: pid_t
+  let windowID: UInt32
+  let element: AXUIElement
 }

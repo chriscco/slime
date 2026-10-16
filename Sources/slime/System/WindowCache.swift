@@ -1,6 +1,6 @@
 import AppKit
 
-/// 快照 + 后台刷新 + app 级 MRU（spec §7）。
+/// Immutable snapshots, background enumeration and focus-evidenced window MRU.
 ///
 /// 缓存策略选的是中间态：启动枚举一次；按下时立刻用快照渲染，同时后台重新
 /// 枚举并静默更新。取舍见 docs/modules/system/decision.md。
@@ -9,15 +9,14 @@ import AppKit
 /// 替换 —— 天然无锁，不共享可变状态（红线 8）。
 @MainActor
 final class WindowCache {
-  /// MRU 排序、含当前窗口的完整列表。面板读 `snapshot`（当前窗口排在末尾）。
+  /// Window-level MRU, including the current window first.
   private var all: [Window] = []
 
-  /// 当前窗口仍显示，放在末尾，让默认选中仍指向另一个窗口。
+  /// The last window confirmed by native focus evidence.
   private(set) var frontWindowID: UInt32?
 
-  /// app 级 MRU，最近被激活的 app 在最前。
-  /// shortcut: MRU 只到 app 级（NSWorkspace 通知），窗口级要 AXObserver，0.0.2 再说
-  private var mruPids: [pid_t] = []
+  /// Most recently focused window first.
+  private var mruWindows: [UInt32] = []
 
   /// generation 计数（红线 5）：任何「让在途结果过期」的状态变化都 +1，
   /// 结果回来对不上就扔。用户可能已经 Esc 关掉又重开了，旧结果不能覆盖新状态。
@@ -25,8 +24,10 @@ final class WindowCache {
 
   private var refreshRequest: AXRequest?
   private var refreshPending = false
-  private let enumerate: @Sendable ([UInt32: KnownWindow], AXRequest) -> WindowEnumeration
-  private var observing = false
+  private let enumerate: (@Sendable ([UInt32: KnownWindow], AXRequest) -> WindowEnumeration)?
+  private(set) var targets: [UInt32: NativeWindowTarget] = [:]
+  private var activationObserver: NSObjectProtocol?
+  private let focusObserver = ForegroundObserver()
   private let queue = DispatchQueue(label: "slime.enumerate", qos: .userInitiated)
 
   /// 「见过一次是真窗口」的表（枚举器产出、跨次传回）—— 其他 Space 的窗口
@@ -43,9 +44,7 @@ final class WindowCache {
   private static let knownKey = "cache.knownWindows"
 
   init(defaults: UserDefaults = .standard,
-       enumerate: @escaping @Sendable ([UInt32: KnownWindow], AXRequest) -> WindowEnumeration = {
-         WindowEnumerator.enumerate(known: $0, request: $1)
-       }) {
+       enumerate: (@Sendable ([UInt32: KnownWindow], AXRequest) -> WindowEnumeration)? = nil) {
     self.enumerate = enumerate
     self.defaults = defaults
     self.known = Self.loadKnown(from: defaults)
@@ -67,9 +66,9 @@ final class WindowCache {
   /// 快照更新后的回调 —— 面板还开着时静默刷新用。
   var onChange: (([Window]) -> Void)?
 
-  /// 面板显示全部窗口；当前窗口放在末尾，保留快速切换的默认目标。
+  /// Current first; PanelController initially selects the previous identity.
   var snapshot: [Window] {
-    all.filter { $0.windowID != frontWindowID } + all.filter { $0.windowID == frontWindowID }
+    all
   }
 
   /// 这一轮枚举到的所有窗口（含当前窗口）。给缩略图缓存用 —— 它的清理边界
@@ -77,7 +76,10 @@ final class WindowCache {
   var allWindows: [Window] { all }
 
   func start() {
+    focusObserver.onFocus = { [weak self] id, pid, title in self?.noteFocused(windowID: id, pid: pid, title: title) }
+    focusObserver.onUnknown = { [weak self] in self?.refresh() }
     observeActivations()
+    if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier, pid != getpid() { focusObserver.watch(pid) }
     refresh()
   }
 
@@ -93,19 +95,26 @@ final class WindowCache {
     refreshRequest = request
     let enumerate = enumerate
     let gen = generation
-    let mru = mruPids
+    let mru = mruWindows
     let previous = known
+    let targets = targets
     queue.async { [weak self] in
-      let result = enumerate(previous, request)
-      let sorted = Self.sort(result.windows, byMRU: mru)
+      let result = enumerate?(previous, request) ?? WindowEnumerator.enumerate(known: previous, request: request, targets: targets)
+      let sorted = Self.windowOrder(result.windows, mru: mru)
       let updatedKnown = result.known
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
-          let front = Self.frontWindowID(in: result.windows,
-            frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
           guard let self else { return }
+          let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+          let front = result.windows.first { $0.windowID == self.frontWindowID && $0.pid == pid }?.windowID
+            ?? Self.frontWindowID(in: result.windows, frontmostPID: pid)
           self.refreshRequest = nil
-          if request.isActive { self.apply(sorted, frontWindowID: front, known: updatedKnown, generation: gen) }
+          if request.isActive, gen == self.generation {
+            self.targets = result.targets
+            self.focusObserver.targets = result.targets
+            self.focusObserver.signal(discover: false)
+            self.apply(sorted, frontWindowID: front, known: updatedKnown, generation: gen)
+          }
           if self.refreshPending {
             self.refreshPending = false
             self.refresh()
@@ -120,21 +129,24 @@ final class WindowCache {
   func noteActivated(_ window: Window) {
     generation += 1  // 在途的枚举结果按旧 MRU 排的序，作废
     refreshRequest?.cancel()
-    mruPids.removeAll { $0 == window.pid }
-    mruPids.insert(window.pid, at: 0)
+    mruWindows.removeAll { $0 == window.windowID }
+    mruWindows.insert(window.windowID, at: 0)
     frontWindowID = window.windowID
-    all = Self.sort(all, byMRU: mruPids)
+    all = Self.windowOrder(all, mru: mruWindows)
     onChange?(snapshot)
   }
 
   func noteClosed(_ window: Window, preserving siblings: [Window] = []) {
     generation += 1
     refreshRequest?.cancel()
+    targets.removeValue(forKey: window.windowID)
+    focusObserver.targets = targets
+    mruWindows.removeAll { $0 == window.windowID }
     all.removeAll { $0.windowID == window.windowID }
     for sibling in siblings where sibling.pid == window.pid && sibling.windowID != window.windowID {
       if !all.contains(where: { $0.windowID == sibling.windowID }) { all.append(sibling) }
     }
-    all = Self.sort(all, byMRU: mruPids)
+    all = Self.windowOrder(all, mru: mruWindows)
     var closed = known[window.windowID] ?? KnownWindow(
       appName: window.appName, title: window.title, minimized: window.isMinimized)
     closed.closed = true
@@ -153,7 +165,13 @@ final class WindowCache {
     _ windows: [Window], frontWindowID: UInt32?, known: [UInt32: KnownWindow], generation: Int
   ) {
     guard generation == self.generation else { return }
-    all = windows
+    let live = Set(windows.map(\.windowID))
+    mruWindows.removeAll { !live.contains($0) }
+    if let frontWindowID {
+      mruWindows.removeAll { $0 == frontWindowID }
+      mruWindows.insert(frontWindowID, at: 0)
+    }
+    all = Self.windowOrder(windows, mru: mruWindows)
     self.frontWindowID = frontWindowID
     self.known = known
     Self.saveKnown(known, to: defaults)
@@ -161,10 +179,9 @@ final class WindowCache {
   }
 
   private func observeActivations() {
-    guard !observing else { return }
-    observing = true
-    // 观察者活到进程退出，token 不需要留。
-    _ = NSWorkspace.shared.notificationCenter.addObserver(
+    guard activationObserver == nil else { return }
+    // Retain the token so stop() removes the observer.
+    activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.didActivateApplicationNotification,
       object: nil,
       queue: .main
@@ -180,14 +197,41 @@ final class WindowCache {
 
   /// 别的途径（点窗口、系统原生 ⌘Tab……）换前台 app 时也要记进 MRU。
   private func noteFrontApp(_ pid: pid_t) {
-    mruPids.removeAll { $0 == pid }
-    mruPids.insert(pid, at: 0)
+    focusObserver.watch(pid)
     // Drop another app's exclusion immediately; preserve an explicit noteActivated target.
     if !all.contains(where: { $0.windowID == frontWindowID && $0.pid == pid }) {
       frontWindowID = Self.frontWindowID(in: all, frontmostPID: pid)
     }
-    all = Self.sort(all, byMRU: mruPids)
+    all = Self.windowOrder(all, mru: mruWindows)
     onChange?(snapshot)
+  }
+
+  func stop() {
+    refreshRequest?.cancel()
+    refreshPending = false
+    focusObserver.stop()
+    if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
+    activationObserver = nil
+  }
+
+  func noteFocused(windowID: UInt32, pid: pid_t, title: String?) {
+    guard let index = all.firstIndex(where: { $0.windowID == windowID && $0.pid == pid }) else { return }
+    let old = all[index]
+    let fresh = Window(pid: old.pid, windowID: old.windowID, appName: old.appName,
+      title: title ?? old.title, isMinimized: old.isMinimized, isOnscreen: old.isOnscreen)
+    guard fresh != old || frontWindowID != windowID || all.first?.windowID != windowID else { return }
+    all[index] = fresh
+    if let title { known[windowID]?.title = title }
+    noteActivated(fresh)
+  }
+
+  nonisolated static func windowOrder(_ windows: [Window], mru: [UInt32]) -> [Window] {
+    let ranks = Dictionary(uniqueKeysWithValues: mru.enumerated().map { ($0.element, $0.offset) })
+    return windows.enumerated().sorted {
+      let a = ranks[$0.element.windowID] ?? Int.max
+      let b = ranks[$1.element.windowID] ?? Int.max
+      return a == b ? $0.offset < $1.offset : a < b
+    }.map(\.element)
   }
 
   nonisolated static func frontWindowID(in windows: [Window], frontmostPID: pid_t?) -> UInt32? {

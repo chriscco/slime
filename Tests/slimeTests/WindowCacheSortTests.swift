@@ -66,9 +66,9 @@ private func pids(_ windows: [Window]) -> [pid_t] { windows.map(\.pid) }
   let windows = [window(pid: 20, id: 1), window(pid: 20, id: 2), window(pid: 20, id: 3)]
   cache.apply(windows, frontWindowID: 1, known: [:], generation: 0)
   cache.noteActivated(windows[2])
-  #expect(cache.snapshot.map(\.windowID) == [1, 2, 3])
+  #expect(cache.snapshot.map(\.windowID) == [3, 1, 2])
   cache.noteClosed(windows[1])
-  #expect(cache.snapshot.map(\.windowID) == [1, 3])
+  #expect(cache.snapshot.map(\.windowID) == [3, 1])
   let data = try #require(defaults.data(forKey: "cache.knownWindows"))
   let stored = try JSONDecoder().decode([StoredKnownWindow].self, from: data)
   let known = Dictionary(uniqueKeysWithValues: stored.map { ($0.id, $0.entry) })

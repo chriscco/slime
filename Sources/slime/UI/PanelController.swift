@@ -15,6 +15,7 @@ final class PanelController {
   private let revealWindow: @MainActor (Window, AXRequest) async -> Bool
   private var closeRequest: AXRequest?
   private var windows: [Window] = []
+  private var nextWindows: [Window] = []
   private(set) var rows: [Window] = []
   private(set) var selection = 0
   private var query = ""
@@ -69,8 +70,11 @@ final class PanelController {
   }
 
   func setWindows(_ windows: [Window]) {
-    self.windows = windows
-    guard phase.isSessionOpen, !closing else { return }
+    nextWindows = windows
+    guard phase.isSessionOpen, !closing else { self.windows = windows; return }
+    let fresh = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0) })
+    let existing = Set(self.windows.map(\.windowID))
+    self.windows = self.windows.compactMap { fresh[$0.windowID] } + windows.filter { !existing.contains($0.windowID) }
     rerank(following: rows.indices.contains(selection) ? rows[selection].windowID : nil)
   }
 
@@ -86,13 +90,15 @@ final class PanelController {
     closeRequest?.cancel()
     session += 1
     closing = false
+    let previous = nextWindows.dropFirst().first?.windowID ?? nextWindows.first?.windowID
+    windows = settings.groupByApp ? WindowCache.sort(nextWindows, byMRU: []) : nextWindows
     query = ""; selection = 0
     panel.content.showStatus(nil)
     panel.content.setSearchFocused(false)
     refreshAppearance()
     WindowThumbnails.beginSession(source: settings.previewSource)
     if settings.previewSource == .fresh { WindowThumbnails.warm(windows) }
-    rerank(following: nil)
+    rerank(following: previous)
     let generation = session
     var presented = false
     let present: @MainActor @Sendable () -> Void = { [weak self] in
@@ -131,7 +137,7 @@ final class PanelController {
   private func rerank(following id: UInt32?, animateResize: Bool = false) {
     let previousRows = rows
     rows = Search.rank(windows, query: query)
-    if settings.groupByApp { rows = WindowCache.sort(rows, byMRU: []) }
+
     if let id { selection = rows.firstIndex { $0.windowID == id } ?? 0 }
     else { selection = min(max(selection, 0), max(0, rows.count - 1)) }
     let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main

@@ -43,3 +43,4 @@ KISS/YAGNI 的代价要显式写出来：哪个角被砍了、上限在哪、什
 - [ ] 触及 CLAUDE.md 第四条正确性红线的话，已逐条核对并在「为什么这么改」里点名
 - [ ] `Core/` 没有新增 AppKit / CoreGraphics / ApplicationServices 的 import
 - [ ] 达到文档阈值的话，spec / design / decision 已更新（见 CLAUDE.md 第三条）
+- [ ] 本 PR 已同步更新当前未发布版本的更新文档：一条英文说明、PR 链接及 PR 作者的 GitHub 用户名；封版文档保持不变（见 `docs/releases/README.md`）

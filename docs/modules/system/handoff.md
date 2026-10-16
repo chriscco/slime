@@ -72,3 +72,11 @@ Warp's incomplete AX list and Chrome's identical CG frames/stale names were obse
 actual post-change multiwindow switching/title behavior still needs native acceptance.
 Do not infer exact native behavior from injected activation tests. Keep the immediate
 application fallback for targets that public AX cannot yet identify.
+
+## Reopening after Escape with a held modifier
+
+Idle Tab events recover Command/Option from CGEvent flags, because dismissal ends
+the session without generating another modifier-down event. The callback still
+checks disabled/degraded state first; active sessions retain their current mode.
+The callback regression failed before the fix and all 212 tests pass afterward.
+Native keyboard acceptance remains pending; no AX work or waiting was added.

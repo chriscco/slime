@@ -18,3 +18,17 @@ jobs:
       - run: swift --version
       - run: python3 -m unittest discover -s scripts/tests
       - run: scripts/test
+
+  signing:
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Import and use a disposable signing identity
+        timeout-minutes: 2
+        run: scripts/tests/signing-smoke
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          keychain="$RUNNER_TEMP/slime-release.keychain-db"
+          if [ -f "$keychain" ]; then security delete-keychain "$keychain"; fi

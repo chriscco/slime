@@ -3,21 +3,42 @@
 Release notes are written and reviewed in English. Bilingual notes are not required.
 The workflow publishes the file unchanged; it never substitutes generated commit logs.
 
-## Prepare the notes
+## Maintain notes in every PR
 
-1. Copy [`../templates/release.md`](../templates/release.md) to `<version>.md` in
-   this directory (for example, `0.0.7.md`). Replace every placeholder.
-2. Include exactly one bullet for every PR merged into `main` since the preceding
-   stable version tag, including documentation/maintenance and release preparation.
-   Use this format, crediting the **PR author** by GitHub username:
+**Current unreleased version: [0.0.8](0.0.8.md). Version 0.0.7 is frozen.**
+
+1. Every PR updates the current version's document in the same PR, including
+   features, bug fixes, documentation, maintenance, and release preparation.
+   Write exactly one English bullet describing the PR's final changes, crediting
+   the **PR author** by GitHub username:
 
    ```markdown
    - Add selectable background themes. ([#62](https://github.com/chriscco/slime/pull/62)) — @chriscco
    ```
 
-   Open the preparation PR first so its own number is available for the notes.
-   The validator checks PR coverage and usernames against GitHub; editorial quality
-   and English wording are checked in review. Bot authors use `@name[bot]`.
+2. Open a draft PR to obtain its number, then add its entry before requesting
+   review. Keep the entry accurate as the scope changes; consolidate rather than
+   append another bullet for the same PR. Bot authors use `@name[bot]`.
+3. Reviewers check the entry against the final diff before marking the PR Ready.
+   If another version is frozen before merge, move the entry to the new current
+   version and recheck coverage.
+4. Frozen version documents stay unchanged. After a version is frozen, the first
+   subsequent PR creates the next version's document and updates the current-version
+   link above. Carry forward any entries for PRs outside the frozen release into
+   the new document, without changing the frozen file.
+
+Development notes need a `# slime v<version>` heading, an `Unreleased.` status,
+and a `## Changes` section. Finalize the remaining template sections at release
+preparation; do not add development-version notices to the READMEs.
+
+## Prepare the release
+
+1. Finalize the current notes using [`../templates/release.md`](../templates/release.md):
+   replace `Unreleased.` with a summary, add installation instructions and known
+   limitations, and remove every placeholder.
+2. Verify exactly one entry for every PR merged into `main` since the preceding
+   stable tag, including the preparation PR itself. The validator checks coverage
+   and usernames against GitHub; review checks wording and accuracy.
 3. Update `CFBundleShortVersionString` and `CFBundleVersion` in `scripts/build-app`.
    Review the notes and native acceptance results in the PR, then have the owner merge.
 
@@ -58,12 +79,12 @@ From a clean, up-to-date `main`, after owner acceptance:
 ```sh
 git pull --ff-only origin main
 scripts/test
-git tag -a v0.0.7 -m 'slime v0.0.7'
-scripts/check-release v0.0.7 --repository chriscco/slime
-git push origin v0.0.7
+git tag -a v0.0.8 -m 'slime v0.0.8'
+scripts/check-release v0.0.8 --repository chriscco/slime
+git push origin v0.0.8
 ```
 
-Use the intended version in place of `0.0.7`. Only stable `vX.Y.Z` tags are supported.
+Use the intended version in place of `0.0.8`. Only stable `vX.Y.Z` tags are supported.
 The notes range starts at the nearest preceding version tag on first-parent history;
 only tag actual releases. The existing merge-commit PR policy is required.
 

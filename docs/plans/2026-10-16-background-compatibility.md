@@ -26,8 +26,10 @@ No VM installation, new dependency, or changes to capture/window operations.
   through tests on that runner; check packaged executable startup separately from TCC.
 - [x] README files / app design, decision, handoff / release notes: document both material
   choices and experimental status. Record verified evidence and outstanding desktop checks.
-- [ ] Run scripts/test, Python script tests, signed bundle build, CI, and review full diff.
+- [x] Run scripts/test, Python script tests, signed bundle build, CI, and review full diff.
   Check #76 integration in a disposable worktree; leave PR open for the user's merge.
 
 For each behavior slice, run scripts/test to observe the missing behavior, implement,
 then rerun. Newer-only APIs must be guarded at declaration and use sites.
+
+Visible-window material acceptance remains pending; see the app handoff for the tool limitation.

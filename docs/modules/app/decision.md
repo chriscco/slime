@@ -57,3 +57,10 @@ A stable self-signing identity is imported from repository secrets; release mode
 closed instead of silently changing to ad-hoc. This keeps the current unnotarized
 distribution policy. Revisit signing and install guidance together when Developer ID
 and notarization become available. See the release spec and publishing guide.
+
+## 2026-10-16 — Keep version-status notices out of READMEs
+
+At the maintainer's request, neither README should announce development versions,
+version-specific update summaries, or that the latest DMG is still an older version.
+Keep version announcements and release summaries in GitHub Releases and the versioned
+release notes; READMEs describe installation and current usage.

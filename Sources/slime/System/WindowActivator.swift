@@ -15,8 +15,11 @@ enum WindowActivator {
       app.unhide()
       return app.activate(options: [])
     }, frontmostPID: @escaping @MainActor () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+    monitorInput: @MainActor (AXRequest) -> (() -> Void) = monitorInput,
     raise: @escaping @Sendable (NativeWindowTarget, AXRequest) async -> Bool = raise) async -> WindowActivationResult {
     guard request.isActive else { return .cancelled }
+    let removeInputMonitor = monitorInput(request)
+    defer { removeInputMonitor() }
     generation += 1
     let generation = generation
     let previous = pending
@@ -53,6 +56,23 @@ enum WindowActivator {
     let result = await operation.value
     if generation == Self.generation { pending = nil; pendingPIDs.removeAll() }
     return result
+  }
+
+  @MainActor private static func monitorInput(_ request: AXRequest) -> () -> Void {
+    // Ignore the event that initiated this activation, even if its delivery is still queued.
+    let started = ProcessInfo.processInfo.systemUptime
+    let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+    let global = NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
+      if event.timestamp > started { request.cancel() }
+    }
+    let local = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
+      if event.timestamp > started { request.cancel() }
+      return event
+    }
+    return {
+      if let global { NSEvent.removeMonitor(global) }
+      if let local { NSEvent.removeMonitor(local) }
+    }
   }
 
   private static func raise(_ target: NativeWindowTarget, _ request: AXRequest) async -> Bool {

@@ -44,7 +44,7 @@ extension PanelAndThumbnailTests {
 extension PanelAndThumbnailTests {
 @Test @MainActor func activationFallbackDoesNotReportAnExactWindow() async {
   var applications: [pid_t] = []
-  let result = await WindowActivator.activate(w(1), target: nil, request: AXRequest(seconds: 0.2), activateApp: { applications.append($0); return true }, frontmostPID: { applications.last })
+  let result = await WindowActivator.activate(w(1), target: nil, request: AXRequest(seconds: 0.2), activateApp: { applications.append($0); return true }, frontmostPID: { applications.last }, monitorInput: { _ in {} })
   #expect(result == .application)
   #expect(applications == [10])
 }
@@ -53,7 +53,7 @@ extension PanelAndThumbnailTests {
 extension PanelAndThumbnailTests {
 @Test @MainActor func cancelledActivationDoesNothing() async {
   let request = AXRequest(); request.cancel()
-  let result = await WindowActivator.activate(w(1), target: nil, request: request, activateApp: { _ in Issue.record("cancelled activation reached app"); return true })
+  let result = await WindowActivator.activate(w(1), target: nil, request: request, activateApp: { _ in Issue.record("cancelled activation reached app"); return true }, monitorInput: { _ in {} })
   #expect(result == .cancelled)
 }
 }
@@ -104,10 +104,10 @@ extension PanelAndThumbnailTests {
   let gate = ActivationGate()
   var applications: [pid_t] = []
   let firstRequest = AXRequest(seconds: 2)
-  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { applications.append($0); return true }, frontmostPID: { applications.last }, raise: { _, _ in await gate.raise() }) }
+  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { applications.append($0); return true }, frontmostPID: { applications.last }, monitorInput: { _ in {} }, raise: { _, _ in await gate.raise() }) }
   for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
   firstRequest.cancel()
-  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { applications.append($0); return true }, frontmostPID: { applications.last }) }
+  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { applications.append($0); return true }, frontmostPID: { applications.last }, monitorInput: { _ in {} }) }
   for _ in 0..<100 where applications.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
   #expect(applications == [10, 20])
   await gate.finish()
@@ -139,7 +139,7 @@ extension PanelAndThumbnailTests {
 @Test @MainActor func exactActivationUsesOneMaintainedTargetOperation() async {
   let counter = FocusReadCounter()
   let target = NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10))
-  let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, frontmostPID: { 10 }, raise: { target, _ in
+  let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, frontmostPID: { 10 }, monitorInput: { _ in {} }, raise: { target, _ in
     #expect(target.pid == 10 && target.windowID == 1)
     _ = counter.read()
     return true
@@ -149,7 +149,7 @@ extension PanelAndThumbnailTests {
 }
 @Test @MainActor func mismatchedTargetNeverReachesNativeRaise() async {
   for target in [NativeWindowTarget(pid: 20, windowID: 1, element: AXUIElementCreateApplication(20)), NativeWindowTarget(pid: 10, windowID: 2, element: AXUIElementCreateApplication(10))] {
-    let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, frontmostPID: { 10 }, raise: { _, _ in Issue.record("mismatched target raised"); return true })
+    let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2), activateApp: { _ in true }, frontmostPID: { 10 }, monitorInput: { _ in {} }, raise: { _, _ in Issue.record("mismatched target raised"); return true })
     #expect(result == .application)
   }
 }
@@ -182,10 +182,10 @@ extension PanelAndThumbnailTests {
   var front: pid_t = 10
   var apps: [pid_t] = []
   let firstRequest = AXRequest(seconds: 2)
-  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, raise: { _, _ in await gate.raise() }) }
+  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, monitorInput: { _ in {} }, raise: { _, _ in await gate.raise() }) }
   for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
   firstRequest.cancel()
-  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }) }
+  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: AXRequest(seconds: 2), activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, monitorInput: { _ in {} }) }
   for _ in 0..<100 where apps.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
   front = 30
   await gate.finish()
@@ -200,11 +200,11 @@ extension PanelAndThumbnailTests {
   var front: pid_t = 10
   var apps: [pid_t] = []
   let firstRequest = AXRequest(seconds: 2)
-  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, raise: { _, _ in await gate.raise() }) }
+  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, monitorInput: { _ in {} }, raise: { _, _ in await gate.raise() }) }
   for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
   firstRequest.cancel()
   let secondRequest = AXRequest(seconds: 2)
-  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: secondRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }) }
+  let second = Task { await WindowActivator.activate(w(2, 20), target: nil, request: secondRequest, activateApp: { apps.append($0); front = $0; return true }, frontmostPID: { front }, monitorInput: { _ in {} }) }
   for _ in 0..<100 where apps.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
   front = 30
   NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification, object: nil,
@@ -215,5 +215,30 @@ extension PanelAndThumbnailTests {
   #expect(await first.value == .cancelled)
   #expect(await second.value == .cancelled)
   #expect(apps == [10, 20])
+}
+}
+extension PanelAndThumbnailTests {
+@Test @MainActor func newInputWithinTargetAppCancelsQueuedRaiseAndRemovesMonitor() async throws {
+  let gate = ActivationGate()
+  var apps: [pid_t] = []
+  var input: (() -> Void)?
+  var removed = false
+  let firstRequest = AXRequest(seconds: 2)
+  let first = Task { await WindowActivator.activate(w(1), target: NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10)), request: firstRequest, activateApp: { apps.append($0); return true }, frontmostPID: { apps.last }, monitorInput: { _ in {} }, raise: { _, _ in await gate.raise() }) }
+  for _ in 0..<100 where !(await gate.started) { try await Task.sleep(for: .milliseconds(5)) }
+  firstRequest.cancel()
+  let secondRequest = AXRequest(seconds: 2)
+  let second = Task { await WindowActivator.activate(w(2, 20), target: NativeWindowTarget(pid: 20, windowID: 2, element: AXUIElementCreateApplication(20)), request: secondRequest, activateApp: { apps.append($0); return true }, frontmostPID: { apps.last }, monitorInput: { request in
+    input = { request.cancel() }
+    return { removed = true }
+  }, raise: { _, _ in Issue.record("new input must cancel B1 raise"); return true }) }
+  for _ in 0..<100 where input == nil { try await Task.sleep(for: .milliseconds(5)) }
+  input?() // The user clicks B2; the application PID remains B.
+  #expect(secondRequest.isCancelled)
+  await gate.finish()
+  #expect(await first.value == .cancelled)
+  #expect(await second.value == .cancelled)
+  #expect(apps == [10, 20])
+  #expect(removed)
 }
 }

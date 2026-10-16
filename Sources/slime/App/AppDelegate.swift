@@ -74,7 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let cache = WindowCache()
     let panel = PanelController()
     let tap = EventTap(
-      onEffects: { [weak panel] state, effects in panel?.handle(state: state, effects: effects) },
+      onEffects: { [weak self, weak panel] state, effects in
+        for effect in effects {
+          if case .showPanel = effect { self?.activationRequest?.cancel() }
+        }
+        panel?.handle(state: state, effects: effects)
+      },
       onDegraded: { [weak self] in self?.tapDegraded() })
     do { try tap.start() } catch {
       settings.isEnabled = false

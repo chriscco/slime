@@ -47,6 +47,7 @@ enum WindowThumbnails {
   private static var sessionOpen = false
   private static var attempted: [UInt32: Bool] = [:]
   private static var captureTasks: [UUID: Task<[UInt32: CGImage], Never>] = [:]
+  private static let diskQueue = ThumbnailDiskQueue()
   private static var diskTasks: [UUID: Task<Void, Never>] = [:]
 
   @discardableResult
@@ -82,8 +83,9 @@ enum WindowThumbnails {
   /// Cancellation prevents queued work; a filesystem operation already started may finish.
   private static func onDisk(_ body: @escaping @Sendable () -> Void) {
     let id = UUID()
+    let queue = diskQueue
     diskTasks[id] = Task.detached(priority: .utility) {
-      if !Task.isCancelled { body() }
+      await queue.perform(body)
       await diskFinished(id)
     }
   }
@@ -441,5 +443,14 @@ enum WindowThumbnails {
       }
       return false
     }
+  }
+}
+
+
+/// Serialize PNG writes/pruning without making the main actor wait for filesystem work.
+private actor ThumbnailDiskQueue {
+  func perform(_ body: @Sendable () -> Void) {
+    guard !Task.isCancelled else { return }
+    body()
   }
 }

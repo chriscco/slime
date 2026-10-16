@@ -400,3 +400,46 @@ extension PanelAndThumbnailTests {
     WindowThumbnails.configure(source: .cached)
   }
 }
+
+private final class DiskWriteGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private let release = DispatchSemaphore(value: 0)
+  private var started = 0
+  var count: Int { lock.withLock { started } }
+  func save() {
+    lock.withLock { started += 1 }
+    _ = release.wait(timeout: .now() + 2)
+  }
+  func finish() { release.signal(); release.signal() }
+}
+
+extension PanelAndThumbnailTests {
+  @Test(arguments: [false, true]) @MainActor
+  func cachedDiskWritesDoNotOverlapAndModeChangeCancelsQueuedWrites(_ cancel: Bool) async throws {
+    WindowThumbnails.configure(source: .cached)
+    let gate = DiskWriteGate()
+    defer { gate.finish() }
+    let first = window(999_997, onscreen: false)
+    let second = window(999_998, onscreen: false)
+    let thumbnail = image { $0.setFillColor(opaque(0.2, 0.4, 0.6)); $0.fill(CGRect(x: 0, y: 0, width: 64, height: 64)) }
+    func warm(_ windows: [Window]) {
+      WindowThumbnails.warm(windows, diskLoader: { _ in [:] },
+        captureImages: { ids in Dictionary(uniqueKeysWithValues: ids.map { ($0, thumbnail) }) },
+        pruneImages: { _ in }, saveImages: { _ in gate.save() })
+    }
+    warm([first])
+    for _ in 0..<100 where gate.count == 0 { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(gate.count == 1)
+    warm([first, second])
+    for _ in 0..<100 where WindowThumbnails.hasPendingWork { try await Task.sleep(for: .milliseconds(5)) }
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(WindowThumbnails.image(for: second) === thumbnail)
+    #expect(gate.count == 1, "Second save must wait for the first without blocking image publication")
+    if cancel { WindowThumbnails.configure(source: .fresh) }
+    gate.finish()
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(gate.count == (cancel ? 1 : 2))
+    WindowThumbnails.configure(source: .fresh)
+    WindowThumbnails.configure(source: .cached)
+  }
+}

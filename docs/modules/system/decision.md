@@ -157,6 +157,7 @@ not that every minimized or other-Space window is capturable.
 
 Move persistence out of capture and behind main-actor identity-ticket acceptance. Mode
 changes cancel capture and pending disk tasks; fresh session boundaries also cancel capture.
+A small disk actor serializes writes/pruning so moving saves after capture cannot overlap PNG writes.
 Task cancellation is checked before background file work and between screenshots/files.
 A file operation already started may finish after the change; preventing that would require
 waiting on disk or transactional storage with no benefit to this non-erasure preference.

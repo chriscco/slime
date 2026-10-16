@@ -108,7 +108,7 @@ search/selection do neither. No explicit refresh command exists independently of
 
 Capture tasks carry the source selected at request time. Mode/session changes invalidate
 tickets and cancel tasks; results must pass ticket validation before publication or save
-scheduling. Disk tasks are background/cancellable. Already-started file operations may finish;
+scheduling. Disk tasks are background/cancellable and serialize writes/pruning through an actor. Already-started file operations may finish;
 fresh mode schedules no new disk work and is not a secure-delete feature. The existing 300 ms
 presentation deadline is unchanged. Fresh validation permits transparent corners, rejects
 transparent/solid samples, and uses the existing proportional image canvas.

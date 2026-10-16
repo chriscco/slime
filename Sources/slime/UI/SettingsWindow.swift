@@ -214,6 +214,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       body.addArrangedSubview(note)
       body.setCustomSpacing(12, after: note)
     }
+
+    let source = NSPopUpButton()
+    source.addItems(withTitles: [text("Cached previews (recommended)", "缓存预览（推荐）"),
+      text("Fresh captures", "重新抓取")])
+    source.selectItem(at: settings.previewSource == .cached ? 0 : 1)
+    source.target = self; source.action = #selector(previewSourceChanged(_:))
+    source.setAccessibilityLabel(text("Preview source", "预览来源"))
+    let sourceRow = NSStackView(views: [label(text("Preview source", "预览来源")), source])
+    sourceRow.distribution = .equalSpacing
+    body.addArrangedSubview(sourceRow)
+    sourceRow.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+    let sourceNote = NSTextField(wrappingLabelWithString: text(
+      "Fresh captures skip stored previews. Some windows may be unavailable.",
+      "重新抓取不使用已存预览。部分窗口可能无法获取预览。"))
+    sourceNote.font = .systemFont(ofSize: 11)
+    sourceNote.textColor = .secondaryLabelColor
+    body.addArrangedSubview(sourceNote)
+    sourceNote.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+
     let names = [text("Black", "黑色"), text("White", "白色"),
       text("Deep Blue", "深蓝"), text("System", "跟随系统")]
     let themes = Settings.PanelBackground.allCases
@@ -432,6 +451,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     content.layoutSubtreeIfNeeded()
     bodyScroll.documentView?.scroll(.zero)
   }
+  @objc private func previewSourceChanged(_ sender: NSPopUpButton) {
+    settings.previewSource = sender.indexOfSelectedItem == 0 ? .cached : .fresh
+    onChange?()
+  }
+
   @objc private func backgroundChanged(_ sender: PanelBackgroundButton) {
     settings.panelBackground = sender.theme
     for button in backgroundButtons {

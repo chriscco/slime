@@ -5,6 +5,15 @@ import AppKit
 ///
 /// 注入 `UserDefaults` 是为了测试不污染真的 defaults，不是为了「将来换实现」。
 struct Settings {
+  enum PreviewSource: String, CaseIterable, Sendable {
+    case cached, fresh
+  }
+
+  var previewSource: PreviewSource {
+    get { defaults.string(forKey: "preview.source").flatMap(PreviewSource.init(rawValue:)) ?? .cached }
+    nonmutating set { defaults.set(newValue.rawValue, forKey: "preview.source") }
+  }
+
   enum GlassStyle: String, CaseIterable {
     case regular, clear
 

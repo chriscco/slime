@@ -397,6 +397,7 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   }
 }
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func searchFocusShowsCaretAndTypingMovesIt() {
   _ = NSApplication.shared
   let controller = PanelController()
@@ -413,6 +414,7 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   #expect(content.searchCaret.layer?.animation(forKey: "caret") == nil)
   controller.dismiss()
   #expect(!content.searchFocused)
+}
 }
 
 @Test @MainActor func repeatingSearchFocusKeepsTheExistingBlinkAnimation() {
@@ -474,6 +476,7 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   #expect(content.searchCaret.frame.maxX <= clip.bounds.width)
 }
 
+extension PanelAndThumbnailTests {
 @Test @MainActor func systemAppearanceRefreshKeepsTheQueryFocusAndSelection() throws {
   _ = NSApplication.shared
   let suite = "slime.live-theme.\(UUID().uuidString)"
@@ -506,6 +509,7 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   #expect(content.searchFocused)
   #expect(content.searchLabel.stringValue == "a")
   controller.dismiss()
+}
 }
 
 @Test @MainActor func searchHeaderAlignsRoundedLogoAndUsesThemeAwareTextWithoutHintFill() throws {

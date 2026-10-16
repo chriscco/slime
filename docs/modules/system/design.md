@@ -92,3 +92,23 @@ Session tap uses head insertion/default interception. Native acceptance must ver
 Within an open session, ordinary Command-letter combinations such as Command-C/Command-Q still become filter characters unless assigned a dedicated shortcut. Outside the session, ordinary keys pass through. AX frame/title matching remains heuristic; unavailable or ambiguous destructive targets are rejected. Applications that report real unnamed windows as AXUnknown can be filtered incorrectly. Public AX coverage varies by Space/application, and never-observed offscreen windows may remain undiscovered, especially without CG titles. Chrome's AXManualAccessibility was unsupported in earlier tests; some Electron apps still exposed no windows after waiting five seconds.
 
 The 0.0.6 performance spec governs deadline, cancellation, rendering, and 10/50/100-window acceptance. Offscreen/unit tests alone cannot certify native activation, Space switching, physical shortcuts, or save-dialog behavior.
+
+## Preview source and session boundaries (0.0.8)
+
+Settings persists `preview.source` as `cached` (default/unknown-value fallback) or `fresh`.
+AppDelegate configures the source before cache startup and on settings changes. Cached mode
+retains background warming, disk cache, negative cache, and onscreen refresh.
+
+PanelController calls `beginSession` before rendering and `endSession` on every hide path.
+Fresh mode clears memory/tickets/attempts at both boundaries, announces the new session so
+reused cards clear their previous images, and ignores `warm` while closed. `warm` captures
+new identities once, deduplicates repeated snapshots, and allows a failed offscreen identity
+one retry when visible. Opening triggers the capture batch and normal window refresh;
+search/selection do neither. No explicit refresh command exists independently of opening.
+
+Capture tasks carry the source selected at request time. Mode/session changes invalidate
+tickets and cancel tasks; results must pass ticket validation before publication or save
+scheduling. Disk tasks are background/cancellable. Already-started file operations may finish;
+fresh mode schedules no new disk work and is not a secure-delete feature. The existing 300 ms
+presentation deadline is unchanged. Fresh validation permits transparent corners, rejects
+transparent/solid samples, and uses the existing proportional image canvas.

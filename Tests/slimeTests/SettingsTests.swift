@@ -137,3 +137,15 @@ import Testing
   #expect(settings.effectivePanelMaterial(supportsGlass: true) == .glass)
   #expect(settings.effectivePanelMaterial(supportsGlass: false) == .solid)
 }
+
+@Test func previewSourceDefaultsToCachedAndPersists() throws {
+  let suite = "slime.previews.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  #expect(settings.previewSource == .cached)
+  settings.previewSource = .fresh
+  #expect(Settings(defaults: defaults).previewSource == .fresh)
+  defaults.set("unknown", forKey: "preview.source")
+  #expect(settings.previewSource == .cached)
+}

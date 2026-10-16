@@ -364,3 +364,25 @@ func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool)
     .first { $0.accessibilityLabel() == "Enable slime" })
   #expect(refreshed.state == .on)
 }
+
+@Test @MainActor func appearancePreviewSourcePersistsAndNotifies() throws {
+  _ = NSApplication.shared
+  let suite = "slime.preview-ui.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = SettingsWindowController(settings: settings)
+  var changes = 0
+  controller.onChange = { changes += 1 }
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Appearance" })
+  appearance.performClick(nil)
+  let source = try #require(descendants(window.contentView!).compactMap { $0 as? NSPopUpButton }.first { $0.accessibilityLabel() == "Preview source" })
+  window.contentView?.layoutSubtreeIfNeeded()
+  #expect(source.frame.width >= source.intrinsicContentSize.width)
+  #expect(source.titleOfSelectedItem == "Cached previews (recommended)")
+  source.selectItem(at: 1)
+  NSApp.sendAction(try #require(source.action), to: source.target, from: source)
+  #expect(Settings(defaults: defaults).previewSource == .fresh)
+  #expect(changes == 1)
+}

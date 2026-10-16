@@ -231,6 +231,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     sourceNote.font = .systemFont(ofSize: 11)
     sourceNote.textColor = .secondaryLabelColor
     body.addArrangedSubview(sourceNote)
+    body.setCustomSpacing(24, after: sourceNote)
     sourceNote.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
 
     let names = [text("Black", "黑色"), text("White", "白色"),

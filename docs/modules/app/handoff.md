@@ -114,3 +114,9 @@ permission across two simulated launches using isolated preferences. All 189 loc
 tests pass; native visibility and upgrade permission continuity remain pending.
 The isolated fixture should now start enabled, replacing its earlier intentionally
 disabled setup. Production preferences and permissions remain untouched.
+
+Owner confirmed the system permission dialog is now visible. Follow-up: the Enable
+slime switch now reflects actual runtime state, so denying access leaves it off
+without discarding startup intent. Its action is separate from appearance/grouping
+changes to avoid unrelated permission retries. All 190 local tests pass, including
+a denied-enable UI regression. Native confirmation of the switch remains pending.

@@ -4,6 +4,8 @@ import ServiceManagement
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
   var onChange: (() -> Void)?
+  var onEnabledChange: (() -> Void)?
+  var isRunning: (() -> Bool)?
   private let settings: Settings
   private let supportsGlass: Bool
   private var materialControl: NSSegmentedControl?
@@ -173,7 +175,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private func general() {
     row(text("Enable slime", "启用 slime"), detail: text(
       "Turn off to use the system window switcher.", "关闭后使用系统原生切换器。"),
-      control: toggle(settings.isEnabled, action: #selector(enabledChanged(_:))))
+      control: toggle(isRunning?() ?? settings.isEnabled, action: #selector(enabledChanged(_:))))
     row(text("Group windows by app", "按应用分组"), detail: text(
       "Give each app its own section.", "每个应用单独一组，另起一行。"),
       control: toggle(settings.groupByApp, action: #selector(groupChanged(_:))))
@@ -438,7 +440,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
     onChange?()
   }
-  @objc private func enabledChanged(_ sender: NSSwitch) { settings.isEnabled = sender.state == .on; onChange?() }
+  @objc private func enabledChanged(_ sender: NSSwitch) {
+    settings.isEnabled = sender.state == .on
+    onEnabledChange?()
+    sender.state = (isRunning?() ?? settings.isEnabled) ? .on : .off
+  }
   @objc private func groupChanged(_ sender: NSSwitch) { settings.groupByApp = sender.state == .on; onChange?() }
   @objc private func languageChanged(_ sender: NSPopUpButton) {
     settings.language = sender.indexOfSelectedItem == 1 ? .chinese : .english

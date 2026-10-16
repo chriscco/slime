@@ -126,6 +126,7 @@ import Testing
   let controller = SettingsWindowController(settings: settings)
   var changes = 0
   controller.onChange = { changes += 1 }
+  controller.onEnabledChange = { changes += 1 }
   let window = controller.makeWindow()
   let switches = descendants(window.contentView!).compactMap { $0 as? NSSwitch }
   let enabled = try #require(switches.first { $0.accessibilityLabel() == "Enable slime" })
@@ -329,4 +330,37 @@ func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool)
   #expect(!window.isVisible, "A delayed focus notification must not restore settings above the prompt")
   controller.show()
   #expect(window.isVisible, "The menu-bar Settings action must still reopen the window")
+}
+
+@Test @MainActor func enableSwitchShowsRuntimeStateAndOnlyItsActionRequestsEnable() throws {
+  _ = NSApplication.shared
+  let suite = "slime.runtime-switch.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = SettingsWindowController(settings: settings)
+  var running = false
+  var enableRequests = 0
+  controller.isRunning = { running }
+  controller.onEnabledChange = { enableRequests += 1 }
+  let window = controller.makeWindow()
+  let enabled = try #require(descendants(window.contentView!).compactMap { $0 as? NSSwitch }
+    .first { $0.accessibilityLabel() == "Enable slime" })
+  #expect(settings.isEnabled)
+  #expect(enabled.state == .off)
+  enabled.state = .on
+  NSApp.sendAction(try #require(enabled.action), to: enabled.target, from: enabled)
+  #expect(enableRequests == 1)
+  #expect(enabled.state == .off, "Denied authorization must not leave the switch on")
+  #expect(settings.isEnabled, "Retain startup intent for the next launch")
+  let group = try #require(descendants(window.contentView!).compactMap { $0 as? NSSwitch }
+    .first { $0.accessibilityLabel() == "Group windows by app" })
+  group.state = .on
+  NSApp.sendAction(try #require(group.action), to: group.target, from: group)
+  #expect(enableRequests == 1, "Unrelated settings must not request authorization again")
+  running = true
+  controller.refresh()
+  let refreshed = try #require(descendants(window.contentView!).compactMap { $0 as? NSSwitch }
+    .first { $0.accessibilityLabel() == "Enable slime" })
+  #expect(refreshed.state == .on)
 }

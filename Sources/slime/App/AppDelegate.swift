@@ -8,7 +8,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusItem: NSStatusItem?
   private let settings: Settings
   private let updater = AppUpdater()
-  private lazy var settingsWindow = SettingsWindowController(settings: settings, updater: updater)
+  private lazy var settingsWindow: SettingsWindowController = {
+    let controller = SettingsWindowController(settings: settings, updater: updater)
+    controller.isRunning = { [weak self] in self?.lastEnabled ?? false }
+    controller.onChange = { [weak self] in self?.settingsChanged() }
+    controller.onEnabledChange = { [weak self] in self?.enabledChanged() }
+    return controller
+  }()
   private var lastEnabled = false
 
   init(settings: Settings = Settings()) {
@@ -17,7 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    settingsWindow.onChange = { [weak self] in self?.settingsChanged() }
     installStatusItem()
     updater.start()
     if settings.isEnabled { enable() }
@@ -26,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func settingsChanged() {
     panel?.refreshAppearance()
     installStatusItem()
+  }
+
+  private func enabledChanged() {
     guard settings.isEnabled != lastEnabled else { return }
     if settings.isEnabled {
       enable()

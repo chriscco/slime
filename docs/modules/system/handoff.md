@@ -56,4 +56,4 @@ visit; the owner explicitly accepted this boundary. Screenshot validity is not u
 as window-identity evidence. No app-specific names, sizes, or private APIs are used.
 Regression coverage includes stale caches, enumeration order, confirmed/minimized
 siblings, different PIDs/titles, manual discovery followed by offscreen retention,
-and serialization of the new optional field. Native owner confirmation is pending.
+and serialization of the new optional field. The owner subsequently confirmed the duplicate cards are gone in both preview modes.

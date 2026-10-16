@@ -46,7 +46,7 @@ enum WindowThumbnails {
   private static var source: Settings.PreviewSource = .cached
   private static var sessionOpen = false
   private static var attempted: [UInt32: Bool] = [:]
-  private static var captureTasks: [UUID: Task<[UInt32: CGImage], Never>] = [:]
+  private static var imageTasks: [UUID: Task<[UInt32: CGImage], Never>] = [:]
   private static let diskQueue = ThumbnailDiskQueue()
   private static var diskTasks: [UUID: Task<Void, Never>] = [:]
 
@@ -73,8 +73,8 @@ enum WindowThumbnails {
   }
 
   private static func resetImages() {
-    for task in captureTasks.values { task.cancel() }
-    captureTasks.removeAll()
+    for task in imageTasks.values { task.cancel() }
+    imageTasks.removeAll()
     cache.removeAll(); tickets.removeAll(); pending.removeAll(); refreshing.removeAll()
     diskChecked.removeAll(); unrenderable.removeAll(); attempted.removeAll()
     whenSettledCallback = nil
@@ -174,6 +174,7 @@ enum WindowThumbnails {
     let files = (try? FileManager.default.contentsOfDirectory(
       at: thumbsDirectory, includingPropertiesForKeys: nil)) ?? []
     for file in files {
+      guard !Task.isCancelled else { return }
       guard let id = UInt32(file.deletingPathExtension().lastPathComponent) else { continue }
       if survivors.contains(id) { continue }
       try? FileManager.default.removeItem(at: file)
@@ -247,7 +248,19 @@ enum WindowThumbnails {
     let expected = tickets
     let onscreen = Set(windows.filter(\.isOnscreen).map(\.windowID))
     Task {
-      let loaded = requestSource == .cached ? await diskLoader(readIDs) : [:]
+      guard (plan.needed + plan.refresh).contains(where: { tickets[$0] == expected[$0] }) else {
+        notifySettledIfIdle()
+        return
+      }
+      var loaded: [UInt32: CGImage] = [:]
+      let currentReadIDs = readIDs.filter { tickets[$0] == expected[$0] }
+      if requestSource == .cached && !currentReadIDs.isEmpty {
+        let loadID = UUID()
+        let task = Task.detached(priority: .utility) { await diskLoader(currentReadIDs) }
+        imageTasks[loadID] = task
+        loaded = await task.value
+        imageTasks.removeValue(forKey: loadID)
+      }
       publishDisk(loaded, expected: expected)
       let ids = (plan.needed.filter { loaded[$0] == nil || onscreen.contains($0) } + plan.refresh)
         .filter { tickets[$0] == expected[$0] }
@@ -260,9 +273,9 @@ enum WindowThumbnails {
         if let captureImages { return await captureImages(ids) }
         return await capture(ids, source: requestSource)
       }
-      captureTasks[captureID] = task
+      imageTasks[captureID] = task
       let captured = await task.value
-      captureTasks.removeValue(forKey: captureID)
+      imageTasks.removeValue(forKey: captureID)
       let accepted = captured.filter { tickets[$0.key] == expected[$0.key] }
       if requestSource == .cached && !accepted.isEmpty { onDisk { saveImages(accepted) } }
       Self.publish(accepted, needed: plan.needed, refresh: plan.refresh, expected: expected)
@@ -271,11 +284,19 @@ enum WindowThumbnails {
 
   static func loadDiskImages(_ ids: [UInt32],
     loader: @escaping @Sendable (UInt32) -> CGImage? = { load($0) }) async -> [UInt32: CGImage] {
-    await Task.detached(priority: .utility) {
+    let task = Task.detached(priority: .utility) {
       var images: [UInt32: CGImage] = [:]
-      for id in ids { if let image = loader(id) { images[id] = image } }
+      for id in ids {
+        guard !Task.isCancelled else { break }
+        if let image = loader(id) { images[id] = image }
+      }
       return images
-    }.value
+    }
+    return await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
+    }
   }
 
   private static func publishDisk(_ images: [UInt32: CGImage], expected: [UInt32: UUID]) {

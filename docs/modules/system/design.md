@@ -106,6 +106,8 @@ new identities once, deduplicates repeated snapshots, and allows a failed offscr
 one retry when visible. Opening triggers the capture batch and normal window refresh;
 search/selection do neither. No explicit refresh command exists independently of opening.
 
+Warm tasks validate tickets again before scheduling any disk read. Read and capture tasks
+are tracked together; cancellation propagates into detached disk readers between files.
 Capture tasks carry the source selected at request time. Mode/session changes invalidate
 tickets and cancel tasks; results must pass ticket validation before publication or save
 scheduling. Disk tasks are background/cancellable and serialize writes/pruning through an actor. Already-started file operations may finish;

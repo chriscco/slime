@@ -443,3 +443,35 @@ extension PanelAndThumbnailTests {
     WindowThumbnails.configure(source: .cached)
   }
 }
+
+extension PanelAndThumbnailTests {
+  @Test @MainActor func switchingModesBeforeWarmStartsSkipsQueuedDiskLoading() async throws {
+    WindowThumbnails.configure(source: .cached)
+    WindowThumbnails.warm([window(999_999)],
+      diskLoader: { _ in Issue.record("Invalidated warm must not start disk loading"); return [:] },
+      captureImages: { _ in Issue.record("Invalidated warm must not capture"); return [:] },
+      pruneImages: { _ in })
+    WindowThumbnails.configure(source: .fresh)
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(!WindowThumbnails.hasPendingWork)
+    WindowThumbnails.configure(source: .cached)
+  }
+}
+
+extension PanelAndThumbnailTests {
+  @Test @MainActor func cancelledDiskReadFinishesItsCurrentFileButSkipsTheNext() async throws {
+    let gate = DiskWriteGate()
+    defer { gate.finish() }
+    let thumbnail = image { _ in }
+    let task = Task {
+      await WindowThumbnails.loadDiskImages([1, 2], loader: { _ in gate.save(); return thumbnail })
+    }
+    for _ in 0..<100 where gate.count == 0 { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(gate.count == 1)
+    task.cancel()
+    gate.finish()
+    let loaded = await task.value
+    #expect(Set(loaded.keys) == [1])
+    #expect(gate.count == 1)
+  }
+}

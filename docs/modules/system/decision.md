@@ -151,7 +151,7 @@ ScreenCaptureKit remains the only capture API; no activation or Space switching 
 Fresh validation accepts transparent corners while requiring at least two quantized colors
 among opaque samples. This retains perspective renders without stretching them; blank or
 unavailable results keep the icon fallback. The existing aspect-fit card renderer suffices.
-A read-only macOS 26 probe produced a recognizable tilted two-pane application image that
+A read-only macOS 27.0 (26A428) probe produced a recognizable tilted two-pane application image that
 cached validation rejects and fresh validation accepts. This proves useful output exists,
 not that every minimized or other-Space window is capturable.
 

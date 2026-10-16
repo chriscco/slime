@@ -46,3 +46,11 @@ release notes. Review the complete diff against the spec and repository rules. O
 new PR against feat/fresh-previews, link #79, run current-head CI, post an honest review.
 Native checks that were not completed remain pending; never substitute synthetic timings
 for physical input latency. Do not merge or publish a release.
+
+## Execution status
+
+Implementation and independent code review completed in PR #80, stacked on #75.
+The review caught and fixed reverse CG/AX claimant ambiguity and cancellation after
+newer cross-app/same-app user actions. Native checks listed in the validation record
+remain pending; keep the PR draft until owner acceptance rather than treating injected
+tests as real-window validation. User performs the merge.

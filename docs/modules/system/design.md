@@ -59,7 +59,12 @@ same-PID/window AX target off the main thread to unminimize/raise and confirm fo
 not enumerate windows, capture previews, or retry identification. Missing/ambiguous/rejected
 targets retain application fallback without an error popup. The request budget is 150 ms;
 an already-running system IPC can exceed its requested timeout. Overlapping requests cancel
-obsolete work and must not allow a stale completion to update MRU.
+obsolete work and serialize native target operations. An intervening external application
+activation cancels pending work; restoration/exact publication also checks foreground
+ownership. Temporary local/global input monitors cancel on subsequent mouse/key input,
+including same-app window changes, and are removed when the request finishes. Opening
+a new panel also cancels the prior activation. A system AX call already sent cannot be revoked, so cancellation prevents
+subsequent calls and stale MRU rather than promising to undo an in-flight OS action.
 
 Enumeration retains exact AX identities before considering unique frame/title evidence.
 An absent retained identity must not be rebound to a same-frame sibling. Fresh AX titles

@@ -32,8 +32,30 @@ not a statistical guarantee or physical keyboard-to-screen latency measurement.
 | Baseline, stable idle | 30.19 s | 0.000% measured | 18.99 MiB |
 
 No CPU counter increase was measured during the stable baseline interval; this does
-not establish zero overhead for arbitrary workloads. New-build results follow after
-implementation and signed-build verification.
+not establish zero overhead for arbitrary workloads. The `b26cb52` signed release build was sampled three times with the panel closed:
+
+| New build / interval | Duration | Average CPU | Peak physical footprint |
+|---|---:|---:|---:|
+| First interval | 30.19 s | 0.582% | 18.89 MiB |
+| Second interval | 30.23 s | 0.504% | 19.03 MiB |
+| Third interval | 30.00 s | 0.400% | 19.39 MiB |
+
+A separate two-second native stack sample found the main thread waiting for events and
+occasional existing EventTap character translation; it did not sample observer/enumeration
+activity. The desktop was not input-isolated, so these intervals are **not** a controlled
+idle regression comparison, nor proof that the observer adds 0.4–0.6% CPU. They establish
+approximately 19 MiB footprint and low process CPU under the observed desktop activity.
+No periodic refresh was added; tests cover event coalescing and stop cancellation.
+
+## Automated and build checks
+
+- Full `scripts/test`: 215 tests, including partial AX-list ambiguity, cached native
+  identity, fallback without raise, PID/ID rejection, focus/title updates, coalesced
+  observer reads, external-focus/input cancellation and monitor cleanup, MRU and stable grouped panel sessions.
+- Signed release bundle built with `CONFIG=release REQUIRE_SIGNING=1 scripts/build-app`.
+- Switching does not call CG/AX window enumeration or capture. The direct target path
+  has one unminimize, one raise, and one focused-window read, with request checks between
+  calls. This operation count is not a measured physical latency guarantee.
 
 ## Native acceptance still required
 

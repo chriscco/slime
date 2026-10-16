@@ -12,11 +12,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private let body = NSStackView()
   private let bodyScroll = NSScrollView()
   private var backgroundButtons: [PanelBackgroundButton] = []
+  private let strengthValue = NSTextField(labelWithString: "")
+  private let radiusValue = NSTextField(labelWithString: "")
   private var loginSwitch: NSSwitch?
   private var loginStatus: NSTextField?
   private var loginBusy = false
 
-  init(settings: Settings = Settings()) { self.settings = settings }
+  init(settings: Settings = Settings()) {
+    self.settings = settings
+    super.init()
+    for value in [strengthValue, radiusValue] {
+      value.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+      value.alignment = .right
+      value.widthAnchor.constraint(equalToConstant: 38).isActive = true
+    }
+  }
 
   func show() {
     let window = makeWindow()
@@ -202,14 +212,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     row(text("Glass style", "玻璃样式"), control: style)
     let strength = NSSlider(value: settings.glassStrength, minValue: 0, maxValue: 1,
       target: self, action: #selector(strengthChanged(_:)))
-    row(text("Glass strength", "玻璃强度"), detail: text("Opaque to transparent", "从不透明到透明"), control: strength)
+    row(text("Glass strength", "玻璃强度"), detail: text("Opaque to transparent", "从不透明到透明"), control: percentageSlider(strength, value: strengthValue, title: text("Glass strength", "玻璃强度")))
     let color = NSColorWell()
     color.colorWellStyle = .minimal; color.color = settings.highlightColor
     color.target = self; color.action = #selector(colorChanged(_:))
     row(text("Accent color", "高亮颜色"), detail: text("Selection tint and underline", "选中底色与下划线"), control: color)
     let radius = NSSlider(value: settings.glassCornerRadius, minValue: 0, maxValue: 40,
       target: self, action: #selector(radiusChanged(_:)))
-    row(text("Panel corners", "面板圆角"), detail: text("Square to rounded", "从直角到圆角"), control: radius)
+    row(text("Panel corners", "面板圆角"), detail: text("Square to rounded", "从直角到圆角"), control: percentageSlider(radius, value: radiusValue, title: text("Panel corners", "面板圆角")))
     let note = label(text("Changes appear the next time you open the switcher.", "下次打开切换面板时显示更改。"), size: 11, secondary: true)
     body.addArrangedSubview(note)
   }
@@ -262,6 +272,22 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     control.state = value ? .on : .off
     control.target = self; control.action = action
     return control
+  }
+
+  private func percentageSlider(_ slider: NSSlider, value: NSTextField, title: String) -> NSView {
+    slider.isContinuous = true
+    slider.setAccessibilityLabel(title)
+    updatePercentage(slider, value: value)
+    let stack = NSStackView(views: [slider, value])
+    stack.orientation = .horizontal
+    stack.alignment = .centerY
+    stack.spacing = 8
+    slider.widthAnchor.constraint(equalToConstant: 110).isActive = true
+    return stack
+  }
+
+  private func updatePercentage(_ slider: NSSlider, value: NSTextField) {
+    value.stringValue = "\(Int((slider.doubleValue / slider.maxValue * 100).rounded()))%"
   }
 
   private func row(_ title: String, detail: String? = nil, control: NSView, height: CGFloat = 66) {
@@ -328,8 +354,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   @objc private func styleChanged(_ sender: NSSegmentedControl) {
     settings.glassStyle = sender.selectedSegment == 0 ? .regular : .clear; onChange?()
   }
-  @objc private func strengthChanged(_ sender: NSSlider) { settings.glassStrength = sender.doubleValue; onChange?() }
-  @objc private func radiusChanged(_ sender: NSSlider) { settings.glassCornerRadius = sender.doubleValue; onChange?() }
+  @objc private func strengthChanged(_ sender: NSSlider) {
+    settings.glassStrength = sender.doubleValue
+    updatePercentage(sender, value: strengthValue)
+    onChange?()
+  }
+  @objc private func radiusChanged(_ sender: NSSlider) {
+    settings.glassCornerRadius = sender.doubleValue
+    updatePercentage(sender, value: radiusValue)
+    onChange?()
+  }
   @objc private func colorChanged(_ sender: NSColorWell) {
     settings.highlightColor = sender.color
     for (index, item) in sidebar.arrangedSubviews.enumerated() where index == section {

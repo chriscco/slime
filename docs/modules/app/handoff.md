@@ -38,3 +38,10 @@ a 20 pt box that made the glyphs sit high. Logo width/height share the search-ro
 height directly. Tests confirm a 32 pt image drawing rect and field height; the
 reported visible logo-height mismatch remains unreplicated and needs a screenshot
 from the running app (including whether search is focused). All 178 tests pass.
+
+## 2026-10-16 appearance slider readouts
+
+Unsaved glass strength now defaults to 13%; stored values remain unchanged. Glass
+strength and corner radius show live percentages beside continuous sliders. Corner
+radius remains stored as 0–40 pt, displayed as 0–100% (20 pt = 50%). Readouts update
+in place without rebuilding controls during dragging.

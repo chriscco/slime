@@ -28,7 +28,7 @@ import Testing
 
   let settings = Settings(defaults: defaults)
   #expect(settings.glassStyle == .regular)
-  #expect(settings.glassStrength == Settings.defaultGlassStrength)
+  #expect(settings.glassStrength == 0.13)
   #expect(settings.highlightColor == Settings.defaultHighlightColor)
   #expect(settings.glassCornerRadius == 20)
 }

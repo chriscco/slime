@@ -443,7 +443,7 @@ private func window(_ app: String, _ title: String, id: UInt32) -> Window {
   let panel = PanelWindow()
   panel.applyGlassSettings(Settings(defaults: defaults))
   #expect(panel.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua)
-  #expect(panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.8).cgColor)
+  #expect(panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.87).cgColor)
 }
 
 @Test(arguments: [320.0, 600.0, 1088.0]) @MainActor
@@ -493,13 +493,13 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   defer { NSApp.appearance = originalAppearance }
   NSApp.appearance = NSAppearance(named: .aqua)
   content.layoutSubtreeIfNeeded()
-  #expect(controller.panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.8).cgColor)
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.white.withAlphaComponent(0.87).cgColor)
   #expect(content.searchFocused)
   #expect(content.searchLabel.stringValue == "a")
   #expect(controller.selection == selection)
   NSApp.appearance = NSAppearance(named: .darkAqua)
   content.layoutSubtreeIfNeeded()
-  #expect(controller.panel.content.layer?.backgroundColor == NSColor.black.withAlphaComponent(0.8).cgColor)
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.black.withAlphaComponent(0.87).cgColor)
   settings.panelBackground = .white
   controller.refreshAppearance()
   #expect(controller.panel.appearance?.name == .aqua)

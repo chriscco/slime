@@ -39,8 +39,7 @@ struct Settings {
   /// 玻璃浓度（spec §7）：0 = 完全看不到面板后面的内容，1 = 完全透明。
   /// 实数上它是遮罩层的 alpha 的补数（`alpha = 1 − strength`），面板自己换算。
   static let strengthRange: ClosedRange<Double> = 0...1
-  /// 默认给偏透明的值，但留出可见余量：1.0 时滑块到底、没有任何变化可看。
-  static let defaultGlassStrength: Double = 0.2
+  static let defaultGlassStrength: Double = 0.13
 
   /// Fixed sRGB accent, independent of the system accent color.
   static let defaultHighlightColor = NSColor(

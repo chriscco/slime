@@ -144,3 +144,34 @@ import Testing
     #expect(window.contentView?.hitTest(window.contentView!.convert(location, from: nil)) === button)
   }
 }
+
+
+@Test @MainActor func appearanceSlidersShowLivePercentagesWithoutRebuilding() throws {
+  _ = NSApplication.shared
+  let suite = "slime.slider-percent.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = SettingsWindowController(settings: settings)
+  var changes = 0
+  controller.onChange = { changes += 1 }
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "Appearance" })
+  appearance.performClick(nil)
+  let sliders = descendants(window.contentView!).compactMap { $0 as? NSSlider }
+  for (name, initial, maximum) in [("Glass strength", "13%", 1.0), ("Panel corners", "50%", 40.0)] {
+    let slider = try #require(sliders.first { $0.accessibilityLabel() == name })
+    let value = try #require(slider.superview?.subviews.compactMap { $0 as? NSTextField }.first)
+    #expect(value.stringValue == initial)
+    #expect(slider.isContinuous)
+    for fraction in [0.0, 0.25, 1.0] {
+      slider.doubleValue = maximum * fraction
+      NSApp.sendAction(try #require(slider.action), to: slider.target, from: slider)
+      #expect(value.stringValue == "\(Int(fraction * 100))%")
+      #expect(slider.window === window)
+      #expect(name == "Glass strength" ? settings.glassStrength == fraction : settings.glassCornerRadius == maximum * fraction)
+    }
+  }
+  #expect(changes == 6)
+  #expect(Settings(defaults: defaults).glassStrength == 1)
+}

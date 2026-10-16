@@ -38,7 +38,15 @@ Export only this identity in Keychain Access, then upload through GitHub reposit
 Do not commit credentials, paste them into PRs, or print them in logs. Use the same
 identity as existing releases to retain signing continuity; do not generate a new
 certificate on each runner. No credentials are automatically exported from a developer's Mac.
-The workflow imports into a temporary keychain and deletes it even when a later step fails.
+The workflow imports private keys into a temporary keychain and deletes it even when
+a later step fails. Its CI-only helper requires a GitHub-hosted runner. It trusts the
+public self-signed certificate for code signing in that disposable VM's administrator
+store using noninteractive sudo; it does not change authorization rules. The VM's
+public trust entry disappears when GitHub discards the runner.
+
+Import has a two-minute step timeout and reports each stage without secret values.
+PR CI tests the same helper with a generated, one-day certificate and verifies a real
+signed executable; it never reads production signing secrets.
 
 This does not add Developer ID signing or notarization. If that distribution policy
 changes, update signing and the installation text together.
@@ -72,6 +80,10 @@ publication. PR workflows run checks without access to release signing secrets.
 - `gh release create` uploads assets before publishing. A failed upload may leave a
   draft: inspect and remove that unpublished draft manually before retrying. Existing
   releases/assets are never overwritten automatically.
+- Rerunning an existing tag's failed run uses that tag's original workflow, not a
+  subsequently fixed workflow from `main`. A signing-workflow fix therefore cannot
+  repair an old run just by clicking Re-run. Keep the tag fixed; agree on a separate
+  recovery publication from its exact source or prepare a new version/tag.
 - If source or notes need changes, merge a fix and prepare a **new version/tag**.
 - Automated packaging does not certify Accessibility prompts, window behavior, or
   visual acceptance on a user's desktop. Complete native checks before pushing a tag.

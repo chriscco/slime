@@ -60,3 +60,18 @@ this candidate is not a new release and must not replace published assets.
 No tag, release, credential export, or secret upload was performed. Repository
 signing secrets still need owner setup before the first tag-triggered release.
 Hosted certificate import and real publication remain unverified until that run.
+
+## 2026-10-16 — Headless signing import fix
+
+PR #68 moves release signing import into a CI-only helper shared with a hosted
+macOS 26 regression check. The old user-domain trust command reproduced the release
+hang with a disposable certificate (run 38846632880). Noninteractive sudo writes
+code-signing trust for the public leaf to the VM's administrator store; private keys
+remain in the temporary keychain. No authorization database rule is weakened.
+Import has stage diagnostics and a two-minute timeout. The hosted check imports,
+signs, verifies, and compares the actual signer fingerprint without production secrets.
+
+Local Swift/script tests and workflow lint cover the rest of the change. Use the
+current PR head's `signing` and `test` jobs for hosted acceptance. The existing
+v0.0.7 tag retains the old workflow; rerunning that original run cannot pick up this
+fix. Do not move tags or publish as part of this repair; agree on recovery separately.

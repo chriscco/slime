@@ -64,3 +64,14 @@ At the maintainer's request, neither README should announce development versions
 version-specific update summaries, or that the latest DMG is still an older version.
 Keep version announcements and release summaries in GitHub Releases and the versioned
 release notes; READMEs describe installation and current usage.
+
+## 2026-10-16 — Hosted regression coverage for certificate trust
+
+The first tag release blocked after PKCS#12 import because user-domain certificate
+trust requested interaction. A disposable macOS 26 CI certificate reproduced the
+block at the trust stage with a two-minute timeout (run 38846632880). Move this
+self-signed leaf's code-signing trust to the administrator store via noninteractive
+sudo on GitHub-hosted VMs only. Do not relax authorization database rules. Private
+keys stay in a temporary keychain; the public trust entry lasts only for that VM.
+Share import between production and the hosted signing regression so local mocks
+can no longer be mistaken for verification of unattended certificate import.

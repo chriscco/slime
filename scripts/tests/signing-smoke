@@ -1,0 +1,40 @@
+#!/bin/bash
+# Real hosted keychain/signing check. Never reads repository signing secrets.
+set -euo pipefail
+if [ "${GITHUB_ACTIONS:-}" != true ]; then
+  echo "Run this check on a disposable GitHub Actions runner." >&2
+  exit 1
+fi
+fixture=$(mktemp -d "$RUNNER_TEMP/slime-signing-fixture.XXXXXX")
+trap 'rm -rf "$fixture"' EXIT
+umask 077
+/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj '/CN=slime CI disposable signing' \
+  -keyout "$fixture/key.pem" -out "$fixture/cert.pem" \
+  -config /dev/stdin -extensions code_sign_leaf <<'EOF'
+[ req ]
+distinguished_name = dn
+[ dn ]
+[ code_sign_leaf ]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = codeSigning
+EOF
+export P12_PASSWORD
+P12_PASSWORD=$(openssl rand -hex 32)
+echo "::add-mask::$P12_PASSWORD"
+/usr/bin/openssl pkcs12 -export -in "$fixture/cert.pem" -inkey "$fixture/key.pem" \
+  -out "$fixture/identity.p12" -passout env:P12_PASSWORD
+export CERTIFICATE_BASE64
+CERTIFICATE_BASE64=$(/usr/bin/base64 -i "$fixture/identity.p12" | tr -d '\n')
+echo "::add-mask::$CERTIFICATE_BASE64"
+export SIGNING_IDENTITY
+SIGNING_IDENTITY=$(/usr/bin/openssl x509 -in "$fixture/cert.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+scripts/import-release-signing
+cp /bin/echo "$fixture/echo"
+codesign --force --sign "$SIGNING_IDENTITY" "$fixture/echo"
+codesign --verify --strict "$fixture/echo"
+codesign --display --extract-certificates="$fixture/signer" "$fixture/echo"
+actual=$(/usr/bin/openssl x509 -inform DER -in "$fixture/signer0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
+test "$actual" = "$SIGNING_IDENTITY"
+echo "Disposable identity imported and verified on a signed executable."

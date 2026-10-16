@@ -1,0 +1,40 @@
+#!/bin/bash
+# Shared by releases and the hosted disposable-identity regression check.
+set -euo pipefail
+if [ "${GITHUB_ACTIONS:-}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ]; then
+  echo "This helper is for disposable GitHub Actions runners only." >&2
+  exit 1
+fi
+: "${CERTIFICATE_BASE64:?Set RELEASE_CERTIFICATE_BASE64}"
+: "${P12_PASSWORD:?Set RELEASE_CERTIFICATE_PASSWORD}"
+: "${SIGNING_IDENTITY:?Set RELEASE_SIGNING_IDENTITY}"
+printf '%s' "$SIGNING_IDENTITY" | grep -Eq '^[0-9A-Fa-f]{40}$'
+umask 077
+keychain="$RUNNER_TEMP/slime-release.keychain-db"
+certificate="$RUNNER_TEMP/slime-release.crt"
+archive="$RUNNER_TEMP/slime-release.p12"
+trap 'rm -f "$archive" "$certificate"' EXIT
+password=$(openssl rand -hex 32)
+echo "::add-mask::$password"
+printf '%s' "$CERTIFICATE_BASE64" | /usr/bin/base64 --decode > "$archive"
+echo "Creating temporary signing keychain"
+security create-keychain -p "$password" "$keychain"
+security set-keychain-settings -lut 3600 "$keychain"
+security unlock-keychain -p "$password" "$keychain"
+echo "Importing PKCS#12 identity"
+security import "$archive" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
+/usr/bin/openssl pkcs12 -in "$archive" -nokeys -clcerts -passin env:P12_PASSWORD -out "$certificate"
+echo "Configuring certificate trust"
+# User-domain trust waits for a GUI prompt; scope this self-signed leaf to code signing on the disposable VM.
+sudo -n security add-trusted-cert -d -r trustRoot -p codeSign \
+  -k /Library/Keychains/System.keychain "$certificate"
+echo "Configuring private-key access"
+security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" > /dev/null
+security list-keychains -d user -s "$keychain"
+echo "Verifying signing identity"
+# Capture before matching: grep -q can close a pipe while security is still writing.
+identities=$(security find-identity -v -p codesigning "$keychain")
+if ! printf '%s\n' "$identities" | grep -Fiq "$SIGNING_IDENTITY"; then
+  echo "Configured signing identity is not valid in the temporary keychain." >&2
+  exit 1
+fi

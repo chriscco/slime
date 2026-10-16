@@ -1,7 +1,7 @@
 #!/bin/bash
 # Shared by releases and the hosted disposable-identity regression check.
 set -euo pipefail
-if [ "${GITHUB_ACTIONS:-}" != true ]; then
+if [ "${GITHUB_ACTIONS:-}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ]; then
   echo "This helper is for disposable GitHub Actions runners only." >&2
   exit 1
 fi
@@ -25,7 +25,9 @@ echo "Importing PKCS#12 identity"
 security import "$archive" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
 /usr/bin/openssl pkcs12 -in "$archive" -nokeys -clcerts -passin env:P12_PASSWORD -out "$certificate"
 echo "Configuring certificate trust"
-security add-trusted-cert -p codeSign -k "$keychain" "$certificate"
+# User-domain trust waits for a GUI prompt; scope this self-signed leaf to code signing on the disposable VM.
+sudo -n security add-trusted-cert -d -r trustRoot -p codeSign \
+  -k /Library/Keychains/System.keychain "$certificate"
 echo "Configuring private-key access"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$keychain" > /dev/null
 security list-keychains -d user -s "$keychain"

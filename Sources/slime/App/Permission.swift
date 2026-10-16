@@ -1,6 +1,7 @@
 // @preconcurrency：kAXTrustedCheckOptionPrompt 是导入的全局 var（UnsafePointer），
 // 严格并发下会被判成共享可变状态 —— 它是文档化的只读常量键，这里显式降级。
 @preconcurrency import ApplicationServices
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -13,11 +14,17 @@ enum Permission {
   /// 当前进程是否已取得辅助功能权限。
   static var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
-  /// 弹系统对话框引导用户去授权（对话框带「打开系统设置」）。
-  static func promptAccessibility() {
+  /// Register the permission request, then open its pane even if macOS suppresses repeat prompts.
+  @MainActor @discardableResult
+  static func promptAccessibility(
+    request: (CFDictionary) -> Bool = { AXIsProcessTrustedWithOptions($0) },
+    openSettings: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+  ) -> Bool {
     let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
       as CFDictionary
-    _ = AXIsProcessTrustedWithOptions(options)
+    _ = request(options)
+    return openSettings(URL(string:
+      "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
   }
 
   /// 引导之后轮询等用户授权。授权成功（或超时）调 `completion`，回主线程。

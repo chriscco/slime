@@ -84,3 +84,16 @@ Accessibility/Screen Recording for the test identity needs a user action; no per
 has been granted by setup. Do not mark this PR Ready from fixture preparation alone.
 The spec now distinguishes merge checks from unavailable-environment pre-release gates.
 Stop the fixture server/tunnel after acceptance; never serve the workspace or keys.
+
+### Accessibility onboarding follow-up
+
+Full-app standard Sparkle offer, download cancellation, explicit installation, and
+relaunch passed using the isolated 8001/8002 fixture. See the updates validation
+record for the evidence and limits. Permission continuity is still pending.
+
+The owner found that enabling the untrusted app showed an extra slime permission
+alert. `Permission.promptAccessibility` now registers the system request and opens
+the Accessibility privacy pane directly, including repeat attempts; AppDelegate
+shows manual instructions only if the URL cannot be opened. All 188 tests pass.
+Rebuild the isolated fixture and verify the actual pane before resuming the
+permission-grant / upgrade / continuity check. No production permissions changed.

@@ -77,7 +77,6 @@ Open Settings from the menu bar or press `⌘,` in the panel.
 - **Screen Recording permission** enables previews. Without a preview or same-window cache, slime shows an app icon inside a generic mini-window.
 - **Accessibility permission.** slime reads the window list through the
   Accessibility API and intercepts the keys you press, so macOS has to grant it.
-- **No third-party dependencies.**
 
 ## Package a release
 

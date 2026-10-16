@@ -75,3 +75,16 @@ sudo on GitHub-hosted VMs only. Do not relax authorization database rules. Priva
 keys stay in a temporary keychain; the public trust entry lasts only for that VM.
 Share import between production and the hosted signing regression so local mocks
 can no longer be mistaken for verification of unattended certificate import.
+
+
+## 2026-10-16 — Solid fallback and experimental macOS 15
+
+Use opaque Solid on macOS 15 and allow Solid or Liquid Glass on macOS 26+. One shared
+settings page changes controls by capability; one content tree changes only its host.
+This supersedes the original macOS 26-only decision. A third blurred material would
+add an unrequested rendering path. Defaults resolve at runtime without writing a
+preference; unavailable Glass remains saved for a future capable system.
+
+macOS 15 CI checks compilation, tests, and permission-free startup. Actual TCC, Spaces,
+Stage Manager, and multi-display behavior remain unverified on 15, so support is
+experimental. No VM is installed. Revisit macOS 14 only with sustained test coverage.

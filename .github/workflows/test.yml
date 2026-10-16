@@ -32,3 +32,18 @@ jobs:
         run: |
           keychain="$RUNNER_TEMP/slime-release.keychain-db"
           if [ -f "$keychain" ]; then security delete-keychain "$keychain"; fi
+
+  compatibility:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      # The older runtime still needs a modern SDK to compile guarded glass APIs.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+      - run: sw_vers && swift --version
+      - run: scripts/test
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: SIGNING_IDENTITY=- scripts/build-app
+      - name: Verify bundle compatibility and launch without requesting permissions
+        run: python3 scripts/tests/launch-smoke.py

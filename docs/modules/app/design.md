@@ -26,3 +26,17 @@ Login launch uses `SMAppService.mainApp` directly, without a duplicate defaults 
 ## Verification boundaries
 
 Tests cover preferences, language controls, keyboard enable/disable, and asynchronous close integration. Actual login approval/startup, TCC, global shortcuts, focus, and screen composition require native acceptance. Secure Input falling back to native Command-Tab is expected.
+
+## Panel material and OS compatibility
+
+The deployment minimum is macOS 15; build with a macOS 26+ SDK. macOS 15 remains
+experimental pending desktop permission, capture, and window-operation acceptance.
+`Settings.panelMaterial` is an optional persisted preference. Missing/unknown values
+resolve to Glass on macOS 26+ and Solid on 15; an explicit Solid survives upgrades.
+A saved but unavailable Glass preference resolves to Solid without being overwritten.
+
+`PanelWindow` retains a stable root and content tree. Only a guarded macOS 26 branch
+constructs NSGlassEffectView; Solid removes that host and uses an opaque content layer.
+Changing materials preserves search, selection, focus, color, radius, and glass values.
+The shared Appearance page offers the selector on 26+ and a static explanation on 15;
+style/strength rows exist only for effective Glass. No capture or enumeration is triggered.

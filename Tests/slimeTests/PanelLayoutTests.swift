@@ -499,7 +499,7 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   #expect(controller.selection == selection)
   NSApp.appearance = NSAppearance(named: .darkAqua)
   content.layoutSubtreeIfNeeded()
-  #expect(controller.panel.content.layer?.backgroundColor == NSColor.black.withAlphaComponent(0.87).cgColor)
+  #expect(controller.panel.content.layer?.backgroundColor == NSColor.black.withAlphaComponent(Settings.supportsGlass ? 0.87 : 1).cgColor)
   settings.panelBackground = .white
   controller.refreshAppearance()
   #expect(controller.panel.appearance?.name == .aqua)

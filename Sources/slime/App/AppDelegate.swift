@@ -2,7 +2,13 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  func applicationWillTerminate(_ notification: Notification) {
+    activationRequest?.cancel()
+    cache?.stop()
+  }
+
   private var cache: WindowCache?
+  private var activationRequest: AXRequest?
   private var panel: PanelController?
   private var eventTap: EventTap?
   private var statusItem: NSStatusItem?
@@ -43,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       enable()
     } else {
       lastEnabled = false
+      activationRequest?.cancel()
+      cache?.stop()
       panel?.dismiss()
       eventTap?.configure(enabled: false)
     }
@@ -59,13 +67,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     if let eventTap {
       eventTap.configure(enabled: true)
+      cache?.start()
       lastEnabled = true
       return
     }
     let cache = WindowCache()
     let panel = PanelController()
     let tap = EventTap(
-      onEffects: { [weak panel] state, effects in panel?.handle(state: state, effects: effects) },
+      onEffects: { [weak self, weak panel] state, effects in
+        for effect in effects {
+          if case .showPanel = effect { self?.activationRequest?.cancel() }
+        }
+        panel?.handle(state: state, effects: effects)
+      },
       onDegraded: { [weak self] in self?.tapDegraded() })
     do { try tap.start() } catch {
       settings.isEnabled = false
@@ -75,9 +89,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           "无法启动键盘监听。请检查辅助功能权限并重启 slime。") + "\n\(error)")
       return
     }
-    panel.onActivate = { [weak cache] window in
-      WindowActivator.activate(window)
-      cache?.noteActivated(window)
+    panel.onActivate = { [weak self, weak cache] window in
+      self?.activationRequest?.cancel()
+      let request = AXRequest(seconds: 0.15)
+      self?.activationRequest = request
+      let target = cache?.targets[window.windowID]
+      Task {
+        let result = await WindowActivator.activate(window, target: target, request: request)
+        if result == .exact { cache?.noteActivated(window) }
+      }
     }
     panel.onCancelSession = { [weak tap] in tap?.cancelSession() }
     panel.onCloseFinished = { [weak tap] in tap?.completeClose() }
@@ -128,6 +148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func tapDegraded() {
+    activationRequest?.cancel()
+    cache?.stop()
     panel?.dismiss()
     settings.isEnabled = false
     lastEnabled = false

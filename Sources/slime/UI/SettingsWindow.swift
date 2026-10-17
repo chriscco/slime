@@ -226,8 +226,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     body.addArrangedSubview(sourceRow)
     sourceRow.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
     let sourceNote = NSTextField(wrappingLabelWithString: text(
-      "Fresh captures skip stored previews. Some windows may be unavailable.",
-      "重新抓取不使用已存预览。部分窗口可能无法获取预览。"))
+      "Both modes reuse previews. Fresh captures can show tilted Stage Manager windows and do not save images to disk.",
+      "两种模式都会复用预览。重新抓取可显示台前调度的倾斜窗口，图片不保存到磁盘。"))
     sourceNote.font = .systemFont(ofSize: 11)
     sourceNote.textColor = .secondaryLabelColor
     body.addArrangedSubview(sourceNote)

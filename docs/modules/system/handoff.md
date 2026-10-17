@@ -80,3 +80,11 @@ the session without generating another modifier-down event. The callback still
 checks disabled/degraded state first; active sessions retain their current mode.
 The callback regression failed before the fix and all 212 tests pass afterward.
 Native keyboard acceptance remains pending; no AX work or waiting was added.
+
+## 2026-10-17 — Background work audit follow-up (#83)
+
+Split list publication from preview refresh and deduplicate cached disk pruning by live IDs. Tests cover title bursts, real focus, closing, membership changes and preview-source resets. No change to AX identity validation or capture concurrency. The user's stored source was Fresh during latency investigation; the former 300 ms presentation wait has now been removed by user approval. Partial images keep the same session/owner validation. Late saves invalidate prune memoization after completion.
+
+## 2026-10-17 — Retained previews (#84 follow-up)
+
+Supersedes the earlier per-session Fresh clearing described above. Both sources now retain successful memory images on reopening. Fresh keeps no disk previews, cancels unfinished captures on hide, and still accepts tilted Stage Manager images. Warm reconciles hidden removals and prioritizes changed focus/title/visibility. Unchanged onscreen windows are eligible after one second for the current window or 30 seconds for others, checked only on existing warm events; no timer. Failures retain old images. Settings and README explain the updated lifetime.

@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func settingsChanged() {
     if WindowThumbnails.configure(source: settings.previewSource), let cache {
-      WindowThumbnails.warm(cache.allWindows)
+      WindowThumbnails.warm(cache.snapshot)
     }
     panel?.refreshAppearance()
     installStatusItem()
@@ -104,12 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     panel.onClosed = { [weak cache] window, siblings in cache?.noteClosed(window, preserving: siblings) }
     panel.onRefresh = { [weak cache] in cache?.refresh() }
     panel.onOpenSettings = { [weak self] in self?.settingsWindow.show() }
-    cache.onChange = { [weak cache, weak panel] windows in
-      guard let cache else { return }
+    cache.onRefreshPreviews = { windows in
       AppIcons.warm(windows)
-      WindowThumbnails.warm(cache.allWindows)
-      panel?.setWindows(windows)
+      WindowThumbnails.warm(windows)
     }
+    cache.onChange = { [weak panel] windows in panel?.setWindows(windows) }
     self.cache = cache
     self.panel = panel
     eventTap = tap

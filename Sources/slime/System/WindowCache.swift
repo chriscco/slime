@@ -65,6 +65,12 @@ final class WindowCache {
 
   /// 快照更新后的回调 —— 面板还开着时静默刷新用。
   var onChange: (([Window]) -> Void)?
+  var onRefreshPreviews: (([Window]) -> Void)?
+
+  private func publish(refreshPreviews: Bool = true) {
+    if refreshPreviews { onRefreshPreviews?(snapshot) }
+    onChange?(snapshot)
+  }
 
   /// Current first; PanelController initially selects the previous identity.
   var snapshot: [Window] {
@@ -127,13 +133,14 @@ final class WindowCache {
   /// 我们自己切过去之后立刻更新 MRU：下一次打开的面板里，刚切过的排最前；
   /// 刚离开的窗口不再被当成当前窗口，立刻回到列表（不等后台枚举）。
   func noteActivated(_ window: Window) {
+    let changedFocus = frontWindowID != window.windowID
     generation += 1  // 在途的枚举结果按旧 MRU 排的序，作废
     refreshRequest?.cancel()
     mruWindows.removeAll { $0 == window.windowID }
     mruWindows.insert(window.windowID, at: 0)
     frontWindowID = window.windowID
     all = Self.windowOrder(all, mru: mruWindows)
-    onChange?(snapshot)
+    publish(refreshPreviews: changedFocus)
   }
 
   func noteClosed(_ window: Window, preserving siblings: [Window] = []) {
@@ -158,7 +165,7 @@ final class WindowCache {
       known[sibling.windowID] = info
     }
     Self.saveKnown(known, to: defaults)
-    onChange?(snapshot)
+    publish()
   }
 
   func apply(
@@ -175,7 +182,7 @@ final class WindowCache {
     self.frontWindowID = frontWindowID
     self.known = known
     Self.saveKnown(known, to: defaults)
-    onChange?(snapshot)
+    publish()
   }
 
   private func observeActivations() {
@@ -203,7 +210,7 @@ final class WindowCache {
       frontWindowID = Self.frontWindowID(in: all, frontmostPID: pid)
     }
     all = Self.windowOrder(all, mru: mruWindows)
-    onChange?(snapshot)
+    publish()
   }
 
   func stop() {

@@ -16,6 +16,7 @@ final class PanelController {
   private var closeRequest: AXRequest?
   private var windows: [Window] = []
   private var nextWindows: [Window] = []
+  private var hasWindowSnapshot = false
   private(set) var rows: [Window] = []
   private(set) var selection = 0
   private var query = ""
@@ -70,12 +71,17 @@ final class PanelController {
   }
 
   func setWindows(_ windows: [Window]) {
+    let firstSnapshot = !hasWindowSnapshot
+    hasWindowSnapshot = true
     nextWindows = windows
     guard phase.isSessionOpen, !closing else { self.windows = windows; return }
     let fresh = Dictionary(uniqueKeysWithValues: windows.map { ($0.windowID, $0) })
     let existing = Set(self.windows.map(\.windowID))
     self.windows = self.windows.compactMap { fresh[$0.windowID] } + windows.filter { !existing.contains($0.windowID) }
-    rerank(following: rows.indices.contains(selection) ? rows[selection].windowID : nil)
+    let selected = rows.indices.contains(selection) ? rows[selection].windowID : nil
+    let initial = firstSnapshot && panel.isVisible && query.isEmpty
+      ? (windows.dropFirst().first ?? windows.first)?.windowID : nil
+    rerank(following: selected ?? initial)
   }
 
   func refreshAppearance() {
@@ -97,24 +103,15 @@ final class PanelController {
     panel.content.setSearchFocused(false)
     refreshAppearance()
     WindowThumbnails.beginSession(source: settings.previewSource)
-    if settings.previewSource == .fresh { WindowThumbnails.warm(windows) }
     rerank(following: previous)
-    let generation = session
-    var presented = false
-    let present: @MainActor @Sendable () -> Void = { [weak self] in
-      guard let self, !presented, self.session == generation, self.phase.isSessionOpen else { return }
-      presented = true
-      self.panel.makeKeyAndOrderFront(nil)
-    }
-    if WindowThumbnails.hasPendingWork {
-      WindowThumbnails.whenSettled(present)
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: present)
-    } else { present() }
+    panel.makeKeyAndOrderFront(nil)
+    WindowThumbnails.warm(nextWindows)
     onRefresh?()
   }
 
   private func hide(cancelClose: Bool = true) {
     WindowThumbnails.endSession()
+    panel.content.gridView.releaseRetainedCards()
     if cancelClose { closeRequest?.cancel() }
     session += 1
     closing = false
@@ -135,6 +132,7 @@ final class PanelController {
   }
 
   private func rerank(following id: UInt32?, animateResize: Bool = false) {
+    panel.content.gridView.retainCards(for: windows)
     let previousRows = rows
     rows = Search.rank(windows, query: query)
 
@@ -165,7 +163,8 @@ final class PanelController {
     content.gridView.groupByApp = settings.groupByApp
     content.gridView.availableWidth = available
     content.setSearchText(query)
-    content.emptyLabel.stringValue = localized("No windows", "没有窗口")
+    content.emptyLabel.stringValue = hasWindowSnapshot
+      ? localized("No windows", "没有窗口") : localized("Loading windows…", "正在加载窗口…")
     content.emptyLabel.isHidden = !rows.isEmpty
     if previousRows != rows { content.render(rows: rows) }
     else { content.layoutSubtreeIfNeeded() }
@@ -219,6 +218,7 @@ final class PanelController {
         self.rerank(following: target.windowID)
         self.panel.content.showStatus(outcome.message)
       }
+      self.panel.content.gridView.rows = self.rows
       self.onCloseFinished?()
     }
   }

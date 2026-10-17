@@ -138,14 +138,12 @@ it costs much less than reconstructing why a line was written later.
 
 ## Rule 3: When to write each document
 
-**Every PR must update the current unreleased version’s release notes in the same PR**,
-including features, bug fixes, documentation, maintenance, and release preparation.
-**Exception: spec-focused PRs omit release-note entries** and use the reviewed
-`release-notes:skip` label described in the workflow below.
-Follow [the release-note workflow](docs/releases/README.md#maintain-notes-in-every-pr)
-for the current version, entry format, and frozen-version rollover. Reviewers must
-verify the entry matches the PR’s final scope, or confirm the spec exemption, before
-marking it Ready.
+**PRs with user-visible changes update the current release notes in the same PR.**
+Internal-only specs, documentation, refactors, tests and CI maintenance may omit an
+entry with a reviewed `release-notes:skip` label. Follow the
+[release-note workflow](docs/releases/README.md#review-release-note-scope-in-every-pr) for scope,
+entry format and frozen-version rollover. Reviewers check coverage and attribution;
+release CI validates tag/version and document format, not exact PR coverage.
 
 Other documentation must also pass KISS/YAGNI. Use these thresholds:
 

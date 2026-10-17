@@ -4,9 +4,9 @@
 
 ## Changes
 
-<!-- One entry per non-exempt PR merged into main since the preceding stable version tag,
-including documentation, maintenance, and the release-preparation PR itself.
-Omit spec-focused PRs labeled release-notes:skip (see docs/releases/README.md).
+<!-- Include user-visible changes since the preceding stable version tag.
+Internal specs/docs/refactors/tests/CI-only PRs may be omitted with a reviewed
+release-notes:skip label (see docs/releases/README.md).
 Use the PR author's GitHub username, not the merger or Git commit identity.
 Keep the exact link/credit format below; replace every placeholder before tagging.
 Write the description in English and explain the user-visible result. -->

@@ -17,15 +17,12 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write
-      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Validate tag and reviewed release notes
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Validate tag and release notes format
         run: |
           git fetch origin main --tags
           scripts/check-release "$GITHUB_REF_NAME" --repository "$GITHUB_REPOSITORY"

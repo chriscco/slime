@@ -134,3 +134,7 @@ the repeat without UI access during replacement had no alert and passed owner
 acceptance. Do not read/reactivate a stale app binding during Sparkle replacement.
 See `docs/releases/0.0.8-updates-validation.md` for evidence and remaining pre-release
 checks; no production permissions or releases were changed.
+
+## 2026-10-17 — Release-note validation
+
+Release notes are curated for users. Internal-only PRs may use a reviewed `release-notes:skip` rationale. `scripts/check-release` no longer queries PR metadata or compares complete PR/author sets; tag ancestry/version progression, notes format and bundle matching remain gates. The v0.0.8 failed run still contains the old script: merging this fix does not change an existing tag or rerun. Recovery publication remains a separate owner decision.

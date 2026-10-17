@@ -115,3 +115,7 @@ Handle Command-W in the settings window rather than a global shortcut. Reuse the
 the app name when unavailable. A fixed image container constrains intrinsic image size
 inside the existing scrolling settings body. Keep version, repository, and update controls
 in that same section; artwork loading and update checks do not depend on the checkout.
+
+## 2026-10-17 — Curated release notes
+
+Exact merged-PR/author coverage blocked a release on internal maintenance entries. Keep user-visible coverage and attribution in PR review; allow reviewed internal-only exemptions. Release CI checks stable tags, main ancestry, version progression, nonempty notes with a matching heading and no placeholders, and bundle version, without querying GitHub PR metadata. Tradeoff: omitted user-visible changes or incorrect attribution must be caught in review rather than automatically at publication.

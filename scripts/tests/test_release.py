@@ -1,7 +1,6 @@
-"""Release checks use temporary history and fake GitHub responses, never publication."""
+"""Release checks use temporary local history, never publication or GitHub APIs."""
 import importlib.machinery
 import importlib.util
-import json
 import os
 from pathlib import Path
 import plistlib
@@ -43,13 +42,12 @@ class ReleaseChecks(unittest.TestCase):
         self.notes = Path('docs/releases/0.0.7.md')
         self.entry = '- Improve switching. ([#62](https://github.com/chriscco/slime/pull/62)) — @chriscco'
         self.notes.write_text('# slime v0.0.7\n\n## Changes\n\n' + self.entry + '\n')
-        self.metadata = [{'number': 62, 'merge_commit_sha': self.sha,
-                          'merged_at': '2026-10-16T00:00:00Z',
-                          'base': {'ref': 'main'}, 'user': {'login': 'chriscco'}}]
         original = self.release.run
 
         def command(*args):
-            return json.dumps([self.metadata]) if args[0] == 'gh' else original(*args)
+            if args[0] == 'gh':
+                raise AssertionError('Release validation must not query PR metadata')
+            return original(*args)
 
         self.mock = patch.object(self.release, 'run', side_effect=command)
         self.mock.start()
@@ -61,24 +59,16 @@ class ReleaseChecks(unittest.TestCase):
     def check(self, tag='v0.0.7'):
         return self.release.check_notes(tag, 'chriscco/slime')
 
-    def test_valid_annotated_tag_and_author(self):
+    def test_valid_annotated_tag_with_curated_notes(self):
         self.assertEqual(self.check(), self.notes)
 
-    def test_spec_pr_can_omit_notes_with_explicit_label(self):
-        self.metadata[0]['labels'] = [{'name': 'release-notes:skip'}]
-        self.notes.write_text('# slime v0.0.7\n\n## Changes\n')
+    def test_internal_prs_can_be_omitted_without_labels_or_api(self):
+        self.notes.write_text('# slime v0.0.7\n\nMaintenance release.\n')
         self.assertEqual(self.check(), self.notes)
 
-    def test_unrelated_label_does_not_skip_required_entry(self):
-        self.metadata[0]['labels'] = [{'name': 'documentation'}]
-        self.notes.write_text('# slime v0.0.7\n')
-        with self.assertRaisesRegex(ValueError, 'entries'):
-            self.check()
-
-    def test_exempt_spec_pr_must_not_appear_in_notes(self):
-        self.metadata[0]['labels'] = [{'name': 'release-notes:skip'}]
-        with self.assertRaisesRegex(ValueError, 'entries'):
-            self.check()
+    def test_pr_links_and_author_attribution_are_reviewed_not_a_ci_gate(self):
+        self.notes.write_text('# slime v0.0.7\n\n' + self.entry.replace('62', '99').replace('@chriscco', '@contributor') + '\n')
+        self.assertEqual(self.check(), self.notes)
 
     def test_invalid_tags(self):
         for tag in ['0.0.7', 'v0.0.7-rc1', 'v0.0.7;echo', 'v00.0.7', '../0.0.7']:
@@ -95,31 +85,17 @@ class ReleaseChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'notes'):
             self.check()
 
-    def test_wrong_heading_placeholder_or_missing_entry(self):
+    def test_wrong_heading_placeholder_or_empty_notes(self):
         for text in ['# slime v0.0.8\n' + self.entry,
                      '# slime v0.0.7\nTODO\n' + self.entry, '# slime v0.0.7\n']:
             self.notes.write_text(text)
             with self.subTest(text=text), self.assertRaises(ValueError):
                 self.check()
 
-    def test_missing_extra_duplicate_or_wrong_author(self):
-        for entry in [self.entry.replace('@chriscco', '@someone'),
-                      self.entry + '\n' + self.entry,
-                      self.entry.replace('62', '99'),
-                      self.entry.replace('chriscco/slime', 'other/repo'),
-                      self.entry.replace(' — @chriscco', '')]:
-            self.notes.write_text('# slime v0.0.7\n' + entry + '\n')
-            with self.subTest(entry=entry), self.assertRaises(ValueError):
-                self.check()
-
-    def test_metadata_must_match_merge_and_main(self):
-        for key, value in [('merge_commit_sha', 'wrong'), ('merged_at', None),
-                           ('base', {'ref': 'other'})]:
-            saved = self.metadata[0][key]
-            self.metadata[0][key] = value
-            with self.subTest(key=key), self.assertRaises(ValueError):
-                self.check()
-            self.metadata[0][key] = saved
+    def test_version_must_increase(self):
+        self.git('tag', 'v0.0.5', 'HEAD')
+        with self.assertRaisesRegex(ValueError, 'increase'):
+            self.check('v0.0.5')
 
     def test_bundle_version(self):
         plist = Path('Info.plist')

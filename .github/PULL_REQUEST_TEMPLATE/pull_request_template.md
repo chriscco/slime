@@ -44,4 +44,4 @@ verified it by hand — this step can't be skipped.
 - [ ] If any red line in CLAUDE.md section 4 is touched, each was checked off and named under "Why this change"
 - [ ] No new AppKit / CoreGraphics / ApplicationServices imports in `Core/`
 - [ ] If a documentation threshold is met, spec / design / decision are updated (see CLAUDE.md section 3)
-- [ ] This PR updates the current unreleased version’s notes with one English entry, its PR link, and its author’s GitHub username, or is spec-focused and labeled `release-notes:skip`; frozen notes remain unchanged (see `docs/releases/README.md`)
+- [ ] This PR updates the current unreleased version’s notes with one English entry, its PR link, and its author’s GitHub username, or is internal-only with a reviewed `release-notes:skip` rationale; frozen notes remain unchanged (see `docs/releases/README.md`)

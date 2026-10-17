@@ -3,36 +3,30 @@
 Release notes are written and reviewed in English. Bilingual notes are not required.
 The workflow publishes the file unchanged; it never substitutes generated commit logs.
 
-## Maintain notes in every PR
+## Review release-note scope in every PR
 
 **Current unreleased version: [0.0.8](0.0.8.md). Version 0.0.7 is frozen.**
 
-1. Every PR updates the current version's document in the same PR, including
-   features, bug fixes, documentation, maintenance, and release preparation.
-   Spec-focused PRs are exempt: omit their entries and apply `release-notes:skip`.
-   Reviewers verify the PR primarily specifies future work; feature implementations,
-   bug fixes, and ordinary documentation/maintenance PRs still require notes. If a
-   spec PR grows into implementation, remove the label and add its entry. Supporting
-   spec-workflow changes may stay in a spec-focused PR, as in #74.
-   For each non-exempt PR, write one English bullet describing its final changes, crediting
-   the **PR author** by GitHub username:
+1. Record user-visible features, bug fixes, performance improvements, compatibility
+   changes and installation/update behavior. Internal-only specs, documentation,
+   behavior-preserving refactors, tests and CI maintenance may omit an entry.
+   Apply `release-notes:skip` with a brief rationale in the PR; reviewers confirm
+   the exemption. Remove the label if user-visible changes enter the scope.
+2. For each included PR, write one English bullet describing the final user-visible
+   result, linking the PR and crediting its author by GitHub username:
 
    ```markdown
    - Add selectable background themes. ([#62](https://github.com/chriscco/slime/pull/62)) — @chriscco
    ```
 
-2. Open a draft PR to obtain its number, then add its entry before requesting
-   review. Keep the entry accurate as the scope changes; consolidate rather than
-   append another bullet for the same PR. Bot authors use `@name[bot]`.
-3. Reviewers check the entry or spec exemption against the final diff before marking
-   the PR Ready. The release validator excludes PRs labeled `release-notes:skip`;
-   retain the reviewed label after merge so future release validation remains consistent.
-   If another version is frozen before merge, move the entry to the new current
-   version and recheck coverage.
-4. Frozen version documents stay unchanged. After a version is frozen, the first
-   subsequent PR creates the next version's document and updates the current-version
-   link above. Carry forward any entries for PRs outside the frozen release into
-   the new document, without changing the frozen file.
+   Open a draft PR to obtain its number. Keep its entry accurate as scope changes;
+   consolidate rather than duplicate bullets. Bot authors use `@name[bot]`.
+3. Reviewers check relevant coverage, links, author credit or the skip rationale.
+   Release CI does not enumerate merged PRs or compare GitHub authors/labels;
+   omitted internal PRs and PR-metadata API outages cannot block publication.
+4. Frozen version documents stay unchanged. The first subsequent PR requiring
+   notes creates the next version's document and updates the current-version link.
+   Carry forward changes outside the frozen release into that new document.
 
 Development notes need a `# slime v<version>` heading, an `Unreleased.` status,
 and a `## Changes` section. Finalize the remaining template sections at release
@@ -43,10 +37,9 @@ preparation; do not add development-version notices to the READMEs.
 1. Finalize the current notes using [`../templates/release.md`](../templates/release.md):
    replace `Unreleased.` with a summary, add installation instructions and known
    limitations, and remove every placeholder.
-2. Verify exactly one entry for every non-exempt PR merged into `main` since the
-   preceding stable tag, including the preparation PR itself. Spec-focused PRs
-   labeled `release-notes:skip` must have no entry. The validator checks coverage
-   and usernames against GitHub; review checks wording and accuracy.
+2. Review user-visible changes since the preceding stable tag and include the
+   relevant PRs with accurate links and author credit. Internal-only PRs may be
+   omitted; there is no exact-coverage requirement in release CI.
 3. Update `CFBundleShortVersionString` and `CFBundleVersion` in `scripts/build-app`.
    Review the notes and native acceptance results in the PR, then have the owner merge.
 
@@ -147,14 +140,14 @@ git push origin v0.0.8
 
 Use the intended version in place of `0.0.8`. Only stable `vX.Y.Z` tags are supported.
 The notes range starts at the nearest preceding version tag on first-parent history;
-only tag actual releases. The existing merge-commit PR policy is required.
+only tag actual releases.
 
 The workflow checks main ancestry and notes, runs release-script and Swift tests,
 imports the signing identity, builds and inspects the DMG using `scripts/package-dmg`,
 checks bundle/tag version equality, signs/verifies the archive and appcast, then uploads
 DMG + SHA-256 + appcast in the same `gh release create` call and publishes the notes.
-Missing secrets, missing/incorrect PR entries, API failures, and version mismatch stop
-publication. PR workflows run checks without access to release signing secrets.
+Missing secrets, invalid tag ancestry/version progression, missing or malformed notes,
+and bundle-version mismatch stop publication. PR coverage and attribution are review concerns. PR workflows run checks without access to release signing secrets.
 
 ## Failure recovery
 

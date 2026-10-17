@@ -3,7 +3,7 @@
 The preview-source preference is bilingual in Appearance and defaults to cached previews.
 Panel open starts a fresh thumbnail session; every hide path ends it. Reopening clears
 reused cards immediately even if rows are unchanged. Source changes invalidate old results.
-The 300 ms first-frame deadline, selection/search flow, and proportional image layout remain.
+The panel now presents app-icon placeholders immediately; selection/search flow and proportional image layout remain.
 Native screenshots remain serial; cards update when that batch returns, not after each screenshot.
 
 Tests exercise the real Appearance popup action and saved preference, plus session image
@@ -26,4 +26,4 @@ MRU grouping. No extra capture or enumeration is triggered by navigation/search.
 
 ## 2026-10-17 — Search reuse and opening latency (#83)
 
-Search now reuses detached cards, with tests for title updates, closed-window eviction, changed owners, and dismissal release. Fresh presentation remains deferred. Cached show timings begin inside the controller and do not establish physical key-to-photon latency; the user's stored Fresh preference is consistent with the audit's 196–315 ms show timings.
+Search now reuses detached cards, with tests for title updates, closed-window eviction, changed owners, and dismissal release. Fresh now presents placeholders immediately and fills captures progressively. Cached show timings begin inside the controller and do not establish physical key-to-photon latency; the user's stored Fresh preference is consistent with the audit's 196–315 ms show timings.

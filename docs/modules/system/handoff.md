@@ -83,4 +83,4 @@ Native keyboard acceptance remains pending; no AX work or waiting was added.
 
 ## 2026-10-17 — Background work audit follow-up (#83)
 
-Split list publication from preview refresh and deduplicate cached disk pruning by live IDs. Tests cover title bursts, real focus, closing, membership changes and preview-source resets. No change to AX identity validation or capture concurrency. The user's stored source was Fresh during latency investigation; the 300 ms presentation deadline remains intentional and deferred.
+Split list publication from preview refresh and deduplicate cached disk pruning by live IDs. Tests cover title bursts, real focus, closing, membership changes and preview-source resets. No change to AX identity validation or capture concurrency. The user's stored source was Fresh during latency investigation; the former 300 ms presentation wait has now been removed by user approval. Partial images keep the same session/owner validation. Late saves invalidate prune memoization after completion.

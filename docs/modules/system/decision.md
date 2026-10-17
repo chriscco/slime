@@ -185,3 +185,7 @@ Revisit only if native acceptance shows public AX coverage insufficient for comm
 ## 2026-10-17 — Do not recapture every window for a title notification
 
 Title-only updates use the list callback without the full preview callback. Real focus changes and enumeration retain preview warming; title changes alone no longer promise a new screenshot. This bounds terminal/browser title activity without adding a timer or dropping Stage Manager background caching. Revisit with targeted, measured content refresh if users need fresher active-window images. Fresh capture and the first-frame wait remain unchanged.
+
+## 2026-10-17 — Stream completed previews and repair late-save pruning (#84)
+
+Publish each serially completed valid screenshot using the batch's existing ownership tickets. A failed or slow window no longer delays already available images or panel presentation. The earlier decision to keep the first-frame wait is superseded by user approval; Fresh still uses no old or disk images. Invalidate the prune memo after a save finishes with no-longer-live IDs, since detached disk submissions need not reach the serial queue in scheduling order.

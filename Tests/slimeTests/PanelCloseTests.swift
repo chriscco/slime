@@ -57,10 +57,21 @@ extension PanelAndThumbnailTests {
 
 extension PanelAndThumbnailTests {
 @Test @MainActor func failedCloseRestoresTheTarget() async throws {
+  WindowThumbnails.beginSession(source: .fresh)
+  defer { WindowThumbnails.endSession(); WindowThumbnails.configure(source: .cached) }
   let gate = CloseGate()
   let panel = controller(gate)
   panel.handle(state: .closing(query: "", selection: 0), effects: [.closeWindow])
   try await Task.sleep(for: .milliseconds(30))
+  let other = try #require(panel.rows.last)
+  let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8,
+    bytesPerRow: 32, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+  let thumbnail = try #require(context.makeImage())
+  WindowThumbnails.warm([other], captureImages: { _, publish in
+    await publish([other.windowID: thumbnail])
+    return [other.windowID: thumbnail]
+  })
+  for _ in 0..<100 where WindowThumbnails.image(for: other) == nil { try await Task.sleep(for: .milliseconds(5)) }
   await gate.finish(.failed)
   for _ in 0..<100 where panel.closing { try await Task.sleep(for: .milliseconds(20)) }
   #expect(panel.rows.map(\.windowID) == [1, 2, 3])
@@ -70,6 +81,8 @@ extension PanelAndThumbnailTests {
   #expect(panel.panel.content.gridView.subviews.first { $0 is HighlightView }?.alphaValue == 1)
   #expect(panel.panel.content.gridView.card(for: 1)?.preview.layer?.opacity == 1)
   #expect(!panel.panel.content.statusLabel.stringValue.isEmpty)
+  #expect(panel.panel.content.gridView.card(for: other.windowID)?.preview.image != nil,
+    "Preview progress deferred during CRT must appear when closing finishes")
 }
 }
 

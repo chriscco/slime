@@ -15,7 +15,7 @@
 
 ## Session and close lifecycle
 
-Show/hide advances session generation. Thumbnail warm-up waits at most 300 ms; stale callbacks cannot reopen a dismissed or replacement session. Dismissal/disable cancels the tap session.
+Show/hide advances session generation. The panel presents immediately with app-icon placeholders; screenshot callbacks update cards without presenting the panel. Dismissal/disable cancels the tap session.
 
 Command-D captures target and neighbor identities. AX work and CRT run concurrently. At close start, title, tint, and underline fade away; only the card-sized preview snapshot animates. The 500 ms CRT separates picture compression/exposure, a 2 pt luminous beam, and a 4 pt fading point so glow is not flattened into a rectangle. Reduce Motion uses a 120 ms fade.
 
@@ -38,7 +38,7 @@ Offscreen rendering does not certify glass composition, system focus, physical k
 Appearance includes a localized Preview source popup: Cached previews (recommended) / Fresh
 captures. Its explanation states that fresh captures skip stored previews and some windows
 remain unavailable. The controller starts/ends fresh image lifetime with its own session,
-clears old card images on reopening, and keeps the existing 300 ms presentation timer.
+clears old card images on reopening, and fills new previews progressively after immediate presentation.
 Image updates do not re-rank rows or request new capture; perspective margins remain transparent
 inside the existing aspect-fit preview. A source change resets images and warms the active
 snapshot through AppDelegate; a closed panel does not start fresh capture.
@@ -46,3 +46,5 @@ snapshot through AppDelegate; a closed panel does not start fresh capture.
 ## Search card lifetime (0.0.8)
 
 The grid retains detached search results only for the full accepted window list in the current panel session. Cards are reused by window ID plus PID and refreshed when displayed again. Snapshot removal or owner changes invalidate detached cards; dismissal releases the detached pool. Visible cards remain in the hidden panel as before, preserving warm reopen behavior. Detached views do not participate in accessibility or layout.
+
+Before the first window snapshot, the empty label reads “Loading windows…”; a completed empty snapshot reads “No windows”. Queries entered during loading filter the arriving snapshot. Thumbnail-only updates reuse cards without changing selection or layout; images deferred during CRT refresh when closing finishes.

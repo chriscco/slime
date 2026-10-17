@@ -1,3 +1,5 @@
+import AppKit
+
 import CoreGraphics
 import Foundation
 import Testing
@@ -210,11 +212,11 @@ extension PanelAndThumbnailTests {
   let target = window(999_991, onscreen: false)
   var finished = false
   WindowThumbnails.warm([target], diskLoader: { _ in await gate.load() },
-    captureImages: { _ in [:] }, pruneImages: { _ in })
+    captureImages: { _, _ in [:] }, pruneImages: { _ in })
   await gate.waitUntilStarted()
   WindowThumbnails.whenSettled { finished = true }
   WindowThumbnails.warm([], diskLoader: { _ in [:] },
-    captureImages: { _ in [:] }, pruneImages: { _ in })
+    captureImages: { _, _ in [:] }, pruneImages: { _ in })
   let thumbnail = image { $0.setFillColor(opaque(0.2, 0.4, 0.6)); $0.fill(CGRect(x: 0, y: 0, width: 64, height: 64)) }
   await gate.finish([target.windowID: thumbnail])
   for _ in 0..<100 where !finished { try await Task.sleep(for: .milliseconds(10)) }
@@ -260,7 +262,7 @@ extension PanelAndThumbnailTests {
     defer { WindowThumbnails.endSession(); WindowThumbnails.configure(source: .cached) }
     func warm() {
       WindowThumbnails.warm([target], diskLoader: { _ in Issue.record("Fresh must not load disk"); return [:] },
-        captureImages: { ids in await count.record(ids); return [:] },
+        captureImages: { ids, _ in await count.record(ids); return [:] },
         pruneImages: { _ in Issue.record("Fresh must not prune disk") },
         saveImages: { _ in Issue.record("Fresh must not save disk") })
     }
@@ -283,7 +285,7 @@ extension PanelAndThumbnailTests {
     let gate = DiskImageGate()
     WindowThumbnails.beginSession(source: source)
     WindowThumbnails.warm([target], diskLoader: { _ in [:] },
-      captureImages: { _ in
+      captureImages: { _, _ in
         let images = await gate.load()
         #expect(Task.isCancelled)
         return images
@@ -309,7 +311,7 @@ extension PanelAndThumbnailTests {
     defer { WindowThumbnails.endSession(); WindowThumbnails.configure(source: .cached) }
     func warm(onscreen: Bool, succeeds: Bool) {
       WindowThumbnails.warm([window(id, onscreen: onscreen)],
-        captureImages: { ids in await count.record(ids); return succeeds ? [id: thumbnail] : [:] })
+        captureImages: { ids, _ in await count.record(ids); return succeeds ? [id: thumbnail] : [:] })
     }
     warm(onscreen: false, succeeds: false)
     for _ in 0..<100 where WindowThumbnails.hasPendingWork { try await Task.sleep(for: .milliseconds(5)) }
@@ -330,7 +332,7 @@ extension PanelAndThumbnailTests {
     WindowThumbnails.beginSession(source: .fresh)
     defer { WindowThumbnails.endSession(); WindowThumbnails.configure(source: .cached) }
     for _ in 0..<3 {
-      WindowThumbnails.warm([target], captureImages: { ids in await count.record(ids); return [:] })
+      WindowThumbnails.warm([target], captureImages: { ids, _ in await count.record(ids); return [:] })
       for _ in 0..<100 where WindowThumbnails.hasPendingWork { try await Task.sleep(for: .milliseconds(5)) }
     }
     #expect(await count.ids == [target.windowID])
@@ -343,7 +345,7 @@ extension PanelAndThumbnailTests {
       let count = CaptureCount()
       WindowThumbnails.beginSession(source: .fresh)
       for _ in 0..<10 {
-        WindowThumbnails.warm(windows, captureImages: { ids in
+        WindowThumbnails.warm(windows, captureImages: { ids, _ in
           #expect(!isMainThread())
           await count.record(ids); return [:]
         })
@@ -391,7 +393,7 @@ extension PanelAndThumbnailTests {
     let saved = SavedImages()
     let thumbnail = image { $0.setFillColor(opaque(0.2, 0.4, 0.6)); $0.fill(CGRect(x: 0, y: 0, width: 64, height: 64)) }
     WindowThumbnails.warm([target], diskLoader: { _ in [:] },
-      captureImages: { _ in [target.windowID: thumbnail] }, pruneImages: { _ in },
+      captureImages: { _, _ in [target.windowID: thumbnail] }, pruneImages: { _ in },
       saveImages: { saved.save($0) })
     for _ in 0..<100 where saved.savedIDs.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
     #expect(saved.savedIDs == [target.windowID])
@@ -424,7 +426,7 @@ extension PanelAndThumbnailTests {
     let thumbnail = image { $0.setFillColor(opaque(0.2, 0.4, 0.6)); $0.fill(CGRect(x: 0, y: 0, width: 64, height: 64)) }
     func warm(_ windows: [Window]) {
       WindowThumbnails.warm(windows, diskLoader: { _ in [:] },
-        captureImages: { ids in Dictionary(uniqueKeysWithValues: ids.map { ($0, thumbnail) }) },
+        captureImages: { ids, _ in Dictionary(uniqueKeysWithValues: ids.map { ($0, thumbnail) }) },
         pruneImages: { _ in }, saveImages: { _ in gate.save() })
     }
     warm([first])
@@ -449,7 +451,7 @@ extension PanelAndThumbnailTests {
     WindowThumbnails.configure(source: .cached)
     WindowThumbnails.warm([window(999_999)],
       diskLoader: { _ in Issue.record("Invalidated warm must not start disk loading"); return [:] },
-      captureImages: { _ in Issue.record("Invalidated warm must not capture"); return [:] },
+      captureImages: { _, _ in Issue.record("Invalidated warm must not capture"); return [:] },
       pruneImages: { _ in })
     WindowThumbnails.configure(source: .fresh)
     try await Task.sleep(for: .milliseconds(50))
@@ -490,7 +492,7 @@ extension PanelAndThumbnailTests {
     defer { WindowThumbnails.configure(source: .fresh); WindowThumbnails.configure(source: .cached) }
     let pruned = PrunedSnapshots()
     func warm(_ windows: [Window]) {
-      WindowThumbnails.warm(windows, diskLoader: { _ in [:] }, captureImages: { _ in [:] },
+      WindowThumbnails.warm(windows, diskLoader: { _ in [:] }, captureImages: { _, _ in [:] },
         pruneImages: { pruned.record($0) }, saveImages: { _ in })
     }
     warm([window(999_981), window(999_982)])
@@ -515,7 +517,7 @@ extension PanelAndThumbnailTests {
     let pruned = PrunedSnapshots()
     let saved = SavedImages()
     func warm(_ windows: [Window]) {
-      WindowThumbnails.warm(windows, diskLoader: { _ in [:] }, captureImages: { _ in [:] },
+      WindowThumbnails.warm(windows, diskLoader: { _ in [:] }, captureImages: { _, _ in [:] },
         pruneImages: { pruned.record($0) }, saveImages: { _ in })
     }
     let target = window(999_980)
@@ -535,5 +537,142 @@ extension PanelAndThumbnailTests {
     }
     #expect(saved.savedIDs == [target.windowID])
     #expect(pruned.snapshots == [[target.windowID], [], []])
+  }
+}
+
+extension PanelAndThumbnailTests {
+  @Test @MainActor func freshProgressPublishesBeforeTheLastCaptureFinishes() async throws {
+    WindowThumbnails.beginSession(source: .fresh)
+    defer { WindowThumbnails.endSession(); WindowThumbnails.configure(source: .cached) }
+    let first = window(999_971), second = window(999_972)
+    let panel = PanelController()
+    defer { panel.dismiss() }
+    panel.handle(state: .lingering(query: "", selection: 0), effects: [])
+    panel.setWindows([first, second])
+    let card = try #require(panel.panel.content.gridView.card(for: first.windowID))
+    let frame = card.frame
+    let selection = panel.selection
+    let thumbnail = image { _ in }
+    let gate = DiskImageGate()
+    WindowThumbnails.warm([first, second], captureImages: { _, publish in
+      await publish([first.windowID: thumbnail])
+      return await gate.load()
+    })
+    await gate.waitUntilStarted()
+    #expect(WindowThumbnails.image(for: first) === thumbnail)
+    #expect(card.preview.image != nil)
+    #expect(card.frame == frame)
+    #expect(panel.selection == selection)
+    #expect(panel.panel.content.gridView.card(for: first.windowID) === card)
+    #expect(WindowThumbnails.image(for: second) == nil)
+    #expect(WindowThumbnails.hasPendingWork)
+    await gate.finish([first.windowID: thumbnail])
+    for _ in 0..<100 where WindowThumbnails.hasPendingWork { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(!WindowThumbnails.hasPendingWork)
+    #expect(WindowThumbnails.image(for: second) == nil, "Failed capture keeps the placeholder")
+  }
+
+  @Test @MainActor func freshPanelShowsPlaceholdersBeforeCapturesRun() throws {
+    _ = NSApplication.shared
+    let defaults = UserDefaults(suiteName: UUID().uuidString)!
+    let settings = Settings(defaults: defaults)
+    settings.previewSource = .fresh
+    let panel = PanelController(settings: settings)
+    defer { panel.dismiss(); WindowThumbnails.configure(source: .cached) }
+    panel.setWindows([window(999_973), window(999_974)])
+    panel.handle(state: .holding(.cmd, query: "", selection: 0), effects: [.showPanel(.cmd)])
+    #expect(panel.panel.isVisible, "Presentation must not wait for screenshot tasks")
+    let card = try #require(panel.panel.content.gridView.card(for: 999_973))
+    #expect(card.preview.image == nil)
+    #expect(card.preview.appIcon != nil)
+    let frame = card.frame
+    panel.handle(state: .holding(.cmd, query: "", selection: 0), effects: [.moveSelection(axis: .horizontal, step: 1)])
+    #expect(panel.selection == 0)
+    #expect(card.frame == frame)
+    panel.dismiss()
+    #expect(!panel.panel.isVisible)
+  }
+
+  @Test @MainActor func coldPanelDistinguishesLoadingFromAnEmptySnapshot() {
+    _ = NSApplication.shared
+    let panel = PanelController()
+    defer { panel.dismiss(); WindowThumbnails.configure(source: .cached) }
+    panel.handle(state: .lingering(query: "", selection: 0), effects: [.showPanel(.opt)])
+    #expect(panel.panel.isVisible)
+    #expect(panel.panel.content.emptyLabel.stringValue == localized("Loading windows…", "正在加载窗口…"))
+    panel.setWindows([])
+    #expect(panel.panel.content.emptyLabel.stringValue == localized("No windows", "没有窗口"))
+  }
+}
+
+extension PanelAndThumbnailTests {
+  @Test(arguments: ["dismiss", "reopen", "owner", "remove", "mode"]) @MainActor
+  func lateProgressCannotCrossSessionOrOwnerBoundaries(_ action: String) async throws {
+    WindowThumbnails.beginSession(source: .fresh)
+    defer { WindowThumbnails.endSession(); WindowThumbnails.configure(source: .cached) }
+    let target = window(999_969)
+    let gate = DiskImageGate()
+    let finished = CaptureCount()
+    let thumbnail = image { _ in }
+    WindowThumbnails.warm([target], captureImages: { _, publish in
+      let images = await gate.load()
+      await publish(images)
+      await finished.record([target.windowID])
+      return images
+    })
+    await gate.waitUntilStarted()
+    switch action {
+    case "dismiss": WindowThumbnails.endSession()
+    case "reopen":
+      WindowThumbnails.endSession()
+      WindowThumbnails.beginSession(source: .fresh)
+      WindowThumbnails.warm([target], captureImages: { _, _ in [:] })
+    case "owner":
+      let replacement = Window(pid: 43, windowID: target.windowID, appName: "Other", title: "New", isMinimized: false)
+      WindowThumbnails.warm([replacement], captureImages: { _, _ in [:] })
+    case "remove": WindowThumbnails.warm([], captureImages: { _, _ in [:] })
+    default: WindowThumbnails.configure(source: .cached)
+    }
+    let previous = WindowThumbnails.onChange
+    var changes = 0
+    WindowThumbnails.onChange = { changes += 1 }
+    defer { WindowThumbnails.onChange = previous }
+    await gate.finish([target.windowID: thumbnail])
+    for _ in 0..<100 where await finished.ids.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(await finished.ids == [target.windowID])
+    #expect(WindowThumbnails.image(for: target) == nil)
+    #expect(changes == 0)
+  }
+
+  @Test @MainActor func cachedPanelAlsoShowsBeforeAMissingPreviewFinishes() async throws {
+    WindowThumbnails.configure(source: .fresh)
+    WindowThumbnails.configure(source: .cached)
+    let defaults = UserDefaults(suiteName: UUID().uuidString)!
+    let settings = Settings(defaults: defaults)
+    settings.previewSource = .cached
+    let panel = PanelController(settings: settings)
+    defer { panel.dismiss(); WindowThumbnails.configure(source: .fresh); WindowThumbnails.configure(source: .cached) }
+    let target = window(999_968)
+    let gate = DiskImageGate()
+    WindowThumbnails.warm([target], diskLoader: { _ in [:] },
+      captureImages: { _, _ in await gate.load() }, pruneImages: { _ in })
+    await gate.waitUntilStarted()
+    panel.setWindows([target])
+    panel.handle(state: .lingering(query: "", selection: 0), effects: [.showPanel(.opt)])
+    #expect(panel.panel.isVisible)
+    #expect(panel.panel.content.gridView.card(for: target.windowID)?.preview.image == nil)
+    panel.dismiss()
+    await gate.finish([:])
+    #expect(!panel.panel.isVisible)
+  }
+
+  @Test @MainActor func typingWhileTheInitialListLoadsFiltersTheArrivingSnapshot() {
+    _ = NSApplication.shared
+    let panel = PanelController()
+    defer { panel.dismiss(); WindowThumbnails.configure(source: .cached) }
+    panel.handle(state: .lingering(query: "", selection: 0), effects: [.showPanel(.opt), .appendQuery("7")])
+    panel.setWindows([window(999_980), window(999_977)])
+    #expect(panel.rows.map(\.windowID) == [999_977])
+    #expect(panel.selection == 0)
   }
 }

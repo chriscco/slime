@@ -137,3 +137,7 @@ use semantic primary text so dark themes are readable without breaking white mod
 ## 2026-10-17 — Reuse detached search cards within a session
 
 Searching to zero results previously destroyed every card, then deleting the query recreated them. Keep detached views for accepted live identities until dismissal instead of introducing collection-view virtualization. This retains at most the session's live-window views and improves repeated searches at the cost of bounded session memory. Revisit virtualization only if measured large-window workloads still need it.
+
+## 2026-10-17 — Present placeholders before capturing previews (#84)
+
+The user approved replacing the complete-first-frame wait with immediate default window illustrations and app icons, followed by progressive real previews. This supersedes the October 13 thumbnail presentation deadline. New images may visibly appear after opening, but keyboard navigation, titles, card layout and selection do not wait for them. Keep the existing serial screenshot path; concurrency experiments are separate.

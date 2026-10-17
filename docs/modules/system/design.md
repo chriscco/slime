@@ -86,7 +86,7 @@ Known limit: a protected sibling later closed outside slime can linger if AX sti
 
 `warm(allWindows)`, `image(for:)`, and onChange separate caching from AppKit rendering. Memory CGImages, pending/refreshing IDs, negative-cache entries, ownership, and publication tickets are main-actor state. The UI wraps CGImages only when their identity changes.
 
-Load PNG caches and capture screenshots off the main thread. Disk misses are attempted once per live identity. Per-window tickets and owner PID checks reject late results after removal/replacement; loaded images cannot overwrite a newer memory capture. Capture remains serial within each batch, and in-flight IDs are deduplicated. The panel's optional first-frame wait is bounded to 300 ms; loading cannot block its main-thread timer.
+Load PNG caches and capture screenshots off the main thread. Disk misses are attempted once per live identity. Per-window tickets and owner PID checks reject late results after removal/replacement; loaded images cannot overwrite a newer memory capture. Capture remains serial within each batch, and in-flight IDs are deduplicated. The panel presents placeholders immediately; valid captures publish progressively through owner/session tickets.
 
 Capture uses SCShareableContent once per batch, SCContentFilter(desktopIndependentWindow:), and SCScreenshotManager at 320 px width, preserving aspect ratio. Do not call private SkyLight APIs. Missing Screen Recording permission returns no images and retains normal window switching.
 
@@ -138,10 +138,11 @@ are tracked together; cancellation propagates into detached disk readers between
 Capture tasks carry the source selected at request time. Mode/session changes invalidate
 tickets and cancel tasks; results must pass ticket validation before publication or save
 scheduling. Disk tasks are background/cancellable and serialize writes/pruning through an actor. Already-started file operations may finish;
-fresh mode schedules no new disk work and is not a secure-delete feature. The existing 300 ms
-presentation deadline is unchanged. Fresh validation permits transparent corners, rejects
+fresh mode schedules no new disk work and is not a secure-delete feature. Presentation no longer waits for the capture batch. Fresh validation permits transparent corners, rejects
 transparent/solid samples, and uses the existing proportional image canvas.
 
 ## Preview notification scope (0.0.8)
 
 `WindowCache.onChange` publishes titles/order to the panel. `onRefreshPreviews` runs before it for enumeration, window removal, and focus changes; title-only changes on the current window skip the icon/thumbnail batch. Cached mode still warms in the background for Stage Manager. Existing pending/refreshing sets deduplicate capture work. `WindowThumbnails` schedules pruning only for a changed live-ID set or the first cached snapshot after a source reset.
+
+Progress callbacks use the same identity tickets as final results. Final publication skips identical images already delivered progressively. A late cached save containing IDs absent from the current live set invalidates the prune memo after completion, allowing the next identical snapshot to remove the late file.

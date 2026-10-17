@@ -36,9 +36,9 @@ Unchanged ordered results skip grid rendering. Cards avoid wrapping an unchanged
 Offscreen rendering does not certify glass composition, system focus, physical keyboard behavior, or perceived smoothness. The 0.0.6 spec defines native acceptance and the release performance matrix. Historical native-window/underline checks from 0.0.5 remain evidence for that version, not proof that every new path is validated.
 
 Appearance includes a localized Preview source popup: Cached previews (recommended) / Fresh
-captures. Its explanation states that fresh captures skip stored previews and some windows
-remain unavailable. The controller starts/ends fresh image lifetime with its own session,
-clears old card images on reopening, and fills new previews progressively after immediate presentation.
+captures. Its explanation states that both modes reuse previews, while Fresh accepts tilted Stage Manager
+images without saving to disk. Reopening keeps completed images; only missing images use
+placeholders. Fresh cancels unfinished work on hide and fills previews progressively.
 Image updates do not re-rank rows or request new capture; perspective margins remain transparent
 inside the existing aspect-fit preview. A source change resets images and warms the active
 snapshot through AppDelegate; a closed panel does not start fresh capture.

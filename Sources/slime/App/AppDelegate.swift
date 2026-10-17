@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func settingsChanged() {
     if WindowThumbnails.configure(source: settings.previewSource), let cache {
-      WindowThumbnails.warm(cache.allWindows)
+      WindowThumbnails.warm(cache.snapshot)
     }
     panel?.refreshAppearance()
     installStatusItem()

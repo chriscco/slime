@@ -61,3 +61,19 @@ The first run's cleared images indicate an interrupted session; this harness doe
 - 242 Swift tests pass, including immediate Fresh/cached presentation, cold loading versus empty list, typing before the first snapshot, progressive card identity/frame/selection preservation, failed captures, stale progress after session/owner/source changes, and previews received during CRT closure.
 - Reviewer comment `6228625318`: a delayed disk save can arrive after pruning. Its completion now invalidates the pruning memo when it writes a no-longer-live ID, allowing the next identical snapshot to prune again. A deterministic regression reproduces save-after-prune ordering and verifies the second cleanup.
 - Both the presentation and late-save tests failed before their respective implementation changes.
+
+## Retained previews and selective refresh follow-up
+
+User testing rejected rebuilding every Fresh preview on every opening. This supersedes the session-only lifetime above: both modes now retain successful memory images, while Fresh still bypasses disk and accepts perspective captures. Missing images alone use placeholders. Focus/title/visibility changes mark individual identities for refresh; unchanged onscreen windows are retried on a later warm event after one second for the current window or 30 seconds for others. There is no timer. Failed refreshes retain existing images.
+
+The deterministic repeat-open regression first failed in both modes: Fresh dropped all images and captured all three again; Cached redundantly refreshed all three. It now preserves all images, performs no capture for an immediate unchanged reopening, and refreshes only the two affected identities on focus change. Additional tests cover the time-based fallback without wall-clock sleeps, failed refresh retention, hidden removal, source-specific Stage Manager transitions and cancelled partial/final replacement. The full suite passes 246 Swift tests; 18 script tests pass.
+
+A second disposable release-build probe used 11 real windows with Fresh and the existing appearance. After first capture, 7 usable images remained cached. All three show calls returned with the panel visible:
+
+| Opening | Show call (ms) | Placeholders at return | Retained images at return |
+|---|---:|---:|---:|
+| First process opening | 27.31 | 11 | 0 |
+| Second | 9.50 | 4 | 7 |
+| Third | 5.01 | 4 | 7 |
+
+The first image callback occurred at 138.54 ms and initial missing-image work settled by 317.46 ms. The next openings retained all seven usable previews; the four unavailable windows remained placeholders. The harness's settlement counter concerns missing images, not ongoing refreshes of already-cached images; it cannot establish zero background refreshes. This small controller-invoked sample demonstrates retained presentation, not physical key-to-display latency, CPU/memory improvements, or a complete Stage Manager/multiple-display acceptance matrix. Existing README resource measurements are explicitly labeled as the pre-reuse baseline.

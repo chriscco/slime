@@ -105,7 +105,7 @@ final class PanelController {
     WindowThumbnails.beginSession(source: settings.previewSource)
     rerank(following: previous)
     panel.makeKeyAndOrderFront(nil)
-    if settings.previewSource == .fresh { WindowThumbnails.warm(windows) }
+    WindowThumbnails.warm(nextWindows)
     onRefresh?()
   }
 

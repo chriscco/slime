@@ -255,7 +255,7 @@ private actor CaptureCount {
 }
 
 extension PanelAndThumbnailTests {
-  @Test @MainActor func freshSessionsIgnoreDiskDeduplicateAndRetryOnReopen() async throws {
+  @Test @MainActor func freshSessionsIgnoreDiskAndDoNotRetryUnchangedFailuresOnReopen() async throws {
     let target = window(999_992, onscreen: false)
     let count = CaptureCount()
     WindowThumbnails.beginSession(source: .fresh)
@@ -276,7 +276,7 @@ extension PanelAndThumbnailTests {
     WindowThumbnails.beginSession(source: .fresh)
     warm()
     for _ in 0..<100 where WindowThumbnails.hasPendingWork { try await Task.sleep(for: .milliseconds(5)) }
-    #expect(await count.ids == [target.windowID, target.windowID])
+    #expect(await count.ids == [target.windowID])
   }
 
   @Test(arguments: Settings.PreviewSource.allCases) @MainActor
@@ -303,7 +303,7 @@ extension PanelAndThumbnailTests {
 }
 
 extension PanelAndThumbnailTests {
-  @Test @MainActor func freshImagesEndWithTheirSessionAndVisibilityAllowsOneRetry() async throws {
+  @Test @MainActor func freshImagesSurviveTheirSessionAndVisibilityAllowsOneRetry() async throws {
     let id: UInt32 = 999_994
     let count = CaptureCount()
     let thumbnail = image { $0.setFillColor(opaque(0.2, 0.4, 0.6)); $0.fill(CGRect(x: 0, y: 0, width: 64, height: 64)) }
@@ -321,9 +321,9 @@ extension PanelAndThumbnailTests {
     warm(onscreen: true, succeeds: true)
     #expect(await count.ids == [id, id])
     WindowThumbnails.endSession()
-    #expect(WindowThumbnails.image(for: window(id)) == nil)
+    #expect(WindowThumbnails.image(for: window(id)) === thumbnail)
     WindowThumbnails.beginSession(source: .fresh)
-    #expect(WindowThumbnails.image(for: window(id)) == nil)
+    #expect(WindowThumbnails.image(for: window(id)) === thumbnail)
   }
 
   @Test @MainActor func freshVisibleFailuresDoNotLoop() async throws {
@@ -343,6 +343,7 @@ extension PanelAndThumbnailTests {
     for size in [10, 50, 100] {
       let windows = (1...size).map { window(UInt32(900_000 + $0)) }
       let count = CaptureCount()
+      WindowThumbnails.configure(source: .cached)
       WindowThumbnails.beginSession(source: .fresh)
       for _ in 0..<10 {
         WindowThumbnails.warm(windows, captureImages: { ids, _ in
@@ -360,7 +361,7 @@ extension PanelAndThumbnailTests {
 }
 
 extension PanelAndThumbnailTests {
-  @Test @MainActor func beginningFreshSessionNotifiesCardsToDropTheirPreviousImages() {
+  @Test @MainActor func beginningFreshSessionDoesNotClearPreviousCards() {
     WindowThumbnails.beginSession(source: .fresh)
     var changes = 0
     let previous = WindowThumbnails.onChange
@@ -372,7 +373,7 @@ extension PanelAndThumbnailTests {
     WindowThumbnails.endSession()
     #expect(changes == 0)
     WindowThumbnails.beginSession(source: .fresh)
-    #expect(changes == 1)
+    #expect(changes == 0)
   }
 }
 
@@ -674,5 +675,124 @@ extension PanelAndThumbnailTests {
     panel.setWindows([window(999_980), window(999_977)])
     #expect(panel.rows.map(\.windowID) == [999_977])
     #expect(panel.selection == 0)
+  }
+}
+
+extension PanelAndThumbnailTests {
+  @Test(arguments: Settings.PreviewSource.allCases) @MainActor
+  func reopeningRetainsPreviewsAndFocusRefreshesOnlyAffectedWindows(_ source: Settings.PreviewSource) async throws {
+    WindowThumbnails.configure(source: source == .fresh ? .cached : .fresh)
+    WindowThumbnails.beginSession(source: source)
+    defer { WindowThumbnails.configure(source: .fresh); WindowThumbnails.configure(source: .cached) }
+    let windows = [window(999_961), window(999_962), window(999_963)]
+    let thumbnail = image { _ in }
+    let count = CaptureCount()
+    let now = ContinuousClock.now
+    func warm(_ rows: [Window]) {
+      WindowThumbnails.warm(rows, now: now, diskLoader: { _ in [:] }, captureImages: { ids, _ in
+        await count.record(ids)
+        return Dictionary(uniqueKeysWithValues: ids.map { ($0, thumbnail) })
+      }, pruneImages: { _ in }, saveImages: { _ in })
+    }
+    warm(windows)
+    for _ in 0..<100 where WindowThumbnails.hasPendingWork { try await Task.sleep(for: .milliseconds(5)) }
+    WindowThumbnails.endSession()
+    WindowThumbnails.beginSession(source: source)
+    #expect(windows.allSatisfy { WindowThumbnails.image(for: $0) === thumbnail })
+    warm(windows)
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(await count.ids == windows.map(\.windowID))
+    warm([windows[1], windows[0], windows[2]])
+    for _ in 0..<100 where await count.ids.count < 5 { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(await count.ids == [999_961, 999_962, 999_963, 999_962, 999_961])
+    warm([windows[1], windows[0]])
+    #expect(WindowThumbnails.image(for: windows[2]) == nil)
+  }
+}
+
+extension PanelAndThumbnailTests {
+  @Test(arguments: Settings.PreviewSource.allCases) @MainActor
+  func previewRefreshIsThrottledAndFailureKeepsTheLastImage(_ source: Settings.PreviewSource) async throws {
+    WindowThumbnails.configure(source: source == .fresh ? .cached : .fresh)
+    WindowThumbnails.beginSession(source: source)
+    defer { WindowThumbnails.configure(source: .fresh); WindowThumbnails.configure(source: .cached) }
+    let rows = [window(999_951), window(999_952)]
+    let thumbnail = image { _ in }
+    let count = CaptureCount()
+    let start = ContinuousClock.now
+    func warm(_ rows: [Window], seconds: Int, succeeds: Bool = false) async throws {
+      WindowThumbnails.warm(rows, now: start.advanced(by: .seconds(seconds)), diskLoader: { _ in [:] },
+        captureImages: { ids, _ in
+          await count.record(ids)
+          return succeeds ? Dictionary(uniqueKeysWithValues: ids.map { ($0, thumbnail) }) : [:]
+        }, pruneImages: { _ in }, saveImages: { _ in })
+      try await Task.sleep(for: .milliseconds(30))
+    }
+    try await warm(rows, seconds: 0, succeeds: true)
+    try await warm(rows, seconds: 0)
+    #expect(await count.ids == [999_951, 999_952])
+    try await warm(rows, seconds: 2)
+    #expect(await count.ids == [999_951, 999_952, 999_951])
+    #expect(rows.allSatisfy { WindowThumbnails.image(for: $0) === thumbnail })
+    let renamed = Window(pid: rows[1].pid, windowID: rows[1].windowID, appName: "Test", title: "Changed", isMinimized: false)
+    try await warm([rows[0], renamed], seconds: 2)
+    #expect(await count.ids == [999_951, 999_952, 999_951, 999_952])
+    try await warm([rows[0], renamed], seconds: 33)
+    #expect(await count.ids == [999_951, 999_952, 999_951, 999_952, 999_951, 999_952])
+    #expect(rows.allSatisfy { WindowThumbnails.image(for: $0) === thumbnail })
+    WindowThumbnails.endSession()
+    WindowThumbnails.warm([rows[0]], now: start, diskLoader: { _ in [:] },
+      captureImages: { _, _ in [:] }, pruneImages: { _ in }, saveImages: { _ in })
+    #expect(WindowThumbnails.image(for: rows[1]) == nil, "Hidden panels must still evict removed windows")
+  }
+}
+
+extension PanelAndThumbnailTests {
+  @Test(arguments: Settings.PreviewSource.allCases) @MainActor
+  func stageManagerTransitionRetainsNormalOrRefreshesPerspective(_ source: Settings.PreviewSource) async throws {
+    WindowThumbnails.configure(source: source == .fresh ? .cached : .fresh)
+    WindowThumbnails.beginSession(source: source)
+    defer { WindowThumbnails.configure(source: .fresh); WindowThumbnails.configure(source: .cached) }
+    let normal = image { _ in }, perspective = image { _ in }
+    let count = CaptureCount()
+    let now = ContinuousClock.now
+    func warm(onscreen: Bool) async throws {
+      WindowThumbnails.warm([window(999_941, onscreen: onscreen)], now: now,
+        diskLoader: { _ in [:] }, captureImages: { ids, _ in
+          await count.record(ids)
+          return [999_941: onscreen ? normal : perspective]
+        }, pruneImages: { _ in }, saveImages: { _ in })
+      try await Task.sleep(for: .milliseconds(30))
+    }
+    try await warm(onscreen: true)
+    try await warm(onscreen: false)
+    try await warm(onscreen: false)
+    #expect(await count.ids.count == (source == .fresh ? 2 : 1))
+    #expect(WindowThumbnails.image(for: window(999_941)) === (source == .fresh ? perspective : normal))
+  }
+
+  @Test @MainActor func cancellingARefreshRetainsTheOldImageAndRejectsLateReplacement() async throws {
+    WindowThumbnails.configure(source: .cached)
+    WindowThumbnails.beginSession(source: .fresh)
+    defer { WindowThumbnails.endSession(); WindowThumbnails.configure(source: .cached) }
+    let target = window(999_940)
+    let original = image { _ in }, late = image { _ in }
+    let now = ContinuousClock.now
+    WindowThumbnails.warm([target], now: now, captureImages: { _, _ in [target.windowID: original] })
+    for _ in 0..<100 where WindowThumbnails.hasPendingWork { try await Task.sleep(for: .milliseconds(5)) }
+    let gate = DiskImageGate()
+    WindowThumbnails.warm([target], now: now.advanced(by: .seconds(2)), captureImages: { _, publish in
+      let images = await gate.load()
+      await publish(images)
+      return images
+    })
+    await gate.waitUntilStarted()
+    #expect(WindowThumbnails.image(for: target) === original)
+    WindowThumbnails.endSession()
+    WindowThumbnails.beginSession(source: .fresh)
+    #expect(WindowThumbnails.image(for: target) === original)
+    await gate.finish([target.windowID: late])
+    try await Task.sleep(for: .milliseconds(30))
+    #expect(WindowThumbnails.image(for: target) === original)
   }
 }

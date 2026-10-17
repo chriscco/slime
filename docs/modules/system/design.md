@@ -127,16 +127,24 @@ AppDelegate configures the source before cache startup and on settings changes. 
 retains background warming, disk cache, negative cache, and onscreen refresh.
 
 PanelController calls `beginSession` before rendering and `endSession` on every hide path.
-Fresh mode clears memory/tickets/attempts at both boundaries, announces the new session so
-reused cards clear their previous images, and ignores `warm` while closed. `warm` captures
-new identities once, deduplicates repeated snapshots, and allows a failed offscreen identity
-one retry when visible. Opening triggers the capture batch and normal window refresh;
-search/selection do neither. No explicit refresh command exists independently of opening.
+Both modes retain successful memory previews across openings. Fresh cancels unfinished work
+and invalidates its tickets on hide, but does not clear completed images. Hidden Fresh warm
+calls reconcile owners/removals and remember focus/title/visibility changes without capturing.
+Fresh never reads/writes thumbnail files; Cached retains normal renders on disk and rejects
+perspective images. Changing source clears images so policies cannot mix.
+
+Warm receives current-first snapshots, including from grouped panels. It refreshes the current
+and previous focus identities and changed metadata. An unchanged onscreen window is eligible
+on a later warm call after one second (current) or 30 seconds (others), measured since the last
+attempt, including failure. No timer is added. Missing previews load/capture once; offscreen
+failures wait for a meaningful change/visibility transition. Failed refreshes keep the last
+successful image. In-flight windows remain deduplicated; metadata changes during a request
+stay dirty for the next warm. Search and selection never call warm.
 
 Warm tasks validate tickets again before scheduling any disk read. Read and capture tasks
 are tracked together; cancellation propagates into detached disk readers between files.
-Capture tasks carry the source selected at request time. Mode/session changes invalidate
-tickets and cancel tasks; results must pass ticket validation before publication or save
+Capture tasks carry the source selected at request time. Mode changes and Fresh dismissal invalidate
+in-flight tickets and cancel tasks; results must pass ticket validation before publication or save
 scheduling. Disk tasks are background/cancellable and serialize writes/pruning through an actor. Already-started file operations may finish;
 fresh mode schedules no new disk work and is not a secure-delete feature. Presentation no longer waits for the capture batch. Fresh validation permits transparent corners, rejects
 transparent/solid samples, and uses the existing proportional image canvas.

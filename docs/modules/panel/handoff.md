@@ -27,3 +27,7 @@ MRU grouping. No extra capture or enumeration is triggered by navigation/search.
 ## 2026-10-17 — Search reuse and opening latency (#83)
 
 Search now reuses detached cards, with tests for title updates, closed-window eviction, changed owners, and dismissal release. Fresh now presents placeholders immediately and fills captures progressively. Cached show timings begin inside the controller and do not establish physical key-to-photon latency; the user's stored Fresh preference is consistent with the audit's 196–315 ms show timings.
+
+## 2026-10-17 — Retained previews (#84 follow-up)
+
+Supersedes the earlier per-session Fresh clearing described above. Both sources now retain successful memory images on reopening. Fresh keeps no disk previews, cancels unfinished captures on hide, and still accepts tilted Stage Manager images. Warm reconciles hidden removals and prioritizes changed focus/title/visibility. Unchanged onscreen windows are eligible after one second for the current window or 30 seconds for others, checked only on existing warm events; no timer. Failures retain old images. Settings and README explain the updated lifetime.

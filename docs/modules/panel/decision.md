@@ -141,3 +141,7 @@ Searching to zero results previously destroyed every card, then deleting the que
 ## 2026-10-17 — Present placeholders before capturing previews (#84)
 
 The user approved replacing the complete-first-frame wait with immediate default window illustrations and app icons, followed by progressive real previews. This supersedes the October 13 thumbnail presentation deadline. New images may visibly appear after opening, but keyboard navigation, titles, card layout and selection do not wait for them. Keep the existing serial screenshot path; concurrency experiments are separate.
+
+## 2026-10-17 — Preserve previews across openings
+
+User testing found that immediate presentation exposed Fresh's full placeholder-to-image rebuild on every open. Retain successful memory previews in both modes and refresh only changed identities plus bounded onscreen fallback attempts. Fresh's distinction is tilted-image acceptance and no disk persistence, not per-open memory erasure. Cancel its unfinished captures on dismissal while retaining completed images. Tradeoff: unchanged background contents can remain stale until a later warm event meets the 30-second interval; current-window attempts use one second. No new polling timer or capture concurrency.

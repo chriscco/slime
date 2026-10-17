@@ -506,3 +506,34 @@ extension PanelAndThumbnailTests {
     #expect(pruned.snapshots == [[999_981, 999_982], [999_982], [999_982]])
   }
 }
+
+extension PanelAndThumbnailTests {
+  @Test @MainActor func saveArrivingAfterPruneAllowsAnotherPruneForTheSameSnapshot() async throws {
+    WindowThumbnails.configure(source: .fresh)
+    WindowThumbnails.configure(source: .cached)
+    defer { WindowThumbnails.configure(source: .fresh); WindowThumbnails.configure(source: .cached) }
+    let pruned = PrunedSnapshots()
+    let saved = SavedImages()
+    func warm(_ windows: [Window]) {
+      WindowThumbnails.warm(windows, diskLoader: { _ in [:] }, captureImages: { _ in [:] },
+        pruneImages: { pruned.record($0) }, saveImages: { _ in })
+    }
+    let target = window(999_980)
+    warm([target])
+    for _ in 0..<100 where pruned.snapshots.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+    // The accepted batch holds this image while the removed-window snapshot is pruned.
+    let accepted = [target.windowID: image { _ in }]
+    warm([])
+    for _ in 0..<100 where pruned.snapshots.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(pruned.snapshots.last == [])
+    WindowThumbnails.persist(accepted, saveImages: { saved.save($0) })
+    for _ in 0..<100 where saved.savedIDs.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+    // Keep requesting the same snapshot: the late completion must invalidate its memo.
+    for _ in 0..<100 where pruned.snapshots.count < 3 {
+      warm([])
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(saved.savedIDs == [target.windowID])
+    #expect(pruned.snapshots == [[target.windowID], [], []])
+  }
+}

@@ -83,16 +83,20 @@ enum WindowThumbnails {
   }
 
   /// Cancellation prevents queued work; a filesystem operation already started may finish.
-  private static func onDisk(_ body: @escaping @Sendable () -> Void) {
+  private static func onDisk(writing ids: Set<UInt32> = [], _ body: @escaping @Sendable () -> Void) {
     let id = UUID()
     let queue = diskQueue
     diskTasks[id] = Task.detached(priority: .utility) {
       await queue.perform(body)
-      await diskFinished(id)
+      await diskFinished(id, writtenIDs: ids)
     }
   }
 
-  private static func diskFinished(_ id: UUID) { diskTasks.removeValue(forKey: id) }
+  private static func diskFinished(_ id: UUID, writtenIDs: Set<UInt32>) {
+    diskTasks.removeValue(forKey: id)
+    // Detached saves can reach the disk queue after a newer snapshot's prune.
+    if !writtenIDs.isSubset(of: live) { prunedIDs = nil }
+  }
 
   /// 有新图可显示时的回调（主线程）—— 面板就地把卡片刷新一遍。
   static var onChange: (() -> Void)?
@@ -282,9 +286,13 @@ enum WindowThumbnails {
       let captured = await task.value
       imageTasks.removeValue(forKey: captureID)
       let accepted = captured.filter { tickets[$0.key] == expected[$0.key] }
-      if requestSource == .cached && !accepted.isEmpty { onDisk { saveImages(accepted) } }
+      if requestSource == .cached && !accepted.isEmpty { persist(accepted, saveImages: saveImages) }
       Self.publish(accepted, needed: plan.needed, refresh: plan.refresh, expected: expected)
     }
+  }
+
+  static func persist(_ images: [UInt32: CGImage], saveImages: @escaping @Sendable ([UInt32: CGImage]) -> Void) {
+    onDisk(writing: Set(images.keys)) { saveImages(images) }
   }
 
   static func loadDiskImages(_ ids: [UInt32],

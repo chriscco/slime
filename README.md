@@ -9,6 +9,25 @@
 A macOS window switcher with two things the system's own switcher doesn't do:
 **type-to-search** and **two trigger gestures**.
 
+## See slime in action
+
+<p align="center">
+  <img src="docs/assets/readme/demo.gif" alt="Animated demonstration of the slime window switcher" width="400">
+</p>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/assets/readme/screenshot-graphite.png"><img src="docs/assets/readme/screenshot-graphite.png" alt="Graphite Gray" width="100%"></a>
+      <br><strong>Graphite Gray</strong>
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/assets/readme/screenshot-white.png"><img src="docs/assets/readme/screenshot-white.png" alt="White" width="100%"></a>
+      <br><strong>White</strong>
+    </td>
+  </tr>
+</table>
+
 ## Installation
 
 ### Download the DMG

@@ -96,3 +96,7 @@ The previous duplicate filter was bypassed by historical `axVerified` records. C
 ## 2026-10-18 — Foreground observer cleanup diagnostics
 
 The cleanup closure now uses narrowly scoped `nonisolated(unsafe)` bindings for the legacy AX references. In-flight observer jobs retain the handle, so its deinit runs after those jobs finish; the run-loop source is removed before references pass to the utility queue. Context retention and the 300 ms cleanup budget are unchanged. Warning-as-error builds cover this compiler diagnostic; existing focus/coalescing tests cover unchanged behavior.
+
+## 2026-10-18 — Bounded activation recovery
+
+Missing/failed cached targets now get one target-app AX refresh using the same request budget, followed by at most one recovered raise. Cached success performs no recovery; cancellation and foreground ownership are checked before and after recovery. No menu interaction or new timers. [#98](https://github.com/chriscco/slime/issues/98) remains open: an empty/partial AX list can still produce application-only fallback even for a current-desktop Chrome window. Native success for that reported window is not yet established.

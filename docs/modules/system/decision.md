@@ -197,3 +197,7 @@ User testing found that immediate presentation exposed Fresh's full placeholder-
 ## 2026-10-18 — Historical AX association is not permanent duplicate confirmation
 
 A recurring ChatGPT extra card carried `axVerified=true` without an onscreen observation; native enumeration repeatedly returned it alongside the real window even though only the latter had a current AX target. Keep current AX matches, visited windows and minimized windows, but stop using historical AX association alone to exempt unseen same-title offscreen records. This reuses the accepted admission tradeoff: genuine unseen same-title windows may require a visible visit if AX no longer exposes them. Do not infer identity from screenshot darkness, dimensions or app names.
+
+## 2026-10-18 — One recovery within the existing activation budget
+
+The owner approved a single target-app refresh after cached activation fails or has no target. Keep immediate application activation and the successful cached path; recovery shares the original 150 ms budget and all cancellation/generation/focus guards. Do not increase the budget or add waiting/menu automation. A retained identity cannot be rebound to a same-title sibling. This intentionally leaves some Chrome windows unreachable when AX continues to omit them; track the accepted limitation in [#98](https://github.com/chriscco/slime/issues/98). Window-menu automation was considered and rejected for latency.

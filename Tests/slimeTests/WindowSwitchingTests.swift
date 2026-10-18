@@ -143,7 +143,7 @@ extension PanelAndThumbnailTests {
     #expect(target.pid == 10 && target.windowID == 1)
     _ = counter.read()
     return true
-  })
+  }, resolve: { _, _, _ in Issue.record("successful fast path attempted recovery"); return nil })
   #expect(result == .exact)
   #expect(counter.count == 1)
 }
@@ -261,4 +261,78 @@ extension PanelAndThumbnailTests {
   cache.noteClosed(w(1))
   #expect(previewRefreshes == 3)
   #expect(published.map(\.windowID) == [2])
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func failedActivationRecoversOnlyOnceUsingTheSameRequest() async {
+  for cached in [false, true] {
+    let raises = FocusReadCounter(), resolutions = FocusReadCounter()
+    let target = NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10))
+    let request = AXRequest(seconds: 2)
+    let result = await WindowActivator.activate(w(1), target: cached ? target : nil, request: request,
+      activateApp: { _ in true }, frontmostPID: { 10 }, monitorInput: { _ in {} },
+      raise: { _, received in
+        #expect(received === request)
+        _ = raises.read()
+        return !cached || raises.count == 2
+      }, resolve: { window, previous, received in
+        #expect(window.windowID == 1 && window.pid == 10)
+        #expect((previous != nil) == cached)
+        #expect(received === request)
+        _ = resolutions.read()
+        return target
+      })
+    #expect(result == .exact)
+    #expect(raises.count == (cached ? 2 : 1))
+    #expect(resolutions.count == 1)
+  }
+}
+
+@Test @MainActor func failedRecoveryFallsBackWithoutAnotherAttempt() async {
+  let resolutions = FocusReadCounter(), raises = FocusReadCounter()
+  let target = NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10))
+  let result = await WindowActivator.activate(w(1), target: target, request: AXRequest(seconds: 2),
+    activateApp: { _ in true }, frontmostPID: { 10 }, monitorInput: { _ in {} },
+    raise: { _, _ in _ = raises.read(); return false },
+    resolve: { _, _, _ in _ = resolutions.read(); return target })
+  #expect(result == .application)
+  #expect(resolutions.count == 1)
+  #expect(raises.count == 2)
+}
+
+@Test @MainActor func cancellationDuringRecoveryPreventsRaise() async {
+  let request = AXRequest(seconds: 2)
+  let target = NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10))
+  let result = await WindowActivator.activate(w(1), target: nil, request: request,
+    activateApp: { _ in true }, frontmostPID: { 10 }, monitorInput: { _ in {} },
+    raise: { _, _ in Issue.record("cancelled recovery raised a window"); return true },
+    resolve: { _, _, request in request.cancel(); return target })
+  #expect(result == .cancelled)
+}
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func unavailableOrMismatchedRecoveryDoesNotRaise() async {
+  for recovered in [nil,
+    NativeWindowTarget(pid: 20, windowID: 1, element: AXUIElementCreateApplication(20)),
+    NativeWindowTarget(pid: 10, windowID: 2, element: AXUIElementCreateApplication(10))] as [NativeWindowTarget?] {
+    let calls = FocusReadCounter()
+    let result = await WindowActivator.activate(w(1), target: nil, request: AXRequest(seconds: 2),
+      activateApp: { _ in true }, frontmostPID: { 10 }, monitorInput: { _ in {} },
+      raise: { _, _ in Issue.record("unavailable or mismatched recovery raised"); return true },
+      resolve: { _, _, _ in _ = calls.read(); return recovered })
+    #expect(result == .application)
+    #expect(calls.count == 1)
+  }
+}
+
+@Test @MainActor func focusChangeDuringRecoveryPreventsRaise() async {
+  var front: pid_t = 10
+  let target = NativeWindowTarget(pid: 10, windowID: 1, element: AXUIElementCreateApplication(10))
+  let result = await WindowActivator.activate(w(1), target: nil, request: AXRequest(seconds: 2),
+    activateApp: { _ in true }, frontmostPID: { front }, monitorInput: { _ in {} },
+    raise: { _, _ in Issue.record("recovery stole foreground ownership"); return true },
+    resolve: { _, _, _ in await MainActor.run { front = 20 }; return target })
+  #expect(result == .cancelled)
+}
 }

@@ -56,8 +56,11 @@ completions. Native AX references remain in System, never in Core or persisted c
 
 Ordinary activation immediately unhides/activates the application, then uses the cached
 same-PID/window AX target off the main thread to unminimize/raise and confirm focus. It does
-not enumerate windows, capture previews, or retry identification. Missing/ambiguous/rejected
-targets retain application fallback without an error popup. The request budget is 150 ms;
+not query window lists on a successful cached-target path. Missing or failed targets get
+one recovery: read CG candidates and only the target application's AX windows, preserve a
+retained identity or require an unambiguous fresh match, then raise at most once more.
+No menu automation, capture, sleeps or retry loop. Unresolved targets retain application
+fallback without an error popup. Recovery shares the original 150 ms request budget;
 an already-running system IPC can exceed its requested timeout. Overlapping requests cancel
 obsolete work and serialize native target operations. An intervening external application
 activation cancels pending work; restoration/exact publication also checks foreground

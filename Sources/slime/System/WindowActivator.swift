@@ -16,7 +16,8 @@ enum WindowActivator {
       return app.activate(options: [])
     }, frontmostPID: @escaping @MainActor () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
     monitorInput: @MainActor (AXRequest) -> (() -> Void) = monitorInput,
-    raise: @escaping @Sendable (NativeWindowTarget, AXRequest) async -> Bool = raise) async -> WindowActivationResult {
+    raise: @escaping @Sendable (NativeWindowTarget, AXRequest) async -> Bool = raise,
+    resolve: @escaping @Sendable (Window, NativeWindowTarget?, AXRequest) async -> NativeWindowTarget? = resolve) async -> WindowActivationResult {
     guard request.isActive else { return .cancelled }
     let removeInputMonitor = monitorInput(request)
     defer { removeInputMonitor() }
@@ -45,17 +46,52 @@ enum WindowActivator {
         _ = activateApp(window.pid)
       }
       guard !request.isCancelled, !externalFocus, generation == Self.generation else { return .cancelled }
-      guard request.isActive, let target, target.pid == window.pid,
-            target.windowID == window.windowID else { return .application }
-      let exact = await raise(target, request)
-      guard !request.isCancelled, !externalFocus, generation == Self.generation else { return .cancelled }
-      guard frontmostPID() == window.pid else { return .cancelled }
-      return exact ? .exact : .application
+      if let target, target.pid != window.pid || target.windowID != window.windowID { return .application }
+      guard request.isActive else { return .application }
+      if let target {
+        let exact = await raise(target, request)
+        guard !request.isCancelled, !externalFocus, generation == Self.generation,
+              frontmostPID() == window.pid else { return .cancelled }
+        if exact { return .exact }
+      }
+      guard request.isActive else { return .application }
+      let recovered = await resolve(window, target, request)
+      guard !request.isCancelled, !externalFocus, generation == Self.generation,
+            frontmostPID() == window.pid else { return .cancelled }
+      guard request.isActive, let recovered, recovered.pid == window.pid,
+            recovered.windowID == window.windowID else { return .application }
+      let exact = await raise(recovered, request)
+      guard !request.isCancelled, !externalFocus, generation == Self.generation,
+            frontmostPID() == window.pid else { return .cancelled }
+      return exact && request.isActive ? .exact : .application
     }
     pending = operation
     let result = await operation.value
     if generation == Self.generation { pending = nil; pendingPIDs.removeAll() }
     return result
+  }
+
+  private static func resolve(_ window: Window, _ previous: NativeWindowTarget?,
+                              _ request: AXRequest) async -> NativeWindowTarget? {
+    await Task.detached(priority: .userInitiated) {
+      guard request.isActive, let list = windowList() else { return nil }
+      let candidates = closeCandidates(list, pid: window.pid)
+      guard let candidate = candidates.first(where: { $0.windowID == window.windowID }) else { return nil }
+      let entries = AXWindows.snapshot(pid: window.pid, request: request,
+        retaining: previous.map { [$0] } ?? []).entries
+      let index: Int?
+      if let previous {
+        // A partial AX list must not rebind an old identity to a same-title sibling.
+        index = entries.firstIndex { CFEqual($0.element, previous.element) }
+      } else {
+        index = closeMatch(target: candidate, entries: entries, candidates: candidates)
+      }
+      guard request.isActive, let index, let fresh = windowList(),
+            let current = closeCandidates(fresh, pid: window.pid).first(where: { $0.windowID == window.windowID }),
+            current.title == candidate.title, AXWindows.isSameFrame(current.bounds, candidate.bounds)
+      else { return nil }
+      return NativeWindowTarget(pid: window.pid, windowID: window.windowID, element: entries[index].element)
+    }.value
   }
 
   @MainActor private static func monitorInput(_ request: AXRequest) -> () -> Void {

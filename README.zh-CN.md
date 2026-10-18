@@ -8,6 +8,25 @@
 
 macOS 窗口切换器。比系统自带的切换器多两样东西：**打字即时搜索**和**双触发手势**。
 
+## 看看 slime
+
+<p align="center">
+  <img src="docs/assets/readme/demo.gif" alt="slime 窗口切换操作演示" width="400">
+</p>
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/assets/readme/screenshot-graphite.png"><img src="docs/assets/readme/screenshot-graphite.png" alt="石墨灰" width="100%"></a>
+      <br><strong>石墨灰</strong>
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/assets/readme/screenshot-white.png"><img src="docs/assets/readme/screenshot-white.png" alt="白色" width="100%"></a>
+      <br><strong>白色</strong>
+    </td>
+  </tr>
+</table>
+
 ## 安装
 
 ### 下载 DMG

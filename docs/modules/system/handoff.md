@@ -88,3 +88,7 @@ Split list publication from preview refresh and deduplicate cached disk pruning 
 ## 2026-10-17 — Retained previews (#84 follow-up)
 
 Supersedes the earlier per-session Fresh clearing described above. Both sources now retain successful memory images on reopening. Fresh keeps no disk previews, cancels unfinished captures on hide, and still accepts tilted Stage Manager images. Warm reconciles hidden removals and prioritizes changed focus/title/visibility. Unchanged onscreen windows are eligible after one second for the current window or 30 seconds for others, checked only on existing warm events; no timer. Failures retain old images. Settings and README explain the updated lifetime.
+
+## 2026-10-18 — Recurring ChatGPT extra card
+
+The previous duplicate filter was bypassed by historical `axVerified` records. Confirmation now requires a current standard AX match, prior onscreen observation or minimization; old AX evidence alone no longer exempts a same-title unseen offscreen surface. A native read-only probe using production enumeration returned two ChatGPT IDs in three baseline cycles (only the real one had a current AX target), and only the real ID in three fixed cycles. Tests preserve current matches, visited/minimized siblings, other titles/PIDs and standalone discovery. No screenshot-content or app-specific filtering and no manual preference/cache deletion.

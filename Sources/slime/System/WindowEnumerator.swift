@@ -11,7 +11,7 @@ struct KnownWindow: Sendable, Equatable, Codable {
   var minimized: Bool
   var axVerified: Bool? = nil
   var observedOnscreen: Bool? = nil
-  var confirmed: Bool { axVerified == true || observedOnscreen == true || minimized }
+  var confirmed: Bool { observedOnscreen == true || minimized }
   var closed: Bool? = nil
   // shortcut: retain unseen siblings until AX sees them again; external closes with retained CG surfaces need per-window AX observation.
   var survivedClose: Bool? = nil
@@ -213,16 +213,18 @@ enum WindowEnumerator {
         )
       )
     }
+    // Historical AX association alone can be a stale title/frame match to another window.
+    let currentMatches = Set(candidates.filter { $0.matched?.axVerified == true }.map(\.windowID))
     var confirmedTitles: [pid_t: Set<String>] = [:]
     for window in result.windows where !window.title.isEmpty {
-      if result.known[window.windowID]?.confirmed == true {
+      if currentMatches.contains(window.windowID) || result.known[window.windowID]?.confirmed == true {
         confirmedTitles[window.pid, default: []].insert(window.title)
       }
     }
     // shortcut: unseen same-title windows on other Spaces need one visible visit; revisit when public APIs provide stronger identity.
     result.windows.removeAll { window in
       guard !window.isOnscreen, !window.title.isEmpty,
-            result.known[window.windowID]?.confirmed != true,
+            !currentMatches.contains(window.windowID), result.known[window.windowID]?.confirmed != true,
             confirmedTitles[window.pid]?.contains(window.title) == true else { return false }
       result.known.removeValue(forKey: window.windowID)
       return true

@@ -154,3 +154,7 @@ transparent/solid samples, and uses the existing proportional image canvas.
 `WindowCache.onChange` publishes titles/order to the panel. `onRefreshPreviews` runs before it for enumeration, window removal, and focus changes; title-only changes on the current window skip the icon/thumbnail batch. Cached mode still warms in the background for Stage Manager. Existing pending/refreshing sets deduplicate capture work. `WindowThumbnails` schedules pruning only for a changed live-ID set or the first cached snapshot after a source reset.
 
 Progress callbacks use the same identity tickets as final results. Final publication skips identical images already delivered progressively. A late cached save containing IDs absent from the current live set invalidates the prune memo after completion, allowing the next identical snapshot to remove the late file.
+
+## Same-title historical AX evidence (0.0.9)
+
+A persisted `axVerified` flag records an earlier association, not permanent proof of a second window. For duplicate-title filtering, confirmation comes from a current standard AX match, an onscreen observation, or minimization. An unseen offscreen candidate with only historical AX evidence is removed when a confirmed same-PID/same-title sibling exists. Its known entry is removed too; no global cache reset is needed. Other titles/PIDs and sole unconfirmed candidates retain their existing discovery behavior.

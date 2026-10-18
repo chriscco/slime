@@ -40,8 +40,16 @@ preparation; do not add development-version notices to the READMEs.
 2. Review user-visible changes since the preceding stable tag and include the
    relevant PRs with accurate links and author credit. Internal-only PRs may be
    omitted; there is no exact-coverage requirement in release CI.
-3. Update `CFBundleShortVersionString` and `CFBundleVersion` in `scripts/build-app`.
-   Review the notes and native acceptance results in the PR, then have the owner merge.
+3. Review the notes and native acceptance results in the PR, then have the owner merge.
+   No manual bundle-version edit is required for publication: the workflow supplies
+   `SLIME_VERSION` from the stable tag and `SLIME_BUILD_NUMBER` from
+   `git rev-list --count HEAD` (full history is checked out). The commit count is
+   reproducible for reruns and increases for later descendant main commits; it also
+   exceeds the legacy 0.0.8 build number of 8. Keep release history append-only.
+   DMG naming and the Sparkle appcast read these values from the built bundle.
+
+   Local builds retain their development defaults unless both values are supplied,
+   for example `SLIME_VERSION=0.0.9 SLIME_BUILD_NUMBER="$(git rev-list --count HEAD)" scripts/package-dmg`.
 
 ## One-time signing setup
 

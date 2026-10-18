@@ -22,6 +22,16 @@ cd "$(dirname "$0")/.."
 CONFIG=${CONFIG:-debug}
 BUNDLE_ID=com.chriscco.slime
 APP=build/slime.app
+SLIME_VERSION=${SLIME_VERSION:-0.0.8}
+SLIME_BUILD_NUMBER=${SLIME_BUILD_NUMBER:-8}
+# Validate before interpolating into Info.plist or touching the signed bundle.
+python3 - "$SLIME_VERSION" "$SLIME_BUILD_NUMBER" <<'PYTHON'
+import re, runpy, sys
+checks = runpy.run_path('scripts/check-release')
+checks['version']('v' + sys.argv[1])
+if not re.fullmatch(r'[1-9][0-9]*', sys.argv[2]):
+    sys.exit('SLIME_BUILD_NUMBER must be a positive integer')
+PYTHON
 
 swift build -c "$CONFIG"
 
@@ -47,8 +57,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleName</key><string>slime</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.0.8</string>
-  <key>CFBundleVersion</key><string>8</string>
+  <key>CFBundleShortVersionString</key><string>$SLIME_VERSION</string>
+  <key>CFBundleVersion</key><string>$SLIME_BUILD_NUMBER</string>
   <key>CFBundleIconFile</key><string>slime</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>

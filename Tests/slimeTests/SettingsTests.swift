@@ -106,6 +106,14 @@ import Testing
     #expect(Settings.PanelBackground.black.isDark(systemIsDark: dark))
     #expect(!Settings.PanelBackground.white.isDark(systemIsDark: dark))
     #expect(Settings.PanelBackground.deepBlue.isDark(systemIsDark: dark))
+    for (theme, rgb) in [(Settings.PanelBackground.graphiteGray, [41.0, 45, 43]),
+                         (.deepPurpleGray, [54.0, 49, 63])] {
+      #expect(theme.isDark(systemIsDark: dark))
+      let color = try #require(theme.baseColor(systemIsDark: dark).usingColorSpace(.sRGB))
+      for (actual, expected) in zip([color.redComponent, color.greenComponent, color.blueComponent], rgb) {
+        #expect(abs(actual * 255 - expected) < 0.001)
+      }
+    }
     #expect(Settings.PanelBackground.system.isDark(systemIsDark: dark) == dark)
     #expect(Settings.PanelBackground.system.baseColor(systemIsDark: dark) == (dark ? NSColor.black : NSColor.white))
     let blue = try #require(Settings.PanelBackground.deepBlue.baseColor(systemIsDark: dark).usingColorSpace(.sRGB))

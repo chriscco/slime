@@ -204,6 +204,16 @@ import Testing
   let black = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
     .first { $0.accessibilityLabel() == "Black" })
   #expect(black.state == .off)
+  for (label, value) in [("Graphite Gray", "graphiteGray"), ("Deep Purple Gray", "deepPurpleGray")] {
+    let button = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+      .first { $0.accessibilityLabel() == label })
+    button.performClick(nil)
+    #expect(defaults.string(forKey: "panel.background") == value)
+    #expect(button.state == .on)
+    #expect(white.state == .off)
+  }
+  #expect(descendants(window.contentView!).compactMap { $0 as? PanelBackgroundButton }.count == 6)
+  #expect(descendants(window.contentView!).contains { $0.accessibilityLabel() == "System" })
   window.contentView?.layoutSubtreeIfNeeded()
   for button in descendants(window.contentView!).compactMap({ $0 as? PanelBackgroundButton }) {
     #expect(button.frame.height == 102)

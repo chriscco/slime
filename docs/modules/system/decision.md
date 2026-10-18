@@ -193,3 +193,7 @@ Publish each serially completed valid screenshot using the batch's existing owne
 ## 2026-10-17 — Preserve previews across openings
 
 User testing found that immediate presentation exposed Fresh's full placeholder-to-image rebuild on every open. Retain successful memory previews in both modes and refresh only changed identities plus bounded onscreen fallback attempts. Fresh's distinction is tilted-image acceptance and no disk persistence, not per-open memory erasure. Cancel its unfinished captures on dismissal while retaining completed images. Tradeoff: unchanged background contents can remain stale until a later warm event meets the 30-second interval; current-window attempts use one second. No new polling timer or capture concurrency.
+
+## 2026-10-18 — Historical AX association is not permanent duplicate confirmation
+
+A recurring ChatGPT extra card carried `axVerified=true` without an onscreen observation; native enumeration repeatedly returned it alongside the real window even though only the latter had a current AX target. Keep current AX matches, visited windows and minimized windows, but stop using historical AX association alone to exempt unseen same-title offscreen records. This reuses the accepted admission tradeoff: genuine unseen same-title windows may require a visible visit if AX no longer exposes them. Do not infer identity from screenshot darkness, dimensions or app names.

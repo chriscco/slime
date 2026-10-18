@@ -5,7 +5,7 @@ The workflow publishes the file unchanged; it never substitutes generated commit
 
 ## Review release-note scope in every PR
 
-**Current unreleased version: [0.0.8](0.0.8.md). Version 0.0.7 is frozen.**
+**Current unreleased version: [0.0.9](0.0.9.md). Version 0.0.8 is frozen.**
 
 1. Record user-visible features, bug fixes, performance improvements, compatibility
    changes and installation/update behavior. Internal-only specs, documentation,

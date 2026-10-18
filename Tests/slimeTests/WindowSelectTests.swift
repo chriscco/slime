@@ -279,7 +279,7 @@ private func titledCandidate(_ id: UInt32, pid: pid_t = 1, title: String = "Conv
     3: KnownWindow(appName: "App", title: "Conversation", minimized: true),
   ]
   let result = WindowEnumerator.select([
-    titledCandidate(1, verified: true), titledCandidate(2), titledCandidate(3),
+    titledCandidate(1, verified: true), titledCandidate(2, verified: true), titledCandidate(3),
     titledCandidate(4, pid: 2), titledCandidate(5, title: "Another conversation"),
   ], known: known)
   #expect(result.windows.map(\.windowID) == [1, 2, 3, 4, 5])
@@ -298,4 +298,21 @@ private func titledCandidate(_ id: UInt32, pid: pid_t = 1, title: String = "Conv
 @Test func unverifiedOffscreenWindowWithoutAConfirmedSiblingIsStillDiscoverable() {
   let result = WindowEnumerator.select([titledCandidate(1), titledCandidate(2)], known: [:])
   #expect(result.windows.map(\.windowID) == [1, 2])
+}
+
+@Test func historicalAXAssociationAloneDoesNotPreserveAnUnseenDuplicate() {
+  let real = titledCandidate(1, onscreen: true, verified: true)
+  let extra = titledCandidate(2)
+  let stale = [UInt32(2): KnownWindow(appName: "App", title: "Conversation", minimized: false, axVerified: true)]
+  for candidates in [[real, extra], [extra, real]] {
+    let result = WindowEnumerator.select(candidates, known: stale)
+    #expect(result.windows.map(\.windowID) == [1])
+    #expect(result.known[2] == nil)
+  }
+}
+
+@Test func historicalAXWindowWithoutAConfirmedSameTitleSiblingRemainsDiscoverable() {
+  let known = [UInt32(2): KnownWindow(appName: "App", title: "Conversation", minimized: false, axVerified: true)]
+  let result = WindowEnumerator.select([titledCandidate(2)], known: known)
+  #expect(result.windows.map(\.windowID) == [2])
 }

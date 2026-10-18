@@ -235,14 +235,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     sourceNote.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
 
     let names = [text("Black", "黑色"), text("White", "白色"),
-      text("Deep Blue", "深蓝"), text("System", "跟随系统")]
+      text("Deep Blue", "深蓝"), text("Graphite Gray", "石墨灰"),
+      text("Deep Purple Gray", "深紫灰"), text("System", "跟随系统")]
     let themes = Settings.PanelBackground.allCases
-    for rowIndex in 0..<2 {
+    for rowStart in stride(from: 0, to: themes.count, by: 2) {
       let previews = NSStackView()
       previews.orientation = .horizontal
       previews.distribution = .fillEqually
       previews.spacing = 12
-      for index in (rowIndex * 2)..<(rowIndex * 2 + 2) {
+      for index in rowStart..<min(rowStart + 2, themes.count) {
         let button = PanelBackgroundButton(theme: themes[index], title: names[index],
           target: self, action: #selector(backgroundChanged(_:)))
         button.state = settings.panelBackground == themes[index] ? .on : .off

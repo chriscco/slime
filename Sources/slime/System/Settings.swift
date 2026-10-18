@@ -40,17 +40,23 @@ struct Settings {
   }
 
   enum PanelBackground: String, CaseIterable {
-    case black, white, deepBlue, system
+    case black, white, deepBlue, graphiteGray, deepPurpleGray, system
 
     func isDark(systemIsDark: Bool) -> Bool {
       self == .system ? systemIsDark : self != .white
     }
 
     func baseColor(systemIsDark: Bool) -> NSColor {
-      if self == .deepBlue {
+      switch self {
+      case .deepBlue:
         return NSColor(srgbRed: 10.0 / 255, green: 44.0 / 255, blue: 55.0 / 255, alpha: 1)
+      case .graphiteGray:
+        return NSColor(srgbRed: 41.0 / 255, green: 45.0 / 255, blue: 43.0 / 255, alpha: 1)
+      case .deepPurpleGray:
+        return NSColor(srgbRed: 54.0 / 255, green: 49.0 / 255, blue: 63.0 / 255, alpha: 1)
+      default:
+        return isDark(systemIsDark: systemIsDark) ? .black : .white
       }
-      return isDark(systemIsDark: systemIsDark) ? .black : .white
     }
   }
 

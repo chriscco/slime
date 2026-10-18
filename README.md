@@ -66,7 +66,7 @@ Entries represent **windows rather than apps**, so you can switch directly to a 
 Open Settings from the menu bar or press `⌘,` in the panel.
 
 - **General**: enable slime, group windows by app, launch at login, and choose English (default) or 简体中文. Disabling slime restores native `⌘Tab`.
-- **Appearance**: Black, White, Deep Blue, or System background; Liquid Glass or Solid on macOS 26+, with adjustable accent color and corners. Glass controls appear only when that material is selected. The default accent is slime green `#96D76A`.
+- **Appearance**: Black, White, Deep Blue, Graphite Gray, Deep Purple Gray, or System background; Liquid Glass or Solid on macOS 26+, with adjustable accent color and corners. Glass controls appear only when that material is selected. The default accent is slime green `#96D76A`.
 - **Shortcuts**: view key bindings.
 - **About**: version and GitHub repository link.
 

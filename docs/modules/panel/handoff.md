@@ -31,3 +31,7 @@ Search now reuses detached cards, with tests for title updates, closed-window ev
 ## 2026-10-17 — Retained previews (#84 follow-up)
 
 Supersedes the earlier per-session Fresh clearing described above. Both sources now retain successful memory images on reopening. Fresh keeps no disk previews, cancels unfinished captures on hide, and still accepts tilted Stage Manager images. Warm reconciles hidden removals and prioritizes changed focus/title/visibility. Unchanged onscreen windows are eligible after one second for the current window or 30 seconds for others, checked only on existing warm events; no timer. Failures retain old images. Settings and README explain the updated lifetime.
+
+## 2026-10-18 — Additional background themes
+
+Appearance adds Graphite Gray (#292D2B) and Deep Purple Gray (#36313F), both using the dark palette. The two-column preview grid now derives its rows from the theme count; all six themes and lower controls remain accessible through scrolling. Existing stored selections and the default are unchanged.

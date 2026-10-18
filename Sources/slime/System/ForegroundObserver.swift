@@ -122,7 +122,11 @@ private final class ObserverHandle: @unchecked Sendable {
   }
   deinit {
     CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-    let observer = observer, app = app, window = window, context = context
+    // In-flight jobs retain this handle; deinit transfers these detached resources only to cleanup.
+    nonisolated(unsafe) let observer = observer
+    nonisolated(unsafe) let app = app
+    nonisolated(unsafe) let window = window
+    let context = context
     DispatchQueue.global(qos: .utility).async {
       let request = AXRequest(seconds: 0.3)
       withExtendedLifetime(context) {

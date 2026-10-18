@@ -92,3 +92,7 @@ Supersedes the earlier per-session Fresh clearing described above. Both sources 
 ## 2026-10-18 — Recurring ChatGPT extra card
 
 The previous duplicate filter was bypassed by historical `axVerified` records. Confirmation now requires a current standard AX match, prior onscreen observation or minimization; old AX evidence alone no longer exempts a same-title unseen offscreen surface. A native read-only probe using production enumeration returned two ChatGPT IDs in three baseline cycles (only the real one had a current AX target), and only the real ID in three fixed cycles. Tests preserve current matches, visited/minimized siblings, other titles/PIDs and standalone discovery. No screenshot-content or app-specific filtering and no manual preference/cache deletion.
+
+## 2026-10-18 — Foreground observer cleanup diagnostics
+
+The cleanup closure now uses narrowly scoped `nonisolated(unsafe)` bindings for the legacy AX references. In-flight observer jobs retain the handle, so its deinit runs after those jobs finish; the run-loop source is removed before references pass to the utility queue. Context retention and the 300 ms cleanup budget are unchanged. Warning-as-error builds cover this compiler diagnostic; existing focus/coalescing tests cover unchanged behavior.

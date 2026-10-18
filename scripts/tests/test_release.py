@@ -6,6 +6,7 @@ from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -97,6 +98,26 @@ class ReleaseChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'increase'):
             self.check('v0.0.5')
 
+    def test_workflow_passes_tag_and_commit_count_to_packaging(self):
+        workflow = (SCRIPT.parent.parent / '.github/workflows/release.yml').read_text()
+        step = workflow.split('name: Build and verify arm64 DMG', 1)[1]
+        command = textwrap.dedent(step.split('run: |\n', 1)[1].split('      - name:', 1)[0])
+        Path('scripts').mkdir()
+        for name, body in {
+            'package-dmg': 'printf "%s %s" "$SLIME_VERSION" "$SLIME_BUILD_NUMBER" > versions',
+            'check-release': 'exit 0',
+            'uname': 'echo arm64',
+        }.items():
+            script = Path('scripts') / name
+            script.write_text('#!/bin/sh\n' + body + '\n')
+            script.chmod(0o755)
+        for tag in ['v0.0.9', 'v0.0.10', 'v1.0.0']:
+            env = {**os.environ, 'GITHUB_REF_NAME': tag,
+                   'PATH': str(Path('scripts').resolve()) + ':' + os.environ['PATH']}
+            subprocess.run(['sh', '-eu', '-c', command], env=env, check=True)
+            self.assertEqual(Path('versions').read_text(),
+                             tag[1:] + ' ' + self.git('rev-list', '--count', 'HEAD'))
+
     def test_bundle_version(self):
         plist = Path('Info.plist')
         for version in ['0.0.7', '0.0.6']:
@@ -117,6 +138,7 @@ class SigningPolicy(unittest.TestCase):
             (root / 'Resources').mkdir()
             (root / 'docs/assets').mkdir(parents=True)
             (root / 'docs/assets/slime-banner.png').write_bytes(b'fixture')
+            (root / 'scripts/check-release').write_text(SCRIPT.read_text())
             (root / 'scripts/sign-updates').write_text(SCRIPT.with_name('sign-updates').read_text())
             (root / '.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework').mkdir(parents=True)
             (root / '.build/artifacts/sparkle/Sparkle/LICENSE').write_bytes(b'Sparkle license fixture')
@@ -136,7 +158,8 @@ class SigningPolicy(unittest.TestCase):
             env = {**os.environ, 'PATH': f'{commands}:/usr/bin:/bin',
                    'SIGN_LOG': str(root / 'sign.log'), 'CONFIG': 'debug',
                    'SIGNING_IDENTITY': '', 'REQUIRE_SIGNING': '1',
-                   'SPARKLE_PUBLIC_KEY': '', 'REQUIRE_UPDATES': '0'}
+                   'SPARKLE_PUBLIC_KEY': '', 'REQUIRE_UPDATES': '0',
+                   'SLIME_VERSION': '0.0.8', 'SLIME_BUILD_NUMBER': '8'}
             result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('refusing ad-hoc', result.stderr)
@@ -152,6 +175,20 @@ class SigningPolicy(unittest.TestCase):
             self.assertNotIn('SUPublicEDKey', info)
             for key in ('SUEnableAutomaticChecks', 'SUAutomaticallyUpdate', 'SUAllowsAutomaticUpdates', 'SUSendProfileInfo'):
                 self.assertFalse(info[key])
+            env.update(SLIME_VERSION='0.0.9', SLIME_BUILD_NUMBER='204')
+            result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            info = plistlib.loads((root / 'build/slime.app/Contents/Info.plist').read_bytes())
+            self.assertEqual(info['CFBundleShortVersionString'], '0.0.9')
+            self.assertEqual(info['CFBundleVersion'], '204')
+            signed = (root / 'sign.log').read_bytes()
+            for version, number in [('0.0.9</string>', '204'), ('v0.0.9', '204'),
+                                    ('0.0.9', '0'), ('0.0.9', '2.04')]:
+                env.update(SLIME_VERSION=version, SLIME_BUILD_NUMBER=number)
+                result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((root / 'sign.log').read_bytes(), signed)
+            env.update(SLIME_VERSION='0.0.9', SLIME_BUILD_NUMBER='204')
             env['REQUIRE_UPDATES'] = '1'
             result = subprocess.run(['sh', str(script)], env=env, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)

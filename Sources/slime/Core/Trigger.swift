@@ -25,7 +25,9 @@ public enum State: Equatable, Sendable {
   /// `selection` 是无界计数：纯状态机不知道列表长度，加一减一不做钳位。
   /// 真正的显示选中（循环取模、刷新后钳位）由 PanelController 按 Effect 维护。
   case holding(Modifier, query: String, selection: Int)
-  /// ⌥ 模式：修饰键已松开，面板留着。
+  /// Held-trigger compatibility typing; release hands the complete query to AppKit.
+  case typing(Modifier, query: String, selection: Int)
+  /// Native text editing owns keys; panel commands still use this reducer.
   case lingering(query: String, selection: Int)
   case closing(query: String, selection: Int)
 }
@@ -34,6 +36,7 @@ public enum Event: Equatable, Sendable {
   case modifierDown(Modifier), modifierUp(Modifier)
   case tab(shift: Bool)
   case char(Character), backspace
+  case queryChanged(String)
   /// step: -1 前一格 / +1 后一格。垂直方向由面板层乘以列数。
   case arrow(axis: Axis, step: Int)
   case focusSearch                             // ⌘F / ⌥F
@@ -46,7 +49,7 @@ public enum Effect: Equatable, Sendable {
   case passThrough, swallow
   case showPanel(Modifier), hidePanel
   case moveSelection(axis: Axis, step: Int)
-  case appendQuery(Character), deleteQueryChar
+  case setQuery(String)
   case focusSearchField
   case closeWindow
   case activate, cancel
@@ -77,9 +80,14 @@ public func reduce(_ state: State, _ event: Event) -> (State, [Effect]) {
       return (state, [.passThrough])
     }
 
-  case .holding(let m, let query, let selection):
+  case .holding(let m, let query, let selection), .typing(let m, let query, let selection):
+    let typing: Bool
+    if case .typing = state { typing = true } else { typing = false }
     if case .modifierUp(let released) = event {
       guard released == m else { return (state, [.passThrough]) }
+      if typing {
+        return (.lingering(query: query, selection: selection), [.focusSearchField])
+      }
       switch m {
       case .cmd:
         // 松手切过去。不吞修饰键松开 —— 系统得看到 ⌘ 抬起来了。
@@ -89,21 +97,23 @@ public func reduce(_ state: State, _ event: Event) -> (State, [Effect]) {
         return (.lingering(query: query, selection: selection), [.focusSearchField])
       }
     }
+    if case .enter = event {
+      return (.lingering(query: query, selection: selection), [.swallow, .focusSearchField, .activate])
+    }
     if case .closeWindow = event {
       return (.closing(query: query, selection: selection), [.swallow, .closeWindow])
     }
-    // ⌘ 模式下 ⌘F = 「我要慢慢找」：会话转 lingering —— 松开 ⌘ 不再切换、
-    // 回车才切、Esc 取消（用户实测：按 F 想搜索，松 ⌘ 却直接切走了）。
-    // ⌥ 模式的松开本来就转 lingering，⌥F 保持 holding 即可。
-    if case .focusSearch = event, m == .cmd {
+    // Explicit focus skips compatibility typing for either trigger.
+    if case .focusSearch = event {
       return (.lingering(query: query, selection: selection), [.swallow, .focusSearchField])
     }
 
     switch panelStep(event, query: query, selection: selection) {
     case .update(let q, let sel, let effects):
-      if case .char = event, m == .cmd {
-        return (.lingering(query: q, selection: sel), effects)
+      if case .char = event {
+        return (.typing(m, query: q, selection: sel), effects)
       }
+      if typing { return (.typing(m, query: q, selection: sel), effects) }
       return (.holding(m, query: q, selection: sel), effects)
     case .finish(let effects):
       return (.idle, effects)
@@ -113,7 +123,7 @@ public func reduce(_ state: State, _ event: Event) -> (State, [Effect]) {
 
   case .closing(let query, let selection):
     switch event {
-    case .closeFinished: return (.lingering(query: query, selection: selection), [])
+    case .closeFinished: return (.lingering(query: query, selection: selection), [.focusSearchField])
     case .escape: return (.idle, [.swallow, .cancel, .hidePanel])
     case .openSettings: return (.idle, [.swallow, .openSettings])
     case .modifierDown, .modifierUp: return (state, [.passThrough])
@@ -158,11 +168,14 @@ private func panelStep(_ event: Event, query: String, selection: Int) -> PanelSt
     return .update(
       query: query, selection: selection + step,
       effects: [.swallow, .moveSelection(axis: .horizontal, step: step)])
+  case .queryChanged(let text):
+    guard text != query else { return .update(query: query, selection: selection, effects: []) }
+    return .update(query: text, selection: 0, effects: [.setQuery(text)])
   case .char(let c):
-    return .update(query: query + String(c), selection: 0, effects: [.swallow, .appendQuery(c)])
+    return .update(query: query + String(c), selection: 0, effects: [.swallow, .setQuery(query + String(c))])
   case .backspace:
     return .update(
-      query: String(query.dropLast()), selection: 0, effects: [.swallow, .deleteQueryChar])
+      query: String(query.dropLast()), selection: 0, effects: [.swallow, .setQuery(String(query.dropLast()))])
   case .arrow(let axis, let step):
     return .update(
       query: query, selection: selection + step,
@@ -174,7 +187,7 @@ private func panelStep(_ event: Event, query: String, selection: Int) -> PanelSt
     // 执行者藏起来，状态机不管「怎么藏」。
     return .finish(effects: [.swallow, .openSettings])
   case .enter:
-    return .finish(effects: [.swallow, .activate, .hidePanel])
+    return .update(query: query, selection: selection, effects: [.swallow, .activate])
   case .escape:
     return .finish(effects: [.swallow, .cancel, .hidePanel])
   default:
@@ -185,7 +198,7 @@ private func panelStep(_ event: Event, query: String, selection: Int) -> PanelSt
 public extension State {
   var isSessionOpen: Bool {
     switch self {
-    case .holding, .lingering, .closing: true
+    case .holding, .typing, .lingering, .closing: true
     default: false
     }
   }

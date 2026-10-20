@@ -35,3 +35,23 @@ Supersedes the earlier per-session Fresh clearing described above. Both sources 
 ## 2026-10-18 — Additional background themes
 
 Appearance adds Graphite Gray (#292D2B) and Deep Purple Gray (#36313F), both using the dark palette. The two-column preview grid now derives its rows from the theme count; all six themes and lower controls remain accessible through scrolling. Existing stored selections and the default are unchanged.
+
+
+## 2026-10-20 — Native Chinese search (#103)
+
+The search row now hosts `SearchEditor`, a real `NSTextView`. AppKit owns marked
+text, selection, candidate placement, clipboard and per-session undo. Only the
+complete committed string updates filtering; window/preview refreshes never write
+back into the editor. Cancellation that clears marked text must publish the native
+final string, including the empty string. Do not restore a guessed pre-composition
+snapshot or let a composition-ending key also execute a panel command.
+
+Card mouse actions capture the actual Window before dismissing composition. Empty
+results plus Enter leave editing active. Every dismissal clears editor/undo state;
+callbacks capture the panel session to reject old deliveries.
+
+System Pinyin and Rime were exercised through this production panel/editor in an
+isolated desktop fixture. That fixture has no global EventTap and uses fake window
+identities, so it does not prove global gestures or real window activation. See the
+[validation record](../../validation/2026-10-20-chinese-search.md) for evidence and
+remaining acceptance before making PR #103 ready.

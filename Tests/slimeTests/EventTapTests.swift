@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import Synchronization
 
 import Testing
 @testable import slime
@@ -19,7 +20,7 @@ import Testing
     DispatchQueue.main.async { continuation.resume() }
   }
   #expect(delivered.filter { $0 == .openSettings }.count == 1)
-  #expect(!delivered.contains(.appendQuery("x")))
+  #expect(!delivered.contains(.setQuery("x")))
 }
 
 @Test @MainActor func disablingAndCancellingDiscardQueuedPanelEffects() async {
@@ -76,13 +77,13 @@ import Testing
   #expect(tap.swallowKeyUp(keycode: 48))
 }
 
-@Test @MainActor func cancellingAndConfiguringClearKeyUpPairs() {
+@Test @MainActor func cancellationPreservesPairsWhileConfigurationClearsThem() {
   let tap = EventTap(onEffects: { _, _ in }, onDegraded: {})
   tap.noteSwallowedKeyDown(48)
   tap.noteSwallowedKeyDown(0)
   tap.cancelSession()
-  #expect(!tap.swallowKeyUp(keycode: 48))
-  #expect(!tap.swallowKeyUp(keycode: 0))
+  #expect(tap.swallowKeyUp(keycode: 48))
+  #expect(tap.swallowKeyUp(keycode: 0))
   for enabled in [false, true] {
     tap.noteSwallowedKeyDown(48)
     tap.noteSwallowedKeyDown(0)
@@ -113,4 +114,122 @@ import Testing
     #expect(try !key(48, flags: flags), "Disabled slime must not intercept")
     await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
   }
+}
+
+@Test @MainActor func nativeKeyboardDeliveryIsExactlyOnceAndStalePacketsAreDiscarded() async throws {
+  var keys: [Int64] = []
+  var effects: [Effect] = []
+  let tap = EventTap(onEffects: { _, next in effects += next }, onDegraded: {}, uptime: { 100 },
+    onNativeEvent: { keys.append($0.getIntegerValueField(.keyboardEventKeycode)) })
+  tap.process(.modifierDown(.opt))
+  tap.process(.tab(shift: false))
+  tap.process(.modifierUp(.opt))
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+  #expect(tap.handle(type: .keyDown, event: key) == nil)
+  await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  #expect(keys == [0])
+  #expect(!effects.contains { if case .setQuery = $0 { true } else { false } })
+  #expect(tap.swallowKeyUp(keycode: 0))
+  #expect(tap.handle(type: .keyDown, event: key) == nil)
+  tap.cancelSession()
+  await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  #expect(keys == [0])
+  #expect(tap.handle(type: .keyDown, event: key) != nil)
+}
+
+@Test @MainActor func acknowledgedNativeFocusPassesAllNativeEventTypesAndSystemInputShortcut() throws {
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {}, uptime: { 100 })
+  tap.process(.modifierDown(.opt)); tap.process(.tab(shift: false)); tap.process(.modifierUp(.opt))
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 49, keyDown: true))
+  key.flags = .maskControl
+  #expect(tap.handle(type: .keyDown, event: key) != nil)
+  tap.confirmNativeFocus()
+  key.flags = []
+  #expect(tap.handle(type: .keyDown, event: key) != nil)
+  #expect(tap.handle(type: .keyUp, event: key) != nil)
+  #expect(tap.handle(type: .flagsChanged, event: key) != nil)
+}
+
+@Test @MainActor func nativeHandoffHasABoundedQueueAndFallsBackWhenMainCannotKeepUp() async throws {
+  var degraded = false
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: { degraded = true }, uptime: { 100 })
+  tap.process(.modifierDown(.opt)); tap.process(.tab(shift: false)); tap.process(.modifierUp(.opt))
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+  for _ in 0..<64 { #expect(tap.handle(type: .keyDown, event: key) == nil) }
+  #expect(tap.handle(type: .keyDown, event: key) != nil)
+  #expect(!tap.process(.tab(shift: false)))
+  await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  #expect(degraded)
+}
+
+@Test @MainActor func cancellationStillConsumesTheReleaseOfAnAlreadySwallowedPress() {
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {}, uptime: { 100 })
+  tap.noteSwallowedKeyDown(48)
+  tap.cancelSession()
+  #expect(tap.swallowKeyUp(keycode: 48))
+  #expect(!tap.swallowKeyUp(keycode: 48))
+}
+
+@Test @MainActor func handoffPairsBufferedPressAndReleaseWhileModifiersPassNatively() async throws {
+  var types: [CGEventType] = []
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {}, uptime: { 100 }, onNativeEvent: { types.append($0.type) })
+  tap.process(.modifierDown(.opt)); tap.process(.tab(shift: false)); tap.process(.modifierUp(.opt))
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+  #expect(tap.handle(type: .keyDown, event: key) == nil)
+  tap.confirmNativeFocus()
+  key.type = .flagsChanged
+  #expect(tap.handle(type: .flagsChanged, event: key) != nil)
+  key.type = .keyUp
+  #expect(tap.handle(type: .keyUp, event: key) == nil)
+  await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  #expect(types == [.keyDown, .keyUp])
+  key.type = .keyDown
+  #expect(tap.handle(type: .keyDown, event: key) != nil)
+}
+
+@Test @MainActor func failedFocusDeadlineDoesNotRestartAfterEachDeliveredKey() async throws {
+  let clock = Mutex<TimeInterval>(100)
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {}, uptime: { clock.withLock { $0 } })
+  tap.process(.modifierDown(.opt)); tap.process(.tab(shift: false)); tap.process(.modifierUp(.opt))
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+  #expect(tap.handle(type: .keyDown, event: key) == nil)
+  await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  clock.withLock { $0 += 3 }
+  #expect(tap.handle(type: .keyDown, event: key) != nil)
+}
+
+@Test @MainActor func nativeSessionStillOwnsBothReservedTabGestures() async throws {
+  var keys: [Int64] = []
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {}, uptime: { 100 }, onNativeEvent: { keys.append($0.getIntegerValueField(.keyboardEventKeycode)) })
+  tap.process(.modifierDown(.opt)); tap.process(.tab(shift: false)); tap.process(.modifierUp(.opt))
+  tap.confirmNativeFocus()
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 48, keyDown: true))
+  for flags in [CGEventFlags.maskCommand, .maskAlternate] {
+    key.flags = flags
+    #expect(tap.handle(type: .keyDown, event: key) == nil)
+  }
+  await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  #expect(keys == [48, 48])
+}
+
+@Test @MainActor func delayedNativePacketExpiresBeforeMainDelivery() async throws {
+  let clock = Mutex<TimeInterval>(100)
+  var delivered = false
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {}, uptime: { clock.withLock { $0 } },
+    onNativeEvent: { _ in delivered = true })
+  tap.process(.modifierDown(.opt)); tap.process(.tab(shift: false)); tap.process(.modifierUp(.opt))
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+  #expect(tap.handle(type: .keyDown, event: key) == nil)
+  clock.withLock { $0 += 3 }
+  await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+  #expect(!delivered)
+}
+
+@Test @MainActor func nativeFocusDeadlineStartsBeforeTheFirstBufferedKey() throws {
+  let clock = Mutex<TimeInterval>(100)
+  let tap = EventTap(onEffects: { _, _ in }, onDegraded: {}, uptime: { clock.withLock { $0 } })
+  tap.process(.modifierDown(.opt)); tap.process(.tab(shift: false)); tap.process(.modifierUp(.opt))
+  clock.withLock { $0 += 3 }
+  let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true))
+  #expect(tap.handle(type: .keyDown, event: key) != nil)
 }

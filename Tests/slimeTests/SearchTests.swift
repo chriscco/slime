@@ -72,3 +72,11 @@ private func w(_ app: String, _ title: String, id: UInt32 = 1) -> Window {
   let second = w("Chromium", "NightShift", id: 2)
   #expect(Search.rank([first, second], query: "chr").map(\.windowID) == [1, 2])
 }
+
+@Test func chineseAndMixedQueriesPreserveMatchingAndTieOrder() {
+  let windows = [w("Safari", "工作 🐱", id: 9), w("Safari", "工作 🐱", id: 2), w("Notes", "周报", id: 7)]
+  #expect(Search.rank(windows, query: "工作").map(\.windowID) == [9, 2])
+  #expect(Search.rank(windows, query: "safari工作🐱").map(\.windowID) == [9, 2])
+  #expect(Search.rank(windows, query: "").map(\.windowID) == [9, 2, 7])
+  #expect(Search.rank(windows, query: "周报").map(\.windowID) == [7])
+}

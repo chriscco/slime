@@ -66,12 +66,26 @@ Grant slime **Accessibility** permission in **System Settings → Privacy & Secu
 | Hold `⌥`, tap `Tab` | The same panel, but **it stays up after you release**. Type to search, `Enter` to switch. |
 | `⌘F` | Focus the search box. Works in both modes. |
 | `Tab` / `⇧Tab` | Move the selection forward / backward. The highlight slides between items. |
-| `↑` `↓` `←` `→` | Move the selection. |
-| Type anything | Live fuzzy filter. Once you type, releasing `⌘` keeps the panel open. |
-| `Enter` | Switch to the selection. Works on minimized windows too. |
+| `↑` `↓` | Move window selection by row when not composing text. |
+| `←` `→` | Move window selection before editing; move the text cursor once search has focus. |
+| Type anything | Filter using committed text, including Chinese. Once you type, releasing `⌘` keeps the panel open. |
+| `Enter` | Switch to the selection when not composing text; keep editing if there are no results. Works on minimized windows too. |
 | `⌘D` | Close the selected window with a CRT preview animation; the app stays running. |
 | `⌘,` | Open settings. Also works after releasing Option. |
-| `Esc` | Close without switching. |
+| `Esc` | Let the input method handle an active composition; otherwise close without switching. |
+| `⌘A/C/X/V`, `⌘Z` / `⇧⌘Z` | Select all, copy, cut, paste, undo / redo in the focused search editor. |
+| Click a window card | Switch to that window, discarding uncommitted text. |
+
+Search uses the current input method. While composing Chinese, candidate keys belong
+to the input method and results retain the last committed query. Confirming a candidate
+does not also switch windows. With search focused and no active composition,
+`Tab` / `⇧Tab` select windows, left/right edit text, and up/down move between rows.
+Window-close and settings shortcuts pause during composition.
+
+Typing while still holding the trigger modifier retains the ordinary-letter shortcut
+until release; those letters stay literal text. Release the modifier before composing
+Chinese, or use `⌘F` to enter native editing directly. Closing the panel clears the
+query, selection, and undo history; reopening starts a new search.
 
 The list uses app-level MRU ordering and includes the current window at the end. Optional grouping gives each app its own section. The panel keeps five columns and the same width with fewer than five windows. The underline animates within a row and moves immediately between rows.
 
@@ -123,7 +137,7 @@ Tag-triggered publishing and the English release-note template are documented in
 
 ## Known limitations
 
-Public AX information can cover only part of the available Spaces. Never-observed windows may be missing and ambiguous close targets are refused. Offscreen previews can be stale; a window closed outside slime may take time to disappear if macOS retains its surface. Secure Input uses the system switcher. Unassigned Command-letter combinations remain filter input while the panel is open. Login launch and permission behavior follow system approval prompts.
+Public AX information can cover only part of the available Spaces. Never-observed windows may be missing and ambiguous close targets are refused. Offscreen previews can be stale; a window closed outside slime may take time to disappear if macOS retains its surface. Secure Input uses the system switcher. Native search editing reserves Command combinations for editor or explicit panel commands; they are not inserted as letters. Held-trigger typing retains its compatibility behavior until release. Login launch and permission behavior follow system approval prompts.
 
 ## Layout
 

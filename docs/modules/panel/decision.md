@@ -145,3 +145,27 @@ The user approved replacing the complete-first-frame wait with immediate default
 ## 2026-10-17 — Preserve previews across openings
 
 User testing found that immediate presentation exposed Fresh's full placeholder-to-image rebuild on every open. Retain successful memory previews in both modes and refresh only changed identities plus bounded onscreen fallback attempts. Fresh's distinction is tilted-image acceptance and no disk persistence, not per-open memory erasure. Cancel its unfinished captures on dismissal while retaining completed images. Tradeoff: unchanged background contents can remain stale until a later warm event meets the 30-second interval; current-window attempts use one second. No new polling timer or capture concurrency.
+
+
+## 2026-10-20 — Native Chinese editing and explicit navigation boundaries (#102)
+
+The owner confirmed the 0.1.0 spec in two grilling rounds. Replace the read-only
+query and fake caret with native text editing; this supersedes the earlier choice
+to exclude a field editor. Committed complete strings drive filtering; marked text
+and candidate interaction remain the input method's responsibility. AppKit's
+[NSTextView](https://developer.apple.com/documentation/appkit/nstextview) provides
+selection, marked text and editing; its
+[input context](https://developer.apple.com/documentation/appkit/nstextinputcontext/handleevent(_:))
+interprets native input events. Do not implement a pinyin engine or candidate UI.
+
+The cost is an explicit keyboard distinction: focused search owns left/right,
+while Tab and up/down select windows outside composition. Composition consumes
+its confirming/cancelling key without also executing a panel command. Empty-result
+Enter preserves the query; card clicks capture and activate that card's identity,
+discarding composition. Undo/redo belongs only to the current search session.
+
+Native cancellation and partial commits follow the input method instead of a
+hard-coded “one Escape restores everything” rule. Built-in Pinyin and the owner's
+Rime installation are required desktop acceptance targets. Revisit the routing
+only if native IME tests demonstrate an incompatibility; simulated marked-text
+tests do not establish that the candidate UI works on a real desktop.

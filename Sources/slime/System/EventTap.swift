@@ -8,6 +8,8 @@ import Foundation
 final class EventTap: @unchecked Sendable {
   enum StartError: Error { case creationFailed, timedOut }
   private let onEffects: @MainActor (State, [Effect]) -> Void
+  private let uptime: @Sendable () -> TimeInterval
+  private let onNativeEvent: @MainActor (CGEvent) -> Void
   private let onDegraded: @MainActor () -> Void
   private let ready = DispatchSemaphore(value: 0)
   private var runLoop: CFRunLoop?
@@ -21,9 +23,17 @@ final class EventTap: @unchecked Sendable {
   private var tap: CFMachPort?
   private var consecutiveDisables = 0
   private var swallowedKeys: Set<Int64> = []
+  private var nativeKeys: Set<Int64> = []
+  private var nativeFocusConfirmed = false
+  private var pendingNativeKeys = 0
+  private var handoffStarted: TimeInterval?
 
   init(onEffects: @escaping @MainActor (State, [Effect]) -> Void,
-       onDegraded: @escaping @MainActor () -> Void) {
+       onDegraded: @escaping @MainActor () -> Void,
+       uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+       onNativeEvent: @escaping @MainActor (CGEvent) -> Void = { _ in }) {
+    self.uptime = uptime
+    self.onNativeEvent = onNativeEvent
     self.onEffects = onEffects
     self.onDegraded = onDegraded
   }
@@ -44,6 +54,30 @@ final class EventTap: @unchecked Sendable {
   }
 
   @MainActor func cancelSession() { reset(enabled: nil) }
+
+  @MainActor func confirmNativeFocus() {
+    let expected = deliveryRevision
+    enqueue { [self] in
+      guard revision == expected, case .lingering = state else { return }
+      nativeFocusConfirmed = true
+      if pendingNativeKeys == 0 { handoffStarted = nil }
+    }
+  }
+
+  @MainActor func send(_ event: Event) {
+    let expectedRevision = deliveryRevision
+    enqueue { [self] in
+      guard revision == expectedRevision else { return }
+      process(event, isKeyDown: false)
+    }
+  }
+
+  private func enqueue(_ action: @escaping @Sendable () -> Void) {
+    if let runLoop {
+      CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, action)
+      CFRunLoopWakeUp(runLoop)
+    } else { action() }
+  }
 
   @MainActor func completeClose() {
     let expectedRevision = deliveryRevision
@@ -71,7 +105,11 @@ final class EventTap: @unchecked Sendable {
           if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
         }
       }
-      swallowedKeys.removeAll()
+      if enabled != nil { swallowedKeys.removeAll() }
+      nativeKeys.removeAll()
+      nativeFocusConfirmed = false
+      pendingNativeKeys = 0
+      handoffStarted = nil
     }
     if let runLoop {
       CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, change)
@@ -117,6 +155,7 @@ final class EventTap: @unchecked Sendable {
   }
 
   func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    let now = uptime()
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       if type == .tapDisabledByTimeout {
         consecutiveDisables += 1
@@ -134,7 +173,27 @@ final class EventTap: @unchecked Sendable {
     guard enabled, !degraded else { return Unmanaged.passUnretained(event) }
     let code = event.getIntegerValueField(.keyboardEventKeycode)
     if type == .keyUp {
+      if nativeKeys.remove(code) != nil, case .lingering = state {
+        _ = swallowKeyUp(keycode: code)
+        return forwardNative(event, now: now) ? nil : Unmanaged.passUnretained(event)
+      }
       return swallowKeyUp(keycode: code) ? nil : Unmanaged.passUnretained(event)
+    }
+    if case .lingering = state {
+      // Let the OS switch input sources even while AppKit focus is being established.
+      if type == .keyDown, code == 49, event.flags.contains(.maskControl) {
+        return Unmanaged.passUnretained(event)
+      }
+      let reservedTab = type == .keyDown && code == 48
+        && !event.flags.intersection([.maskCommand, .maskAlternate]).isEmpty
+      if nativeFocusConfirmed && pendingNativeKeys == 0 && !reservedTab { return Unmanaged.passUnretained(event) }
+      if type == .keyDown {
+        guard forwardNative(event, now: now) else { return Unmanaged.passUnretained(event) }
+        nativeKeys.insert(code)
+        noteSwallowedKeyDown(code)
+        return nil
+      }
+      // Modifier transitions always retain native delivery, including during handoff.
     }
     // Dismissal clears the session, but a held modifier sends no new flagsChanged.
     if type == .keyDown, code == 48, state == .idle {
@@ -146,6 +205,32 @@ final class EventTap: @unchecked Sendable {
       isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
     if swallow, type == .keyDown { noteSwallowedKeyDown(code) }
     return swallow ? nil : Unmanaged.passUnretained(event)
+  }
+
+  private func forwardNative(_ event: CGEvent, now: TimeInterval) -> Bool {
+    if handoffStarted == nil { handoffStarted = now }
+    guard pendingNativeKeys < 64, now - (handoffStarted ?? now) < 2,
+          let copy = event.copy() else {
+      degraded = true
+      state = .idle
+      swallowedKeys.removeAll()
+      nativeKeys.removeAll()
+      DispatchQueue.main.async { [onDegraded] in onDegraded() }
+      return false
+    }
+    pendingNativeKeys += 1
+    let packet = NativeKey(event: copy)
+    let delivery = revision
+    DispatchQueue.main.async { [self, packet] in
+      guard delivery == deliveryRevision else { return }
+      if uptime() - now < 2 { onNativeEvent(packet.event) }
+      enqueue { [self] in
+        guard revision == delivery else { return }
+        pendingNativeKeys = max(0, pendingNativeKeys - 1)
+        if pendingNativeKeys == 0 && nativeFocusConfirmed { handoffStarted = nil }
+      }
+    }
+    return true
   }
 
   // Called only on the tap run loop, or before installation in tests.
@@ -160,6 +245,12 @@ final class EventTap: @unchecked Sendable {
     guard let event else { return isKeyDown && state.isSessionOpen }
     if event == .closeWindow, isRepeat { return state.isSessionOpen }
     let (next, effects) = reduce(state, event)
+    if case .lingering = next {
+      if case .lingering = state {} else {
+        nativeFocusConfirmed = false
+        handoffStarted = uptime()
+      }
+    }
     state = next
     let delivery = revision
     DispatchQueue.main.async { [self] in
@@ -267,3 +358,6 @@ extension Character {
     unicodeScalars.allSatisfy { $0.value < 0x20 || $0.value == 0x7F }
   }
 }
+
+// CGEvent is immutable after copying; the packet crosses once from tap to main.
+private struct NativeKey: @unchecked Sendable { let event: CGEvent }

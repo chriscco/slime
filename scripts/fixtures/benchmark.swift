@@ -23,18 +23,18 @@ for count in [10, 50, 100, 300] {
     var values: [Double] = []
     for sample in 0..<35 {
       let start = ContinuousClock.now
-      controller.handle(state: .lingering(query: "w", selection: 0), effects: [.appendQuery("w")])
+      controller.handle(state: .lingering(query: "w", selection: 0), effects: [.setQuery("w")])
       view.layoutSubtreeIfNeeded()
       view.cacheDisplay(in: view.bounds, to: bitmap)
       let elapsed = milliseconds(start.duration(to: .now))
       if sample >= 5 { values.append(elapsed) }
-      controller.handle(state: .lingering(query: "", selection: 0), effects: [.deleteQueryChar])
+      controller.handle(state: .lingering(query: "", selection: 0), effects: [.setQuery("")])
     }
     values.sort()
     print("windows=\(count) grouped=\(grouped) samples=\(values.count) p50_ms=\(values[14]) p95_ms=\(values[28])")
     for (operation, effects) in [
       ("tab_update", [Effect.moveSelection(axis: .horizontal, step: 1)]),
-      ("search_restore", [Effect.appendQuery("z"), .deleteQueryChar]),
+      ("search_restore", [Effect.setQuery("z"), .setQuery("")]),
     ] {
       var samples: [Double] = []
       for sample in 0..<25 {

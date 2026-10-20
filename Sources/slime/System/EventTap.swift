@@ -8,6 +8,7 @@ import Foundation
 final class EventTap: @unchecked Sendable {
   enum StartError: Error { case creationFailed, timedOut }
   private let onEffects: @MainActor (State, [Effect]) -> Void
+  private let uptime: @Sendable () -> TimeInterval
   private let onNativeEvent: @MainActor (CGEvent) -> Void
   private let onDegraded: @MainActor () -> Void
   private let ready = DispatchSemaphore(value: 0)
@@ -29,7 +30,9 @@ final class EventTap: @unchecked Sendable {
 
   init(onEffects: @escaping @MainActor (State, [Effect]) -> Void,
        onDegraded: @escaping @MainActor () -> Void,
+       uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
        onNativeEvent: @escaping @MainActor (CGEvent) -> Void = { _ in }) {
+    self.uptime = uptime
     self.onNativeEvent = onNativeEvent
     self.onEffects = onEffects
     self.onDegraded = onDegraded
@@ -151,7 +154,8 @@ final class EventTap: @unchecked Sendable {
       .handle(type: type, event: event)
   }
 
-  func handle(type: CGEventType, event: CGEvent, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Unmanaged<CGEvent>? {
+  func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    let now = uptime()
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       if type == .tapDisabledByTimeout {
         consecutiveDisables += 1
@@ -219,7 +223,7 @@ final class EventTap: @unchecked Sendable {
     let delivery = revision
     DispatchQueue.main.async { [self, packet] in
       guard delivery == deliveryRevision else { return }
-      if ProcessInfo.processInfo.systemUptime - now < 2 { onNativeEvent(packet.event) }
+      if uptime() - now < 2 { onNativeEvent(packet.event) }
       enqueue { [self] in
         guard revision == delivery else { return }
         pendingNativeKeys = max(0, pendingNativeKeys - 1)
@@ -244,7 +248,7 @@ final class EventTap: @unchecked Sendable {
     if case .lingering = next {
       if case .lingering = state {} else {
         nativeFocusConfirmed = false
-        handoffStarted = ProcessInfo.processInfo.systemUptime
+        handoffStarted = uptime()
       }
     }
     state = next

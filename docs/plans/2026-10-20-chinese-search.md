@@ -65,5 +65,5 @@ Files: `README.md`, `README.zh-CN.md`, settings shortcut copy,
 
 ## Progress
 
-- Implementation and independent source review completed; 274 tests and release build pass.
+- Implementation and independent source review completed; 276 tests and release build pass.
 - Actual system Pinyin and Rime editing checked in a production-panel fixture; full global-gesture acceptance remains pending. PR stays draft until that evidence is available.

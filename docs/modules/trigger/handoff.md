@@ -15,7 +15,9 @@ Queued effects/packets capture the tap revision; editor commands capture the pan
 session. Preserve swallowed press/release pairing and existing native fallback.
 No UI, AX, locks or I/O belongs in the tap callback.
 
-Regression tests cover the handoff bounds, stale events and reserved Tab. Full
+Regression tests cover the handoff bounds, stale events and reserved Tab. All
+deadline reads share one monotonic uptime source; tests control it so unrelated
+MainActor work cannot accidentally expire packets. Production uses system uptime. Full
 physical global-gesture acceptance remains pending; see the
 [validation record](../../validation/2026-10-20-chinese-search.md). Do not infer it
 from direct native-panel fixtures or reducer tests.

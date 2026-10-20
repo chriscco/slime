@@ -15,7 +15,7 @@ Scope: [approved spec and grilling revision](../specs/2026-10-20-slime-0.1.0-spe
 
 ## Automated checks
 
-- `scripts/test`: 274 tests pass, including native AppKit tests, tap handoff bounds,
+- `scripts/test`: 276 tests pass, including native AppKit tests, tap handoff bounds,
   stale delivery, full-query filtering, clipboard/undo and composition cancellation.
 - `python3 -m unittest discover -s scripts/tests`: 17 tests pass.
 - `CONFIG=release scripts/build-app`: passes, self-signed `build/slime.app`.
@@ -27,6 +27,13 @@ fixed with observed failing/passing regression tests. Desktop testing then found
 empty marked-text cancellation failed to publish the final empty query; that was
 also reproduced in a regression, fixed and retested on both actual input methods.
 The final source review reported no remaining concrete correctness blockers.
+
+A first CI run exposed test scheduling coupling: unrelated MainActor work delayed
+an exactly-once delivery assertion beyond the real two-second safety deadline.
+All deadline reads now share an injected monotonic uptime source (system uptime in
+production). Scheduling tests use fixed time; separate tests advance it to verify
+expiry before the first key, after a drained batch, and before main delivery.
+The production timeout and queue bounds are unchanged.
 
 ## Desktop evidence
 

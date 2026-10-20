@@ -97,19 +97,19 @@ private func expect(
 @Test func holdingTypingAppendsAndResetsSelection() {
   expect(
     from: .holding(.cmd, query: "sl", selection: 3), on: .char("a"),
-    .lingering(query: "sla", selection: 0), [.swallow, .appendQuery("a")])
+    .typing(.cmd, query: "sla", selection: 0), [.swallow, .setQuery("sla")])
 }
 
 @Test func holdingBackspaceRemovesLastChar() {
   expect(
     from: .holding(.cmd, query: "sla", selection: 2), on: .backspace,
-    .holding(.cmd, query: "sl", selection: 0), [.swallow, .deleteQueryChar])
+    .holding(.cmd, query: "sl", selection: 0), [.swallow, .setQuery("sl")])
 }
 
 @Test func holdingBackspaceOnEmptyQueryIsHarmless() {
   expect(
     from: .holding(.cmd, query: "", selection: 0), on: .backspace,
-    .holding(.cmd, query: "", selection: 0), [.swallow, .deleteQueryChar])
+    .holding(.cmd, query: "", selection: 0), [.swallow, .setQuery("")])
 }
 
 @Test func holdingArrowsMoveSelection() {
@@ -129,11 +129,11 @@ private func expect(
     .lingering(query: "sl", selection: 1), [.swallow, .focusSearchField])
 }
 
-@Test func holdingOptFocusSearchKeepsHolding() {
+@Test func holdingOptFocusSearchEntersEditing() {
   // ⌥ 模式下 ⌥F 留在 holding：⌥ 松开本来就转 lingering，语义没变。
   expect(
     from: .holding(.opt, query: "sl", selection: 1), on: .focusSearch,
-    .holding(.opt, query: "sl", selection: 1), [.swallow, .focusSearchField])
+    .lingering(query: "sl", selection: 1), [.swallow, .focusSearchField])
 }
 
 @Test func releasingCmdAfterFocusSearchDoesNotSwitch() {
@@ -149,14 +149,14 @@ private func expect(
   #expect(releaseEffects == [.passThrough])  // 不激活、不隐藏
 
   let (afterEnter, enterEffects) = reduce(afterRelease, .enter)
-  #expect(afterEnter == .idle)
-  #expect(enterEffects == [.swallow, .activate, .hidePanel])
+  #expect(afterEnter == afterRelease)
+  #expect(enterEffects == [.swallow, .activate])
 }
 
 @Test func holdingEnterActivates() {
   expect(
     from: .holding(.cmd, query: "sla", selection: 0), on: .enter,
-    .idle, [.swallow, .activate, .hidePanel])
+    .lingering(query: "sla", selection: 0), [.swallow, .focusSearchField, .activate])
 }
 
 @Test func holdingEscapeCancels() {
@@ -193,7 +193,7 @@ private func expect(
 @Test func lingeringTypingContinuesSession() {
   expect(
     from: .lingering(query: "sl", selection: 2), on: .char("a"),
-    .lingering(query: "sla", selection: 0), [.swallow, .appendQuery("a")])
+    .lingering(query: "sla", selection: 0), [.swallow, .setQuery("sla")])
 }
 
 @Test func lingeringTabMovesSelection() {
@@ -212,7 +212,7 @@ private func expect(
 @Test func lingeringEnterActivates() {
   expect(
     from: .lingering(query: "sla", selection: 2), on: .enter,
-    .idle, [.swallow, .activate, .hidePanel])
+    .lingering(query: "sla", selection: 2), [.swallow, .activate])
 }
 
 @Test func lingeringEscapeCancels() {
@@ -245,15 +245,15 @@ private func expect(
 
   // 按住 ⌘ 打字：s、l、a 进 query（手动验收清单里的「打字 sla」）。
   for c in "sla" { (state, _) = reduce(state, .char(c)) }
-  #expect(state == .lingering(query: "sla", selection: 0))
+  #expect(state == .typing(.cmd, query: "sla", selection: 0))
 
   let (released, releaseEffects) = reduce(state, .modifierUp(.cmd))
   state = released
   #expect(state == .lingering(query: "sla", selection: 0))
-  #expect(releaseEffects == [.passThrough])
+  #expect(releaseEffects == [.focusSearchField])
   let (final, effects) = reduce(state, .enter)
-  #expect(final == .idle)
-  #expect(effects == [.swallow, .activate, .hidePanel])
+  #expect(final == state)
+  #expect(effects == [.swallow, .activate])
 }
 
 @Test func optModeLifecycleLeavesPanelUp() {
@@ -268,8 +268,8 @@ private func expect(
   // 归留里打字、回车 → 切过去。
   (state, _) = reduce(lingering, .char("s"))
   let (final, enterEffects) = reduce(state, .enter)
-  #expect(final == .idle)
-  #expect(enterEffects == [.swallow, .activate, .hidePanel])
+  #expect(final == state)
+  #expect(enterEffects == [.swallow, .activate])
 }
 
 @Test func lingeringThenCommandTabContinuesSession() {
@@ -331,4 +331,48 @@ private func expect(
   #expect(reduce(state, .closeFinished).0 == .lingering(query: "draft", selection: 2))
   #expect(reduce(state, .escape).0 == .idle)
   #expect(reduce(state, .openSettings).1 == [.swallow, .openSettings])
+}
+
+@Test func optionExplicitFocusEntersNativeEditingImmediately() {
+  let (state, _) = reduce(.holding(.opt, query: "", selection: 0), .focusSearch)
+  #expect(state == .lingering(query: "", selection: 0))
+}
+
+@Test func enterRequestsActivationWithoutEndingSessionBeforeResultValidation() {
+  let (state, effects) = reduce(.lingering(query: "missing", selection: 0), .enter)
+  #expect(state == .lingering(query: "missing", selection: 0))
+  #expect(effects == [.swallow, .activate])
+}
+
+@Test func heldTypingKeepsCompatibilityUntilModifierRelease() {
+  for modifier in [Modifier.cmd, .opt] {
+    var state = State.holding(modifier, query: "", selection: 3)
+    (state, _) = reduce(state, .char("a"))
+    (state, _) = reduce(state, .char("b"))
+    let (released, effects) = reduce(state, .modifierUp(modifier))
+    #expect(released == .lingering(query: "ab", selection: 0))
+    #expect(effects == [.focusSearchField])
+  }
+}
+
+@Test func committedQueryReplacesWholeTextAndRepeatedNotificationKeepsSelection() {
+  let initial = State.lingering(query: "工", selection: 3)
+  let (changed, effects) = reduce(initial, .queryChanged("工作 Safari 🐱"))
+  #expect(changed == .lingering(query: "工作 Safari 🐱", selection: 0))
+  #expect(!effects.isEmpty)
+  let (unchanged, repeated) = reduce(initial, .queryChanged("工"))
+  #expect(unchanged == initial)
+  #expect(repeated.isEmpty)
+  #expect(reduce(initial, .queryChanged("")).0 == .lingering(query: "", selection: 0))
+}
+
+@Test func enterDuringNavigationKeepsEditingAvailableUntilAResultIsValidated() {
+  let (state, effects) = reduce(.holding(.cmd, query: "", selection: 0), .enter)
+  #expect(state == .lingering(query: "", selection: 0))
+  #expect(effects.contains(.focusSearchField))
+  #expect(!reduce(state, .modifierUp(.cmd)).1.contains(.activate))
+}
+
+@Test func closeCompletionRestoresNativeEditingFocus() {
+  #expect(reduce(.closing(query: "工作", selection: 0), .closeFinished).1 == [.focusSearchField])
 }

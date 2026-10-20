@@ -291,13 +291,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
       (text("Quick switch · release to confirm", "快速切换 · 松手确认"), "⌘ Tab"),
       (text("Open and keep the switcher", "打开并保留面板"), "⌥ Tab"),
       (text("Next / previous window", "后一个 / 前一个窗口"), "Tab / ⇧ Tab"),
-      (text("Navigate windows / rows", "按窗口 / 按行导航"), "← → / ↑ ↓"),
-      (text("Filter / delete a character", "过滤 / 删除字符"), text("Type / ⌫", "键入 / ⌫")),
+      (text("Edit text / navigate rows", "编辑光标 / 按行导航"), "← → / ↑ ↓"),
+      (text("Search with your input method", "使用输入法搜索"), text("Type / ⌫", "键入 / ⌫")),
+      (text("Undo / redo search edits", "撤销 / 重做搜索编辑"), "⌘ Z / ⇧ ⌘ Z"),
       (text("Keep open and search", "保留面板并搜索"), "⌘ F / ⌥ F"),
-      (text("Switch to selection", "切到选中窗口"), "↵"),
+      (text("Switch if results exist · after composition", "有结果且组词结束后切换"), "↵"),
       (text("Close selected window", "关闭选中窗口"), "⌘ D"),
       (text("Open settings", "打开设置"), "⌘ , / ⌥ ,"),
-      (text("Cancel", "取消"), "Esc"),
+      (text("Input method first · then cancel", "先由输入法处理 · 再取消面板"), "Esc"),
     ]
     for (title, keys) in entries {
       let keyLabel = label(keys, size: 12, weight: .medium)

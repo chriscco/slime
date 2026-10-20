@@ -163,7 +163,7 @@ extension PanelAndThumbnailTests {
   #expect(panel.rows[panel.selection].windowID == 1)
   let fresh = Window(pid: 20, windowID: 2, appName: "App", title: "z", isMinimized: false)
   panel.setWindows([fresh, w(1)])
-  panel.handle(state: .lingering(query: "z", selection: 0), effects: [.appendQuery("z")])
+  panel.handle(state: .lingering(query: "z", selection: 0), effects: [.setQuery("z")])
   #expect(panel.rows.map(\.windowID) == [2])
   panel.setWindows([w(1)])
   #expect(panel.rows.isEmpty)

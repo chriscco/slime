@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-`PanelWindow` is a nonactivating floating panel. `PanelController` owns query, window identities, bounded selection, and session generation. EventTap alone drives keyboard state; the panel has no second reducer. System owns enumeration and Accessibility.
+`PanelWindow` is a nonactivating floating panel. `PanelController` owns query, window identities, bounded selection, and session generation. EventTap owns panel-command state; native text interpretation belongs to SearchEditor, and the panel has no second reducer. System owns enumeration and Accessibility.
 
 ## Layout and rendering
 
@@ -25,7 +25,23 @@ One AXRequest supplies a shared three-second deadline and cancellation checks. A
 
 ## Search and performance
 
-The filter is a tap-owned append/backspace query, not an AppKit field editor. A 32 pt bundled slime icon with 10 pt rounded corners sits outside search with a 10 pt gap. The header aligns to the preview images, using their shared inset. Placeholder and query use semantic primary text; the shortcut hint has no independent background. Unfocused search shows a passive ⌘F text hint, suppressed by focus or a close status message. Explicit focus shows a 2 pt accent border with a neutral contrast edge and blinking end caret. Query clipping reserves trailing space for the hint/status. Caret position updates immediately without travel animation; hidden panels stop blinking. Typing from Command-holding enters a persistent search session. Long text is clipped with its end visible. Arrows still select windows; no IME, arbitrary text selection, or mouse window selection is implemented.
+SearchEditor uses native AppKit text editing for marked text, selection, clipboard,
+undo/redo and the insertion point. Committed full-query changes update filtering;
+composition keeps the last committed results. Background snapshot/preview refreshes
+must not replace the editor's text or selection. The input method consumes its own
+confirm/cancel key without also issuing a panel command.
+
+The existing icon, theme, accent focus border and passive ⌘F hint remain. The native
+editor scrolls horizontally to keep the caret visible; there is no separate fake
+caret. Focused search owns left/right even when empty. Outside composition, Tab
+selects adjacent results and unmodified up/down navigate rows. Empty-result Enter
+keeps editing. A card click captures that card's window identity before ending text
+input; candidate clicks stay with the input method.
+
+Held-trigger letters remain a compatibility phase until modifier release; explicit
+focus enters native editing directly. Dismissal discards marked text, query, selection
+and undo history, so a later opening cannot revive the previous query. Each native
+input delivery must be scoped to the active session.
 
 Unchanged ordered results skip grid rendering. Cards avoid wrapping an unchanged CGImage again or invalidating its preview. Focus does not restart its animations on every character. Resize frames update geometry without repeating ranking or capture. Thumbnail updates are snapshots, not live video.
 

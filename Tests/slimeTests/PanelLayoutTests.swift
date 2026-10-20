@@ -407,25 +407,21 @@ extension PanelAndThumbnailTests {
   controller.handle(state: .lingering(query: "", selection: 0), effects: [.focusSearchField])
   #expect(content.searchFocused)
   #expect(content.searchBox.layer?.borderWidth == 2)
-  #expect(!content.searchCaret.isHidden)
-  let start = content.searchCaret.frame.minX
-  controller.handle(state: .lingering(query: "abc", selection: 0), effects: [.appendQuery("a")])
-  #expect(content.searchCaret.frame.minX > start)
-  #expect(content.searchCaret.layer?.animation(forKey: "caret") == nil)
+  #expect(controller.panel.firstResponder === content.searchEditor)
+  content.searchEditor.insertText("abc", replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(content.searchEditor.selectedRange().location == 3)
   controller.dismiss()
   #expect(!content.searchFocused)
 }
 }
 
-@Test @MainActor func repeatingSearchFocusKeepsTheExistingBlinkAnimation() {
+@Test @MainActor func repeatingSearchFocusKeepsTheNativeSelection() {
   let content = PanelContentView()
-  content.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+  content.setSearchText("hello")
   content.setSearchFocused(true)
-  let marker = CABasicAnimation(keyPath: "opacity")
-  marker.duration = 1
-  content.searchCaret.layer?.add(marker, forKey: "blink")
+  content.searchEditor.setSelectedRange(NSRange(location: 1, length: 2))
   content.setSearchFocused(true)
-  #expect(content.searchCaret.layer?.animation(forKey: "blink") != nil)
+  #expect(content.searchEditor.selectedRange() == NSRange(location: 1, length: 2))
 }
 
 @Test @MainActor func typingThePlaceholderTextIsStillAQuery() {
@@ -471,9 +467,10 @@ func searchHeaderShowsShortcutUntilFocusOrStatusTakesItsPlace(width: Double) thr
   #expect(!hint.isHidden)
   content.setSearchText(String(repeating: "wide query ", count: 30))
   content.layoutSubtreeIfNeeded()
-  let clip = try #require(content.searchLabel.superview)
+  let clip = try #require(content.searchEditor.enclosingScrollView)
   #expect(clip.frame.maxX < hint.frame.minX)
-  #expect(content.searchCaret.frame.maxX <= clip.bounds.width)
+  #expect(content.searchEditor.isHorizontallyResizable)
+  #expect(content.searchEditor.selectedRange().location == (content.searchEditor.string as NSString).length)
 }
 
 extension PanelAndThumbnailTests {
@@ -487,7 +484,7 @@ extension PanelAndThumbnailTests {
   let controller = PanelController(settings: settings)
   controller.handle(state: .lingering(query: "", selection: 0), effects: [])
   controller.setWindows([window("App", "Alpha", id: 301), window("App", "Beta", id: 302)])
-  controller.handle(state: .lingering(query: "a", selection: 0), effects: [.appendQuery("a")])
+  controller.handle(state: .lingering(query: "a", selection: 0), effects: [.setQuery("a"), .focusSearchField])
   controller.refreshAppearance()
   #expect(controller.panel.appearance == nil)
   let content = controller.panel.content
@@ -603,7 +600,7 @@ extension PanelAndThumbnailTests {
   controller.setWindows((1...3).map {
     Window(pid: 1, windowID: UInt32($0), appName: "App", title: "Window \($0)", isMinimized: false)
   })
-  controller.handle(state: state, effects: [.appendQuery("w"), .moveSelection(axis: .horizontal, step: 1)])
+  controller.handle(state: state, effects: [.setQuery("w"), .focusSearchField, .moveSelection(axis: .horizontal, step: 1)])
   let selected = controller.rows[controller.selection].windowID
   var refreshes = 0
   controller.onRefresh = { refreshes += 1 }
@@ -629,22 +626,22 @@ extension PanelAndThumbnailTests {
     panel.setWindows([first, second])
     let grid = panel.panel.content.gridView
     weak var original = grid.card(for: first.windowID)
-    panel.handle(state: state, effects: [.appendQuery("z")])
+    panel.handle(state: state, effects: [.setQuery("z")])
     #expect(panel.rows.isEmpty)
     #expect(grid.card(for: first.windowID) == nil)
     #expect(original != nil, "Filtering must retain the detached card for this session")
     let renamed = window("Test", "Updated title", id: first.windowID)
     panel.setWindows([renamed, second])
-    panel.handle(state: state, effects: [.deleteQueryChar])
+    panel.handle(state: state, effects: [.setQuery("")])
     #expect(grid.card(for: first.windowID) === original)
     #expect(grid.card(for: first.windowID)?.subviews.compactMap { $0 as? NSTextField }.first?.stringValue == "Updated title")
-    panel.handle(state: state, effects: [.appendQuery("z")])
+    panel.handle(state: state, effects: [.setQuery("z")])
     panel.setWindows([second])
     try await Task.sleep(for: .milliseconds(20))
     #expect(original == nil, "A closed window must leave the reuse pool")
-    panel.handle(state: state, effects: [.deleteQueryChar])
+    panel.handle(state: state, effects: [.setQuery("")])
     weak var remaining = grid.card(for: second.windowID)
-    panel.handle(state: state, effects: [.appendQuery("z")])
+    panel.handle(state: state, effects: [.setQuery("z")])
     #expect(remaining != nil)
     panel.dismiss()
     try await Task.sleep(for: .milliseconds(20))
@@ -661,11 +658,194 @@ extension PanelAndThumbnailTests {
     panel.handle(state: state, effects: [])
     panel.setWindows([first])
     let original = try #require(panel.panel.content.gridView.card(for: first.windowID))
-    if filtered { panel.handle(state: state, effects: [.appendQuery("z")]) }
+    if filtered { panel.handle(state: state, effects: [.setQuery("z")]) }
     let replacement = Window(pid: 2, windowID: first.windowID, appName: "Other", title: "Beta", isMinimized: false)
     panel.setWindows([replacement])
-    if filtered { panel.handle(state: state, effects: [.deleteQueryChar]) }
+    if filtered { panel.handle(state: state, effects: [.setQuery("")]) }
     #expect(panel.panel.content.gridView.card(for: replacement.windowID) !== original)
     #expect(panel.rows == [replacement])
   }
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func nativeSearchEditorSupportsMarkedTextReplacementAndSessionUndo() throws {
+  let panel = PanelWindow()
+  panel.makeKeyAndOrderFront(nil)
+  defer { panel.orderOut(nil) }
+  panel.content.setSearchFocused(true)
+  let editor = try #require(panel.firstResponder as? NSTextView)
+  #expect(editor.isEditable)
+  editor.insertText("工作 Safari 🐱", replacementRange: NSRange(location: NSNotFound, length: 0))
+  editor.setSelectedRange(NSRange(location: 0, length: 2))
+  editor.setMarkedText("zhou", selectedRange: NSRange(location: 4, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(editor.hasMarkedText())
+  editor.insertText("周报", replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(editor.string == "周报 Safari 🐱")
+  #expect(!editor.hasMarkedText())
+  editor.setSelectedRange(NSRange(location: 0, length: (editor.string as NSString).length))
+  editor.insertText("a\r\nb\nc", replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(editor.string == "a b c")
+  #expect(editor.undoManager != nil)
+}
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func nativeCommittedQueryFiltersButCompositionAndRefreshPreserveEditor() throws {
+  let controller = PanelController()
+  var state = State.lingering(query: "", selection: 0)
+  controller.onEvent = { event in
+    let (next, effects) = reduce(state, event)
+    state = next
+    controller.handle(state: next, effects: effects)
+  }
+  let first = window("Safari", "工作", id: 901)
+  let second = window("Safari", "周报", id: 902)
+  controller.setWindows([first, second])
+  controller.handle(state: state, effects: [.showPanel(.opt), .focusSearchField])
+  defer { controller.dismiss() }
+  let editor = controller.panel.content.searchEditor
+  editor.insertText("工作", replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(controller.rows == [first])
+  editor.setSelectedRange(NSRange(location: 0, length: 2))
+  editor.setMarkedText("zhou", selectedRange: NSRange(location: 4, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(controller.rows == [first])
+  controller.setWindows([first, second])
+  #expect(editor.hasMarkedText())
+  #expect(editor.string == "zhou")
+  editor.insertText("周报", replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(controller.rows == [second])
+  editor.insertText("missing", replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+  controller.onEvent?(.enter)
+  #expect(controller.panel.isVisible)
+  #expect(controller.rows.isEmpty)
+  #expect(controller.panel.firstResponder === editor)
+  let oldQuery = editor.onQuery
+  controller.dismiss()
+  controller.handle(state: .lingering(query: "", selection: 0), effects: [.showPanel(.opt), .focusSearchField])
+  oldQuery?("工作")
+  #expect(controller.rows.count == 2)
+  #expect(editor.string.isEmpty)
+  #expect(!editor.hasMarkedText())
+  #expect(editor.undoManager?.canUndo == false)
+}
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func clickingCardWhileMarkedActivatesCapturedIdentityAndResetsEditor() throws {
+  let controller = PanelController()
+  let first = window("Safari", "工作", id: 911)
+  let second = window("Safari", "周报", id: 912)
+  controller.setWindows([first, second])
+  controller.handle(state: .lingering(query: "", selection: 0), effects: [.showPanel(.opt), .focusSearchField])
+  defer { controller.dismiss() }
+  var activated: Window?
+  controller.onActivate = { activated = $0 }
+  let editor = controller.panel.content.searchEditor
+  editor.setMarkedText("zhou", selectedRange: NSRange(location: 4, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+  let grid = controller.panel.content.gridView
+  let card = try #require(grid.card(for: second.windowID))
+  let point = card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil)
+  let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+    windowNumber: controller.panel.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+  grid.mouseDown(with: event)
+  #expect(activated == second)
+  #expect(!controller.panel.isVisible)
+  #expect(editor.string.isEmpty)
+  #expect(!editor.hasMarkedText())
+}
+
+@Test @MainActor func nativePasteNormalizesNewlinesAndUndoRedoIsSearchScoped() throws {
+  let panel = PanelWindow()
+  panel.makeKeyAndOrderFront(nil)
+  defer { panel.orderOut(nil) }
+  panel.content.setSearchFocused(true)
+  let editor = panel.content.searchEditor
+  editor.insertText("工作", replacementRange: NSRange(location: NSNotFound, length: 0))
+  editor.breakUndoCoalescing()
+  editor.setSelectedRange(NSRange(location: 0, length: 2))
+  editor.undoManager?.endUndoGrouping()
+  editor.undoManager?.beginUndoGrouping()
+  // Use a private pasteboard to avoid changing the user's clipboard.
+  let board = NSPasteboard.withUniqueName()
+  defer { board.releaseGlobally() }
+  board.setString("中文🐱\r\nSafari\n工作", forType: .string)
+  #expect(editor.readSelection(from: board, type: .string))
+  #expect(editor.string == "中文🐱 Safari 工作")
+  editor.undoManager?.endUndoGrouping()
+  editor.breakUndoCoalescing()
+  editor.undoManager?.undo()
+  #expect(editor.string == "工作")
+  editor.undoManager?.redo()
+  #expect(editor.string == "中文🐱 Safari 工作")
+  editor.reset()
+  #expect(editor.undoManager?.canUndo == false)
+  #expect(editor.undoManager?.canRedo == false)
+}
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func nativeCommandsRespectCompositionAndModifiedArrowsAndStaySingleLine() throws {
+  let panel = PanelWindow()
+  panel.makeKeyAndOrderFront(nil)
+  defer { panel.orderOut(nil) }
+  panel.content.setSearchFocused(true)
+  let editor = panel.content.searchEditor
+  var commands: [Event] = []
+  editor.onCommand = { commands.append($0) }
+  func key(_ code: UInt16, _ text: String, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+    try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+      windowNumber: panel.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text,
+      isARepeat: false, keyCode: code))
+  }
+  editor.insertText("工作", replacementRange: NSRange(location: NSNotFound, length: 0))
+  editor.keyDown(with: try key(126, "\u{F700}", .shift))
+  #expect(commands.isEmpty)
+  #expect(editor.selectedRange().length > 0)
+  editor.keyDown(with: try key(125, "\u{F701}"))
+  #expect(commands == [.arrow(axis: .vertical, step: 1)])
+  commands.removeAll()
+  editor.setMarkedText("zhou", selectedRange: NSRange(location: 4, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+  editor.keyDown(with: try key(2, "d", .command))
+  #expect(commands.isEmpty)
+  editor.keyDown(with: try key(53, "\u{1B}"))
+  #expect(commands.isEmpty)
+  editor.inputContext?.discardMarkedText()
+  editor.unmarkText()
+  editor.setCommittedText("工作")
+  editor.doCommand(by: #selector(NSTextView.insertNewline(_:)))
+  #expect(editor.string == "工作")
+  #expect(panel.performKeyEquivalent(with: try key(12, "q", .command)))
+  #expect(editor.string == "工作")
+}
+}
+
+@Test @MainActor func clickingTheEmptySearchPlaceholderTargetsTheNativeEditor() {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+  content.layoutSubtreeIfNeeded()
+  let point = NSPoint(x: content.searchLabel.frame.midX + content.searchBox.frame.minX,
+    y: content.searchLabel.frame.midY + content.searchBox.frame.minY)
+  #expect(content.hitTest(point) === content.searchEditor)
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func cancellingReplacementCompositionPublishesTheNativeFinalQuery() {
+  let editor = SearchEditor()
+  var queries: [String] = []
+  editor.onQuery = { queries.append($0) }
+  editor.insertText("工作 周", replacementRange: NSRange(location: NSNotFound, length: 0))
+  editor.selectAll(nil)
+  editor.setMarkedText("a", selectedRange: NSRange(location: 1, length: 0),
+    replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(editor.hasMarkedText())
+  #expect(queries == ["工作 周"])
+  // Input methods can cancel a replacement by clearing marked text instead of calling unmarkText.
+  editor.setMarkedText("", selectedRange: NSRange(location: 0, length: 0),
+    replacementRange: NSRange(location: NSNotFound, length: 0))
+  #expect(!editor.hasMarkedText())
+  #expect(editor.string.isEmpty)
+  #expect(queries == ["工作 周", ""])
+  editor.didChangeText()
+  #expect(queries == ["工作 周", ""])
+}
 }

@@ -103,3 +103,15 @@ Native layout checks cover empty, Latin, Chinese and mixed emoji text. Bitmap ch
 cover the 2pt stroke and rounded corners; existing material/theme tests also check
 black/white caret color. The comparison image uses the actual search view and caret
 drawing with solid backgrounds, not a screenshot of IME candidate UI.
+
+## 2026-10-26 — Remaining review code and documentation fixes
+
+The native typing → dismissal → reopen regression failed on the hidden empty-search
+hint before the fix. Removing the stale text-cache guard restores that hint.
+Additional tests exercise PanelController's key-window/first-responder acknowledgment
+and forwarded key filtering/navigation, SearchEditor's panel-command key mappings,
+and composition-first Enter/Option-comma. All 282 Swift tests pass locally.
+
+The review's navigation/Command/Option release-note omissions are now documented.
+The P1 owner report above remains the actual-application evidence; these automated
+tests do not expand it into a detailed manual matrix or claim macOS 15 acceptance.

@@ -125,7 +125,6 @@ final class PanelContentView: NSView {
   let searchLabel = NSTextField(labelWithString: "")
   private let searchClip = NSScrollView()
   private(set) var searchFocused = false
-  private var searchText = ""
   var accentColor = Settings.defaultHighlightColor { didSet { refreshSearchPalette() } }
   let shortcutHint = NSTextField(labelWithString: "⌘F")
 
@@ -210,9 +209,6 @@ final class PanelContentView: NSView {
 
   /// Programmatic text updates are only used before native editing takes ownership.
   func setSearchText(_ text: String) {
-    let value = text.isEmpty ? Self.searchPlaceholder : text
-    guard searchText != text || searchLabel.stringValue != value else { return }
-    searchText = text
     searchEditor.setCommittedText(text)
     searchLabel.isHidden = !text.isEmpty || searchFocused
     let isEmpty = text.isEmpty

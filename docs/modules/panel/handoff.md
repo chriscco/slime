@@ -65,3 +65,13 @@ the widened stroke. Panel layout always establishes the editor's 22pt height and
 centers the font line with text-container padding. Previously the width-only frame
 check could leave a zero-height editor. Theme appearance selects white/black ink;
 an accent-color comparison is preview-only, with no new setting.
+
+## 2026-10-26 — PR #103 review follow-up
+
+Removed the stale search-text cache: programmatic resets always refresh the hint,
+accessibility value and layout, while SearchEditor still avoids redundant string
+writes. Regression coverage types natively, dismisses and reopens the panel.
+Controller coverage now observes actual key-panel/editor focus acknowledgment,
+forwarded first-key filtering, reserved modified Tab navigation and rejection after
+dismissal. Editor key tables cover panel commands and composition-first Enter and
+Option-comma. Font/size settings remain deferred until this review work is complete.

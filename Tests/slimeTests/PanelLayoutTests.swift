@@ -888,3 +888,111 @@ extension PanelAndThumbnailTests {
   let middle = try #require(bitmap.colorAt(x: Int(4 * scale), y: row))
   #expect(corner.alphaComponent < middle.alphaComponent)
 }
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func nativeSearchPlaceholderReturnsAfterDismissAndReopen() {
+  let controller = PanelController()
+  defer { controller.dismiss() }
+  let state = State.lingering(query: "", selection: 0)
+  controller.handle(state: state, effects: [.showPanel(.opt), .focusSearchField])
+  controller.panel.content.searchEditor.insertText("工作", replacementRange: NSRange(location: NSNotFound, length: 0))
+  controller.dismiss()
+  controller.handle(state: state, effects: [.showPanel(.opt)])
+  #expect(controller.panel.content.searchEditor.string.isEmpty)
+  #expect(!controller.panel.content.searchLabel.stringValue.isEmpty)
+  #expect(!controller.panel.content.searchLabel.isHidden)
+}
+}
+
+extension PanelAndThumbnailTests {
+@Test @MainActor func nativeHandoffAcknowledgesFocusAndRoutesFirstKeyAndReservedTab() throws {
+  let controller = PanelController()
+  defer { controller.dismiss() }
+  var state = State.lingering(query: "", selection: 0)
+  var acknowledgments = 0
+  var events: [Event] = []
+  controller.onNativeFocus = { acknowledgments += 1 }
+  controller.onEvent = { event in
+    events.append(event)
+    let (next, effects) = reduce(state, event)
+    state = next
+    controller.handle(state: next, effects: effects)
+  }
+  let first = window("Test", "Alpha", id: 921)
+  let second = window("Test", "Beta", id: 922)
+  controller.setWindows([first, second])
+  controller.handle(state: state, effects: [.showPanel(.opt)])
+  #expect(acknowledgments == 0)
+  controller.handle(state: state, effects: [.focusSearchField])
+  #expect(controller.panel.isKeyWindow)
+  #expect(controller.panel.firstResponder === controller.panel.content.searchEditor)
+  #expect(acknowledgments == 1)
+  func key(_ code: UInt16, _ text: String, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+    try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+      windowNumber: controller.panel.windowNumber, context: nil, characters: text,
+      charactersIgnoringModifiers: text, isARepeat: false, keyCode: code))
+  }
+  controller.handleNativeKey(try key(0, "a"))
+  #expect(controller.panel.content.searchEditor.string == "a")
+  #expect(events == [.queryChanged("a")])
+  #expect(controller.rows.count == 2)
+  #expect(controller.selection == 0)
+  controller.handleNativeKey(try key(48, "\t", .command))
+  #expect(events.last == .tab(shift: false))
+  #expect(controller.selection == 1)
+  controller.handleNativeKey(try key(48, "\t", [.option, .shift]))
+  #expect(events.last == .tab(shift: true))
+  #expect(controller.selection == 0)
+  controller.handleNativeKey(try key(35, "p"))
+  #expect(controller.panel.content.searchEditor.string == "ap")
+  #expect(controller.rows == [first])
+  controller.dismiss()
+  controller.handleNativeKey(try key(0, "a"))
+  #expect(controller.panel.content.searchEditor.string.isEmpty)
+  #expect(acknowledgments == 1)
+}
+
+@Test @MainActor func nativePanelCommandKeyMappings() throws {
+  let editor = SearchEditor()
+  var commands: [Event] = []
+  editor.onCommand = { commands.append($0) }
+  let cases: [(UInt16, String, NSEvent.ModifierFlags, Event)] = [
+    (48, "\t", [], .tab(shift: false)), (48, "\t", .shift, .tab(shift: true)),
+    (48, "\t", .command, .tab(shift: false)), (48, "\t", .option, .tab(shift: false)),
+    (36, "\r", [], .enter), (76, "\r", [], .enter), (53, "\u{1B}", [], .escape),
+    (126, "\u{F700}", [], .arrow(axis: .vertical, step: -1)),
+    (125, "\u{F701}", [], .arrow(axis: .vertical, step: 1)),
+    (2, "d", .command, .closeWindow), (3, "f", .command, .focusSearch),
+    (3, "f", .option, .focusSearch), (43, ",", .command, .openSettings),
+    (43, ",", .option, .openSettings)
+  ]
+  for (code, text, flags, expected) in cases {
+    commands.removeAll()
+    let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+      windowNumber: 0, context: nil, characters: text, charactersIgnoringModifiers: text,
+      isARepeat: false, keyCode: code))
+    editor.keyDown(with: key)
+    #expect(commands == [expected], "key code \(code), flags \(flags)")
+  }
+}
+
+@Test @MainActor func compositionConsumesEnterAndOptionCommaBeforePanelCommands() throws {
+  let panel = PanelWindow()
+  panel.makeKeyAndOrderFront(nil)
+  defer { panel.orderOut(nil) }
+  panel.content.setSearchFocused(true)
+  let editor = panel.content.searchEditor
+  var commands: [Event] = []
+  editor.onCommand = { commands.append($0) }
+  for (code, text, flags): (UInt16, String, NSEvent.ModifierFlags) in [(36, "\r", []), (43, ",", .option)] {
+    editor.setMarkedText("zhou", selectedRange: NSRange(location: 4, length: 0),
+      replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+    #expect(editor.hasMarkedText())
+    let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+      windowNumber: panel.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text,
+      isARepeat: false, keyCode: code))
+    editor.keyDown(with: key)
+    #expect(commands.isEmpty)
+  }
+}
+}

@@ -671,7 +671,7 @@ extension PanelAndThumbnailTests {
     _ = NSApplication.shared
     let panel = PanelController()
     defer { panel.dismiss(); WindowThumbnails.configure(source: .cached) }
-    panel.handle(state: .lingering(query: "", selection: 0), effects: [.showPanel(.opt), .appendQuery("7")])
+    panel.handle(state: .lingering(query: "", selection: 0), effects: [.showPanel(.opt), .setQuery("7")])
     panel.setWindows([window(999_980), window(999_977)])
     #expect(panel.rows.map(\.windowID) == [999_977])
     #expect(panel.selection == 0)

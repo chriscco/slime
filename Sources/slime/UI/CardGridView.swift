@@ -2,6 +2,7 @@ import AppKit
 
 /// Cards are reused by window identity; only the underline travels between cells.
 final class CardGridView: NSView {
+  var onActivate: ((Window) -> Void)?
   private var retainedCards: [UInt32: (pid: pid_t, card: CardView)] = [:]
   private var sessionOwners: [UInt32: pid_t] = [:]
 
@@ -61,6 +62,14 @@ final class CardGridView: NSView {
     addSubview(highlight)
   }
   required init?(coder: NSCoder) { fatalError("Use init()") }
+
+  override func mouseDown(with event: NSEvent) {
+    guard closingID == nil else { return }
+    let point = convert(event.locationInWindow, from: nil)
+    guard let index = cards.firstIndex(where: { $0.frame.contains(point) }), rows.indices.contains(index) else { return }
+    let target = rows[index]
+    onActivate?(target)
+  }
 
   func setContentWidth(_ width: CGFloat) {
     guard contentWidth != width else { return }

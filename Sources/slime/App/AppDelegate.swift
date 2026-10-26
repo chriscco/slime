@@ -80,7 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         panel?.handle(state: state, effects: effects)
       },
-      onDegraded: { [weak self] in self?.tapDegraded() })
+      onDegraded: { [weak self] in self?.tapDegraded() },
+      onNativeEvent: { [weak panel] event in
+        if let key = NSEvent(cgEvent: event) { panel?.handleNativeKey(key) }
+      })
     do { try tap.start() } catch {
       settings.isEnabled = false
       settingsWindow.refresh()
@@ -99,6 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if result == .exact { cache?.noteActivated(window) }
       }
     }
+    panel.onNativeFocus = { [weak tap] in tap?.confirmNativeFocus() }
+    panel.onEvent = { [weak tap] event in tap?.send(event) }
     panel.onCancelSession = { [weak tap] in tap?.cancelSession() }
     panel.onCloseFinished = { [weak tap] in tap?.completeClose() }
     panel.onClosed = { [weak cache] window, siblings in cache?.noteClosed(window, preserving: siblings) }
@@ -154,8 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lastEnabled = false
     settingsWindow.refresh()
     Self.alert(localized("slime stopped handling ⌘Tab", "slime 已停止接管 ⌘Tab"),
-      localized("macOS repeatedly disabled keyboard monitoring. Native ⌘Tab is available. Check Accessibility access and restart slime.",
-        "macOS 连续禁用了键盘监听，已恢复原生 ⌘Tab。请检查辅助功能权限并重启 slime。"))
+      localized("Keyboard handling could not continue safely. Native ⌘Tab is available. Check Accessibility access and restart slime.",
+        "键盘处理无法安全继续，已恢复原生 ⌘Tab。请检查辅助功能权限并重启 slime。"))
   }
 
   private static func alert(_ title: String, _ message: String) {

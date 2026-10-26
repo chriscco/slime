@@ -43,3 +43,22 @@ Closing pauses input/navigation while retaining Escape/settings exits, then retu
 ## 2026-10-14 · Typing makes Command search persistent
 
 The owner reported that direct typing after Command-Tab still required holding Command. The first character now changes Command holding to lingering, preserving the updated query and reset selection. Command release does not activate a result afterward; Enter activates and Escape dismisses. Command-F remains an optional way to enter search. Without typing, hold-Tab-release retains immediate switching. This supersedes the earlier decision to preserve hold/type/release behavior.
+
+
+## 2026-10-20 — Separate global gestures from native text interpretation (#102)
+
+The owner approved native Chinese composition and ordinary text editing. Keep one
+panel-command reducer, but stop interpreting editor input as individual characters.
+The UI receives native text events and publishes committed whole-query changes;
+composition must not race a second interpretation of Enter, Escape or arrows.
+
+Preserve held-trigger ordinary-letter input until the trigger modifier is released.
+This is a compatibility phase, not pinyin composition: existing letters stay literal.
+Explicit Command-F enters native editing directly. Once search starts, releasing
+the trigger cannot activate a window, even before a composition has committed.
+
+The tap must not synchronously query the editor or wait for the main thread. Ordered,
+session-scoped delivery must preserve the first key and discard old-session work.
+Key-up swallowing and timeout/native fallback remain mandatory. This replaces the
+previous assumption that every in-session character is a query append, while
+retaining single ownership of panel state transitions.

@@ -97,7 +97,7 @@ final class PanelWindow: NSPanel {
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
 
-  // The tap owns keyboard sessions; do not run a second reducer in AppKit.
+  // The editor sends panel commands to the tap-owned reducer.
   override func keyDown(with event: NSEvent) {}
 
   override func resignKey() {
@@ -121,11 +121,10 @@ final class PanelContentView: NSView {
 
   let searchBox = NSView()
   let searchIcon = NSImageView()
+  let searchEditor = SearchEditor()
   let searchLabel = NSTextField(labelWithString: "")
-  let searchCaret = NSView()
-  private let searchClip = NSView()
+  private let searchClip = NSScrollView()
   private(set) var searchFocused = false
-  private var searchText = ""
   var accentColor = Settings.defaultHighlightColor { didSet { refreshSearchPalette() } }
   let shortcutHint = NSTextField(labelWithString: "⌘F")
 
@@ -134,8 +133,7 @@ final class PanelContentView: NSView {
   let emptyLabel = NSTextField(labelWithString: "")
   let statusLabel = NSTextField(labelWithString: "")
 
-  /// 空查询时的占位提示。键盘路径上查询只经 `setSearchText` 更新，
-  /// 这里就是它的初始状态。
+  /// Placeholder is passive; the native editor exposes the actual accessible text value.
   static var searchPlaceholder: String { localized("Type to filter", "输入以过滤") }
 
   override var isFlipped: Bool { true }
@@ -169,16 +167,16 @@ final class PanelContentView: NSView {
     shortcutHint.textColor = .labelColor
     shortcutHint.alignment = .center
     searchBox.addSubview(shortcutHint)
+    searchClip.drawsBackground = false
+    searchClip.hasHorizontalScroller = false
+    searchClip.hasVerticalScroller = false
+    searchClip.documentView = searchEditor
     searchClip.wantsLayer = true
     searchClip.layer?.masksToBounds = true
     searchBox.addSubview(searchClip)
-    searchClip.addSubview(searchLabel)
-    searchCaret.wantsLayer = true
-    searchCaret.layer?.cornerRadius = 1
-    searchCaret.isHidden = true
-    searchClip.addSubview(searchCaret)
-    searchBox.setAccessibilityRole(.textField)
-    searchBox.setAccessibilityLabel(localized("Search windows", "搜索窗口"))
+    searchBox.addSubview(searchLabel)
+    searchLabel.isSelectable = false
+    searchEditor.onFocus = { [weak self] in self?.setSearchFocused(true) }
 
     scrollView.drawsBackground = false
     scrollView.hasVerticalScroller = true
@@ -203,11 +201,16 @@ final class PanelContentView: NSView {
 
   required init?(coder: NSCoder) { fatalError("面板只从代码建") }
 
-  /// Placeholder and query share readable semantic text; appearance supplies the color.
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    let local = superview.map { convert(point, from: $0) } ?? point
+    if searchBox.frame.contains(local) { return searchEditor }
+    return super.hitTest(point)
+  }
+
+  /// Programmatic text updates are only used before native editing takes ownership.
   func setSearchText(_ text: String) {
-    let value = text.isEmpty ? Self.searchPlaceholder : text
-    guard searchText != text || searchLabel.stringValue != value else { return }
-    searchText = text
+    searchEditor.setCommittedText(text)
+    searchLabel.isHidden = !text.isEmpty || searchFocused
     let isEmpty = text.isEmpty
     searchLabel.stringValue = isEmpty ? Self.searchPlaceholder : text
     searchLabel.textColor = .labelColor
@@ -220,15 +223,11 @@ final class PanelContentView: NSView {
     searchFocused = focused
     refreshSearchPalette()
     updateShortcutVisibility()
-    searchCaret.isHidden = !focused
-    searchCaret.layer?.removeAllAnimations()
-    if focused && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-      let blink = CAKeyframeAnimation(keyPath: "opacity")
-      blink.values = [1, 1, 0, 0, 1]
-      blink.keyTimes = [0, 0.45, 0.5, 0.95, 1]
-      blink.duration = 1.2; blink.repeatCount = .infinity
-      searchCaret.layer?.add(blink, forKey: "blink")
-    }
+    searchLabel.isHidden = focused || !searchEditor.string.isEmpty
+    if focused {
+      window?.makeFirstResponder(searchEditor)
+      searchEditor.scrollRangeToVisible(searchEditor.selectedRange())
+    } else if window?.firstResponder === searchEditor { window?.makeFirstResponder(nil) }
     needsLayout = true
     layoutSubtreeIfNeeded()
   }
@@ -250,7 +249,8 @@ final class PanelContentView: NSView {
       edge.shadowBlurRadius = 1
       edge.shadowOffset = .zero
       searchBox.shadow = searchFocused ? edge : nil
-      searchCaret.layer?.backgroundColor = neutral.cgColor
+      searchEditor.insertionPointColor = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ? .white : .black
     }
   }
 
@@ -298,18 +298,19 @@ final class PanelContentView: NSView {
       : (shortcutHint.isHidden ? 0 : 36)
     let available = max(0, searchBox.bounds.width - textX - Self.searchLeadingInset
       - trailingWidth - (trailingWidth > 0 ? 10 : 0))
-    searchClip.frame = NSRect(x: textX, y: 0, width: available, height: searchHeight)
     shortcutHint.sizeToFit()
     let hintHeight = shortcutHint.frame.height
     shortcutHint.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - 36,
       y: (searchHeight - hintHeight) / 2, width: 36, height: hintHeight)
-    let textWidth = ceil((searchText as NSString).size(withAttributes:
-      [.font: searchLabel.font ?? NSFont.systemFont(ofSize: 15)]).width)
-    let offset = min(0, available - textWidth - 6)
-    searchLabel.frame = NSRect(x: offset, y: (searchHeight - searchLabel.frame.height) / 2,
-      width: max(available, textWidth + 4), height: searchLabel.frame.height)
-    searchCaret.frame = NSRect(x: max(0, offset + textWidth + 2),
-      y: (searchHeight - 18) / 2, width: 2, height: 18)
+    searchLabel.frame = NSRect(x: textX, y: (searchHeight - searchLabel.frame.height) / 2,
+      width: available, height: searchLabel.frame.height)
+    searchClip.frame = NSRect(x: textX, y: (searchHeight - 22) / 2, width: available, height: 22)
+    searchEditor.minSize = NSSize(width: available, height: 22)
+    searchEditor.setFrameSize(NSSize(width: max(available, searchEditor.frame.width), height: 22))
+    if let font = searchEditor.font, let manager = searchEditor.layoutManager {
+      searchEditor.textContainerInset = NSSize(width: 0,
+        height: max(0, (22 - manager.defaultLineHeight(for: font)) / 2))
+    }
 
     statusLabel.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - trailingWidth,
       y: (searchHeight - 16) / 2, width: trailingWidth, height: 16)

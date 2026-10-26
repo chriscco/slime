@@ -3,6 +3,8 @@ import AppKit
 /// The tap owns keyboard state; the controller owns window identity and layout.
 @MainActor
 final class PanelController {
+  var onNativeFocus: (() -> Void)?
+  var onEvent: ((Event) -> Void)?
   var onActivate: ((Window) -> Void)?
   var onRefresh: (() -> Void)?
   var onOpenSettings: (() -> Void)?
@@ -31,6 +33,11 @@ final class PanelController {
     self.settings = settings
     self.closeWindow = closeWindow
     self.revealWindow = revealWindow
+    panel.content.gridView.onActivate = { [weak self] target in
+      guard let self, self.phase.isSessionOpen, !self.closing else { return }
+      self.dismiss()
+      self.onActivate?(target)
+    }
     panel.onResignKey = { [weak self] in
       guard let self, self.phase.isSessionOpen else { return }
       self.dismiss()
@@ -51,22 +58,37 @@ final class PanelController {
       case .openSettings: hide(); onOpenSettings?()
       case .closeWindow: beginClose()
       case .activate:
-        if !closing, rows.indices.contains(selection) { onActivate?(rows[selection]) }
+        if !closing, rows.indices.contains(selection) {
+          let target = rows[selection]
+          dismiss()
+          onActivate?(target)
+        }
       case .moveSelection(let axis, let step):
         guard !closing, !rows.isEmpty else { continue }
         selection = Self.movedSelection(from: selection, axis: axis, step: step, layout: gridLayout)
         panel.content.gridView.setSelection(selection, animated: true)
         panel.content.gridView.scrollSelectionToVisible()
-      case .appendQuery(let character):
-        guard !closing else { continue }
-        panel.content.setSearchFocused(true)
-        query.append(character); selection = 0; rerank(following: nil)
-      case .deleteQueryChar:
-        guard !closing else { continue }
-        query = String(query.dropLast()); selection = 0; rerank(following: nil)
+      case .setQuery(let text):
+        guard !closing, query != text else { continue }
+        query = text
+        if !panel.content.searchFocused { panel.content.setSearchText(text) }
+        selection = 0; rerank(following: nil)
       case .focusSearchField:
         panel.content.setSearchFocused(true)
+        if panel.isKeyWindow, panel.firstResponder === panel.content.searchEditor { onNativeFocus?() }
       }
+    }
+  }
+
+  func handleNativeKey(_ event: NSEvent) {
+    guard phase.isSessionOpen, !closing, panel.isVisible, panel.isKeyWindow else { return }
+    panel.content.setSearchFocused(true)
+    let editor = panel.content.searchEditor
+    switch event.type {
+    case .keyDown: editor.keyDown(with: event)
+    case .keyUp: editor.keyUp(with: event)
+    case .flagsChanged: editor.flagsChanged(with: event)
+    default: break
     }
   }
 
@@ -99,6 +121,24 @@ final class PanelController {
     let previous = nextWindows.dropFirst().first?.windowID ?? nextWindows.first?.windowID
     windows = settings.groupByApp ? WindowCache.sort(nextWindows, byMRU: []) : nextWindows
     query = ""; selection = 0
+    let generation = session
+    let editor = panel.content.searchEditor
+    editor.reset()
+    editor.isEditable = true
+    panel.content.setSearchText("")
+    editor.onQuery = { [weak self] text in
+      guard let self, self.session == generation, self.phase.isSessionOpen, !self.closing else { return }
+      self.onEvent?(.queryChanged(text))
+    }
+    editor.onCommand = { [weak self] event in
+      guard let self, self.session == generation, self.phase.isSessionOpen, !self.closing else { return }
+      self.onEvent?(event)
+    }
+    editor.onFocus = { [weak self] in
+      guard let self, self.session == generation, self.phase.isSessionOpen, !self.closing else { return }
+      self.panel.content.setSearchFocused(true)
+      self.onEvent?(.focusSearch)
+    }
     panel.content.showStatus(nil)
     panel.content.setSearchFocused(false)
     refreshAppearance()
@@ -118,6 +158,9 @@ final class PanelController {
     for row in rows { panel.content.gridView.card(for: row.windowID)?.preview.restore() }
     panel.content.gridView.setClosing(nil)
     panel.content.setSearchFocused(false)
+    panel.content.searchEditor.reset()
+    panel.content.setSearchText("")
+    query = ""
     panel.orderOut(nil)
   }
 
@@ -162,7 +205,6 @@ final class PanelController {
     let content = panel.content
     content.gridView.groupByApp = settings.groupByApp
     content.gridView.availableWidth = available
-    content.setSearchText(query)
     content.emptyLabel.stringValue = hasWindowSnapshot
       ? localized("No windows", "没有窗口") : localized("Loading windows…", "正在加载窗口…")
     content.emptyLabel.isHidden = !rows.isEmpty
@@ -182,6 +224,7 @@ final class PanelController {
     let generation = session
     let preview = panel.content.gridView.card(for: target.windowID)?.preview
     closing = true
+    panel.content.searchEditor.isEditable = false
     panel.content.gridView.setClosing(target.windowID)
     panel.content.showStatus(localized("Closing window…", "正在关闭窗口…"))
     let request = AXRequest(seconds: 3)
@@ -205,6 +248,7 @@ final class PanelController {
       if outcome == .closed { self.onClosed?(target, siblings) }
       guard self.session == generation, self.phase.isSessionOpen else { return }
       self.closing = false
+      self.panel.content.searchEditor.isEditable = true
       preview?.restore()
       self.panel.content.gridView.setClosing(nil)
       if outcome == .closed {

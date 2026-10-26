@@ -304,13 +304,15 @@ final class PanelContentView: NSView {
       y: (searchHeight - hintHeight) / 2, width: 36, height: hintHeight)
     searchLabel.frame = NSRect(x: textX, y: (searchHeight - searchLabel.frame.height) / 2,
       width: available, height: searchLabel.frame.height)
-    searchClip.frame = NSRect(x: textX, y: (searchHeight - 22) / 2, width: available, height: 22)
-    searchEditor.minSize = NSSize(width: available, height: 22)
-    searchEditor.setFrameSize(NSSize(width: max(available, searchEditor.frame.width), height: 22))
-    if let font = searchEditor.font, let manager = searchEditor.layoutManager {
-      searchEditor.textContainerInset = NSSize(width: 0,
-        height: max(0, (22 - manager.defaultLineHeight(for: font)) / 2))
-    }
+    // Leave room for Chinese/emoji fallback metrics as well as the selected Latin font.
+    let editorHeight = searchHeight - 4
+    searchClip.frame = NSRect(x: textX, y: (searchHeight - editorHeight) / 2, width: available, height: editorHeight)
+    searchEditor.maxSize.height = editorHeight
+    searchEditor.textContainer?.containerSize.height = editorHeight
+    searchEditor.minSize = NSSize(width: available, height: editorHeight)
+    searchEditor.setFrameSize(NSSize(width: max(available, searchEditor.frame.width), height: editorHeight))
+    searchEditor.needsLayout = true
+    searchEditor.layoutSubtreeIfNeeded()
 
     statusLabel.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - trailingWidth,
       y: (searchHeight - 16) / 2, width: trailingWidth, height: 16)

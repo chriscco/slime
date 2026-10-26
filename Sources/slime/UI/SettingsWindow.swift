@@ -21,6 +21,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   private let bodyScroll = NSScrollView()
   private var backgroundButtons: [PanelBackgroundButton] = []
   private let strengthValue = NSTextField(labelWithString: "")
+  private let searchFontSample = NSTextField(labelWithString: "工作 Safari 🐱")
+  private let titleFontSample = NSTextField(labelWithString: "工作 Safari 🐱")
   private let radiusValue = NSTextField(labelWithString: "")
   private var loginSwitch: NSSwitch?
   private var loginStatus: NSTextField?
@@ -201,6 +203,32 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
   }
 
   private func appearance() {
+    let family = NSPopUpButton()
+    family.autoenablesItems = false
+    for value in Settings.FontFamily.allCases {
+      let name = value == .system ? text("System", "系统默认")
+        : value == .monospace ? text("System Monospace", "系统等宽") : value.rawValue
+      family.addItem(withTitle: name + (value.isAvailable ? "" : text(" (not installed)", "（未安装）")))
+      family.lastItem?.isEnabled = value.isAvailable
+    }
+    family.selectItem(at: Settings.FontFamily.allCases.firstIndex(of: settings.fontFamily) ?? 0)
+    family.target = self; family.action = #selector(fontFamilyChanged(_:))
+    row(text("Search and title font", "搜索和标题字体"), control: family)
+    for (isSearch, sample) in [(true, searchFontSample), (false, titleFontSample)] {
+      let size = NSPopUpButton()
+      size.addItems(withTitles: Settings.fontSizes.map { "\(Int($0)) pt" })
+      size.selectItem(withTitle: "\(Int(isSearch ? settings.searchFontSize : settings.titleFontSize)) pt")
+      size.target = self
+      size.action = isSearch ? #selector(searchFontSizeChanged(_:)) : #selector(titleFontSizeChanged(_:))
+      row(isSearch ? text("Search size", "搜索字号") : text("Window title size", "窗口标题字号"), control: size)
+      sample.lineBreakMode = .byTruncatingTail
+      sample.setAccessibilityLabel(isSearch ? text("Search preview", "搜索预览") : text("Window title preview", "窗口标题预览"))
+      body.addArrangedSubview(sample)
+      sample.widthAnchor.constraint(equalTo: body.widthAnchor).isActive = true
+      body.setCustomSpacing(12, after: sample)
+    }
+    refreshFontSamples()
+
     let usesGlass = settings.effectivePanelMaterial(supportsGlass: supportsGlass) == .glass
     if supportsGlass {
       let material = NSSegmentedControl(labels: [text("Liquid Glass", "液态玻璃"), text("Solid", "纯色")],
@@ -454,6 +482,29 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     content.layoutSubtreeIfNeeded()
     bodyScroll.documentView?.scroll(.zero)
   }
+  private func refreshFontSamples() {
+    searchFontSample.font = settings.font(at: settings.searchFontSize)
+    titleFontSample.font = settings.font(at: settings.titleFontSize)
+  }
+
+  @objc private func fontFamilyChanged(_ sender: NSPopUpButton) {
+    guard Settings.FontFamily.allCases.indices.contains(sender.indexOfSelectedItem) else { return }
+    settings.fontFamily = Settings.FontFamily.allCases[sender.indexOfSelectedItem]
+    refreshFontSamples(); onChange?()
+  }
+
+  @objc private func searchFontSizeChanged(_ sender: NSPopUpButton) {
+    guard Settings.fontSizes.indices.contains(sender.indexOfSelectedItem) else { return }
+    settings.searchFontSize = Settings.fontSizes[sender.indexOfSelectedItem]
+    refreshFontSamples(); onChange?()
+  }
+
+  @objc private func titleFontSizeChanged(_ sender: NSPopUpButton) {
+    guard Settings.fontSizes.indices.contains(sender.indexOfSelectedItem) else { return }
+    settings.titleFontSize = Settings.fontSizes[sender.indexOfSelectedItem]
+    refreshFontSamples(); onChange?()
+  }
+
   @objc private func previewSourceChanged(_ sender: NSPopUpButton) {
     settings.previewSource = sender.indexOfSelectedItem == 0 ? .cached : .fresh
     onChange?()

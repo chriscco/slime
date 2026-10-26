@@ -64,3 +64,14 @@ snapshot through AppDelegate; a closed panel does not start fresh capture.
 The grid retains detached search results only for the full accepted window list in the current panel session. Cards are reused by window ID plus PID and refreshed when displayed again. Snapshot removal or owner changes invalidate detached cards; dismissal releases the detached pool. Visible cards remain in the hidden panel as before, preserving warm reopen behavior. Detached views do not participate in accessibility or layout.
 
 Before the first window snapshot, the empty label reads “Loading windows…”; a completed empty snapshot reads “No windows”. Queries entered during loading filter the arriving snapshot. Thumbnail-only updates reuse cards without changing selection or layout; images deferred during CRT refresh when closing finishes.
+
+## Font preferences
+
+Settings resolves one shared font family and independent search/title sizes. Defaults
+remain system 15/12 pt. Fonts are local, with system fallback for missing families.
+SearchEditor retains the requested font separately from AppKit's first-glyph font;
+otherwise a Chinese fallback glyph can change the font inherited by later Latin text.
+Native marked-text/selection ownership stays unchanged. Its 28pt viewport fits the
+supported 12–20pt fonts, and actual TextKit line height determines vertical centering.
+Card titles grow upward above their fixed bottom inset; previews shrink accordingly.
+The grid applies the latest title font both to visible cards and when cached cards return.

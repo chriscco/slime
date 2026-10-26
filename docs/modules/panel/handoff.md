@@ -75,3 +75,21 @@ Controller coverage now observes actual key-panel/editor focus acknowledgment,
 forwarded first-key filtering, reserved modified Tab navigation and rejection after
 dismissal. Editor key tables cover panel commands and composition-first Enter and
 Option-comma. Font/size settings remain deferred until this review work is complete.
+
+## 2026-10-26 — Font preferences (#104)
+
+Separate font-preferences branch based on #103. Appearance now has a shared family,
+independent search/title sizes displayed in pt, without sample text. Only installed fonts are
+selectable; defaults and missing-font fallback use the system font. No font files
+are bundled. Other interface text retains system typography.
+
+Tests cover persistence/invalid defaults, settings actions, every available
+family/size with mixed Chinese/Latin/emoji, composition preservation, Latin after
+Chinese input and cached/new card propagation. Rendering uses native views in a
+fixture; real-input-method acceptance from #103 is not repeated by these tests.
+
+PR #105 is stacked on #103; merge #103 first, then retarget #105 to main.
+Local validation: 287 Swift tests, 17 script tests, signed release build. A native
+panel render and the settings window were visually inspected. Settings control
+actions are covered by tests; the desktop tool rejected menu clicks with its
+changed-surface guard, so no manual menu-selection pass is claimed.

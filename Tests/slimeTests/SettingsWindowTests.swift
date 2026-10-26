@@ -237,6 +237,7 @@ import Testing
   appearance.performClick(nil)
   window.contentView?.layoutSubtreeIfNeeded()
   let button = try #require(descendants(window.contentView!).compactMap { $0 as? PanelBackgroundButton }.first)
+  button.scrollToVisible(button.bounds)
   for point in [NSPoint(x: 20, y: 20), NSPoint(x: button.bounds.midX, y: button.bounds.midY), NSPoint(x: 20, y: 85)] {
     let location = button.convert(point, to: nil)
     let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: location,
@@ -395,4 +396,44 @@ func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool)
   NSApp.sendAction(try #require(source.action), to: source.target, from: source)
   #expect(Settings(defaults: defaults).previewSource == .fresh)
   #expect(changes == 1)
+}
+
+@Test @MainActor func appearanceFontControlsPersistAndNotify() throws {
+  let suite = "slime.font-ui.\(UUID().uuidString)"
+  let defaults = try #require(UserDefaults(suiteName: suite))
+  defer { defaults.removePersistentDomain(forName: suite) }
+  let settings = Settings(defaults: defaults)
+  let controller = SettingsWindowController(settings: settings)
+  var changes = 0
+  controller.onChange = { changes += 1 }
+  let window = controller.makeWindow()
+  let appearance = try #require(descendants(window.contentView!).compactMap { $0 as? NSButton }
+    .first { $0.tag == 1 && $0.action == NSSelectorFromString("selectSection:") })
+  appearance.performClick(nil)
+  func popup(_ action: String) throws -> NSPopUpButton {
+    try #require(descendants(window.contentView!).compactMap { $0 as? NSPopUpButton }
+      .first { $0.action == NSSelectorFromString(action) })
+  }
+  let family = try popup("fontFamilyChanged:")
+  for (index, value) in Settings.FontFamily.allCases.enumerated() {
+    #expect(family.item(at: index)?.isEnabled == value.isAvailable)
+  }
+  family.selectItem(at: try #require(Settings.FontFamily.allCases.firstIndex(of: .menlo)))
+  NSApp.sendAction(try #require(family.action), to: family.target, from: family)
+  let search = try popup("searchFontSizeChanged:")
+  let title = try popup("titleFontSizeChanged:")
+  search.selectItem(withTitle: "20 pt")
+  NSApp.sendAction(try #require(search.action), to: search.target, from: search)
+  title.selectItem(withTitle: "18 pt")
+  NSApp.sendAction(try #require(title.action), to: title.target, from: title)
+  #expect(settings.fontFamily == .menlo)
+  #expect(settings.searchFontSize == 20)
+  #expect(settings.titleFontSize == 18)
+  #expect(changes == 3)
+  let samples = descendants(window.contentView!).compactMap { $0 as? NSTextField }
+    .filter { $0.stringValue.contains("工作 Safari 🐱") }
+  #expect(samples.isEmpty)
+  controller.refresh()
+  #expect(try popup("searchFontSizeChanged:").titleOfSelectedItem == "20 pt")
+  #expect(try popup("titleFontSizeChanged:").titleOfSelectedItem == "18 pt")
 }

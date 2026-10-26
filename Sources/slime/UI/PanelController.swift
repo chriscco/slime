@@ -107,6 +107,13 @@ final class PanelController {
   }
 
   func refreshAppearance() {
+    let content = panel.content
+    let searchFont = settings.font(at: settings.searchFontSize)
+    content.searchEditor.searchFont = searchFont
+    content.searchLabel.font = searchFont
+    content.gridView.titleFont = settings.font(at: settings.titleFontSize)
+    content.needsLayout = true
+    content.layoutSubtreeIfNeeded()
     panel.content.accentColor = settings.highlightColor
     panel.applyGlassSettings(settings)
     if panel.content.gridView.highlightColor != settings.highlightColor {

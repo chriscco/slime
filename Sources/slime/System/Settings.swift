@@ -5,6 +5,41 @@ import AppKit
 ///
 /// 注入 `UserDefaults` 是为了测试不污染真的 defaults，不是为了「将来换实现」。
 struct Settings {
+  enum FontFamily: String, CaseIterable {
+    case system, monospace, hack = "Hack", menlo = "Menlo", monaco = "Monaco", courier = "Courier New"
+
+    var isAvailable: Bool {
+      self == .system || self == .monospace || NSFont(name: rawValue, size: 15) != nil
+    }
+  }
+
+  static let fontSizes: [Double] = [12, 14, 15, 16, 18, 20]
+
+  var fontFamily: FontFamily {
+    get { defaults.string(forKey: "panel.fontFamily").flatMap(FontFamily.init(rawValue:)) ?? .system }
+    nonmutating set { defaults.set(newValue.rawValue, forKey: "panel.fontFamily") }
+  }
+
+  var searchFontSize: Double {
+    get { Self.fontSizes.contains(defaults.double(forKey: "panel.searchFontSize"))
+      ? defaults.double(forKey: "panel.searchFontSize") : 15 }
+    nonmutating set { defaults.set(Self.fontSizes.contains(newValue) ? newValue : 15, forKey: "panel.searchFontSize") }
+  }
+
+  var titleFontSize: Double {
+    get { Self.fontSizes.contains(defaults.double(forKey: "panel.titleFontSize"))
+      ? defaults.double(forKey: "panel.titleFontSize") : 12 }
+    nonmutating set { defaults.set(Self.fontSizes.contains(newValue) ? newValue : 12, forKey: "panel.titleFontSize") }
+  }
+
+  func font(at size: CGFloat) -> NSFont {
+    switch fontFamily {
+    case .system: return .systemFont(ofSize: size)
+    case .monospace: return .monospacedSystemFont(ofSize: size, weight: .regular)
+    default: return NSFont(name: fontFamily.rawValue, size: size) ?? .systemFont(ofSize: size)
+    }
+  }
+
   enum PreviewSource: String, CaseIterable, Sendable {
     case cached, fresh
   }

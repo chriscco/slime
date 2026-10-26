@@ -5,6 +5,14 @@ final class SearchEditor: NSTextView {
   var onQuery: ((String) -> Void)?
   var onCommand: ((Event) -> Void)?
   var onFocus: (() -> Void)?
+  var searchFont = NSFont.systemFont(ofSize: 15) {
+    didSet {
+      guard searchFont != oldValue else { return }
+      font = searchFont
+      typingAttributes[.font] = searchFont
+      needsLayout = true
+    }
+  }
   private let searchUndo = UndoManager()
   private var changingMarkedText = false
   private var committed = ""
@@ -20,7 +28,7 @@ final class SearchEditor: NSTextView {
     isRichText = false
     importsGraphics = false
     drawsBackground = false
-    font = .systemFont(ofSize: 15)
+    font = searchFont
     textColor = .labelColor
     insertionPointColor = .labelColor
     textContainerInset = .zero
@@ -35,6 +43,16 @@ final class SearchEditor: NSTextView {
     setAccessibilityLabel(localized("Search windows", "搜索窗口"))
   }
   required init?(coder: NSCoder) { fatalError("Use init()") }
+
+  override func layout() {
+    super.layout()
+    guard let manager = layoutManager, let container = textContainer else { return }
+    manager.ensureLayout(for: container)
+    let line = manager.numberOfGlyphs == 0 ? manager.extraLineFragmentRect
+      : manager.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+    let inset = NSSize(width: 0, height: max(0, ((bounds.height - line.height) / 2).rounded()))
+    if textContainerInset != inset { textContainerInset = inset }
+  }
 
   override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
     let caret = NSRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height)
@@ -61,12 +79,17 @@ final class SearchEditor: NSTextView {
     committed = ""
     setSelectedRange(NSRange(location: 0, length: 0))
     searchUndo.removeAllActions()
+    needsLayout = true
   }
 
   func setCommittedText(_ text: String) {
     guard string != text else { return }
     string = text
+    // Replacing plain text otherwise inherits the first glyph's fallback font.
+    font = searchFont
+    typingAttributes[.font] = searchFont
     committed = text
+    needsLayout = true
     setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
   }
 
@@ -77,8 +100,10 @@ final class SearchEditor: NSTextView {
 
   override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
     changingMarkedText = true
+    typingAttributes[.font] = searchFont
     super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
     changingMarkedText = false
+    needsLayout = true
     publishCommittedText()
   }
 
@@ -86,6 +111,7 @@ final class SearchEditor: NSTextView {
     let text = (insertString as? NSAttributedString)?.string ?? (insertString as? String ?? "")
     let singleLine = text.replacingOccurrences(of: "\r\n", with: " ")
       .components(separatedBy: .newlines).joined(separator: " ")
+    typingAttributes[.font] = searchFont
     super.insertText(singleLine, replacementRange: replacementRange)
     publishCommittedText()
   }
@@ -103,6 +129,7 @@ final class SearchEditor: NSTextView {
 
   override func didChangeText() {
     super.didChangeText()
+    needsLayout = true
     publishCommittedText()
   }
 

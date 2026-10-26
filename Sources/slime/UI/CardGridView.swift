@@ -33,6 +33,7 @@ final class CardGridView: NSView {
           card = CardView(window: window)
         }
         card.update(window: window)
+        card.titleFont = titleFont
         if card.superview == nil { addSubview(card) }
         return card
       }
@@ -40,6 +41,12 @@ final class CardGridView: NSView {
       retainedCards = pool.filter { sessionOwners[$0.key] == $0.value.pid }
       addSubview(highlight, positioned: .above, relativeTo: nil)
       updateLayout()
+    }
+  }
+  var titleFont = NSFont.systemFont(ofSize: 12) {
+    didSet {
+      guard titleFont != oldValue else { return }
+      for card in cards { card.titleFont = titleFont }
     }
   }
   var groupByApp = false { didSet { if groupByApp != oldValue { updateLayout() } } }
@@ -198,6 +205,14 @@ final class CardView: NSView {
   static let previewInset: CGFloat = 8
   let preview = WindowPreviewView()
   private let label = NSTextField(labelWithString: "")
+  var titleFont: NSFont {
+    get { label.font ?? .systemFont(ofSize: 12) }
+    set {
+      guard label.font != newValue else { return }
+      label.font = newValue
+      needsLayout = true
+    }
+  }
   private var thumbnail: CGImage?
   private var displayedWindow: Window?
   override var isFlipped: Bool { true }
@@ -259,11 +274,12 @@ final class CardView: NSView {
 
   override func layout() {
     super.layout()
+    let titleHeight = max(17, ceil(label.intrinsicContentSize.height))
+    label.frame = NSRect(x: 6, y: bounds.height - 13 - titleHeight,
+      width: max(0, bounds.width - 12), height: titleHeight)
     preview.frame = NSRect(x: Self.previewInset, y: 8,
       width: max(0, bounds.width - 2 * Self.previewInset),
-      height: max(0, bounds.height - 45))
-    label.frame = NSRect(x: 6, y: bounds.height - 30,
-      width: max(0, bounds.width - 12), height: 17)
+      height: max(0, label.frame.minY - 15))
   }
 }
 

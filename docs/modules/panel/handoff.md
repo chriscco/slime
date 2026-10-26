@@ -87,3 +87,9 @@ Tests cover persistence/invalid defaults, settings actions/previews, every avail
 family/size with mixed Chinese/Latin/emoji, composition preservation, Latin after
 Chinese input and cached/new card propagation. Rendering uses native views in a
 fixture; real-input-method acceptance from #103 is not repeated by these tests.
+
+PR #105 is stacked on #103; merge #103 first, then retarget #105 to main.
+Local validation: 287 Swift tests, 17 script tests, signed release build. A native
+panel render and the settings window were visually inspected. Settings control
+actions are covered by tests; the desktop tool rejected menu clicks with its
+changed-surface guard, so no manual menu-selection pass is claimed.

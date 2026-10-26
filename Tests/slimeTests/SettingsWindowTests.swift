@@ -398,7 +398,7 @@ func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool)
   #expect(changes == 1)
 }
 
-@Test @MainActor func appearanceFontControlsPersistNotifyAndPreview() throws {
+@Test @MainActor func appearanceFontControlsPersistAndNotify() throws {
   let suite = "slime.font-ui.\(UUID().uuidString)"
   let defaults = try #require(UserDefaults(suiteName: suite))
   defer { defaults.removePersistentDomain(forName: suite) }
@@ -432,9 +432,7 @@ func materialControlsFollowCapabilityAndPreserveGlassValues(supportsGlass: Bool)
   #expect(changes == 3)
   let samples = descendants(window.contentView!).compactMap { $0 as? NSTextField }
     .filter { $0.stringValue.contains("工作 Safari 🐱") }
-  #expect(samples.count == 2)
-  #expect(samples.map { $0.font?.pointSize } == [20, 18])
-  #expect(samples.allSatisfy { $0.font?.familyName == "Menlo" })
+  #expect(samples.isEmpty)
   controller.refresh()
   #expect(try popup("searchFontSizeChanged:").titleOfSelectedItem == "20 pt")
   #expect(try popup("titleFontSizeChanged:").titleOfSelectedItem == "18 pt")

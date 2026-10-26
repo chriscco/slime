@@ -79,11 +79,11 @@ Option-comma. Font/size settings remain deferred until this review work is compl
 ## 2026-10-26 — Font preferences (#104)
 
 Separate font-preferences branch based on #103. Appearance now has a shared family,
-independent search/title sizes and bilingual live samples. Only installed fonts are
+independent search/title sizes displayed in pt, without sample text. Only installed fonts are
 selectable; defaults and missing-font fallback use the system font. No font files
 are bundled. Other interface text retains system typography.
 
-Tests cover persistence/invalid defaults, settings actions/previews, every available
+Tests cover persistence/invalid defaults, settings actions, every available
 family/size with mixed Chinese/Latin/emoji, composition preservation, Latin after
 Chinese input and cached/new card propagation. Rendering uses native views in a
 fixture; real-input-method acceptance from #103 is not repeated by these tests.

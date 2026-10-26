@@ -12,7 +12,7 @@ AppKit provides missing-glyph fallback, including Chinese and emoji.
 
 Search and title sizes are independent: 12, 14, 15, 16, 18, 20 pt. Defaults remain
 15 and 12 respectively. Invalid stored values use defaults. Changes persist and
-apply immediately, with separate mixed Chinese/Latin/emoji preview lines in settings.
+apply immediately. Settings shows only the font selector and pt size controls, without sample text.
 Other labels, group headings and settings typography retain their system fonts.
 
 Search line geometry follows font metrics within the existing 32pt search row.
@@ -28,7 +28,7 @@ No font downloads, bundled font files, arbitrary font picker or new dependencies
 1. Settings.swift: persist/validate family and independent sizes, resolve native fonts.
    Tests observe fresh defaults, reconstruction, invalid values and available-font resolution.
 2. SettingsWindow.swift: existing popup/action pattern, bilingual availability labels,
-   two live sample labels; UI tests operate controls and observe saved values/previews.
+   pt-only size controls; UI tests operate controls and observe saved values.
 3. PanelController/PanelWindow/CardGridView: propagate fonts and derive text heights.
    Tests cover all offered font sizes, cached card reuse and composition preservation.
 4. Run scripts/test, build signed release, inspect native rendered previews, update module

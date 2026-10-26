@@ -253,7 +253,8 @@ final class PanelContentView: NSView {
       edge.shadowBlurRadius = 1
       edge.shadowOffset = .zero
       searchBox.shadow = searchFocused ? edge : nil
-      searchEditor.insertionPointColor = neutral
+      searchEditor.insertionPointColor = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ? .white : .black
     }
   }
 
@@ -301,7 +302,6 @@ final class PanelContentView: NSView {
       : (shortcutHint.isHidden ? 0 : 36)
     let available = max(0, searchBox.bounds.width - textX - Self.searchLeadingInset
       - trailingWidth - (trailingWidth > 0 ? 10 : 0))
-    searchClip.frame = NSRect(x: textX, y: 0, width: available, height: searchHeight)
     shortcutHint.sizeToFit()
     let hintHeight = shortcutHint.frame.height
     shortcutHint.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - 36,
@@ -310,7 +310,11 @@ final class PanelContentView: NSView {
       width: available, height: searchLabel.frame.height)
     searchClip.frame = NSRect(x: textX, y: (searchHeight - 22) / 2, width: available, height: 22)
     searchEditor.minSize = NSSize(width: available, height: 22)
-    if searchEditor.frame.width < available { searchEditor.setFrameSize(NSSize(width: available, height: 22)) }
+    searchEditor.setFrameSize(NSSize(width: max(available, searchEditor.frame.width), height: 22))
+    if let font = searchEditor.font, let manager = searchEditor.layoutManager {
+      searchEditor.textContainerInset = NSSize(width: 0,
+        height: max(0, (22 - manager.defaultLineHeight(for: font)) / 2))
+    }
 
     statusLabel.frame = NSRect(x: searchBox.bounds.width - Self.searchLeadingInset - trailingWidth,
       y: (searchHeight - 16) / 2, width: trailingWidth, height: 16)

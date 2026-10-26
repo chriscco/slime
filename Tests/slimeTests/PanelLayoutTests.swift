@@ -582,6 +582,7 @@ extension PanelAndThumbnailTests {
         #expect(!panel.contentView!.subviews.contains { $0 is NSGlassEffectView })
       }
       let dark = panel.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+      #expect(content.searchEditor.insertionPointColor == (dark ? NSColor.white : NSColor.black))
       #expect(color == theme.baseColor(systemIsDark: dark)
         .withAlphaComponent(effective == .solid ? 1 : 0).cgColor)
     }
@@ -848,4 +849,42 @@ extension PanelAndThumbnailTests {
   editor.didChangeText()
   #expect(queries == ["工作 周", ""])
 }
+}
+
+@Test @MainActor func searchTextLineIsCenteredInsideTheEditor() throws {
+  let content = PanelContentView()
+  content.frame = NSRect(x: 0, y: 0, width: 1088, height: 300)
+  content.layoutSubtreeIfNeeded()
+  let editor = content.searchEditor
+  let manager = try #require(editor.layoutManager)
+  let container = try #require(editor.textContainer)
+  for text in ["", "Search", "工作", "工作 Safari 🐱"] {
+    editor.setCommittedText(text)
+    editor.layoutSubtreeIfNeeded()
+    manager.ensureLayout(for: container)
+    let line = manager.numberOfGlyphs == 0 ? manager.extraLineFragmentRect
+      : manager.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+    let center = editor.textContainerOrigin.y + line.midY
+    #expect(abs(center - editor.bounds.midY) <= 0.5,
+      "Text \(text): line \(line), origin \(editor.textContainerOrigin), bounds \(editor.bounds)")
+  }
+}
+
+@Test @MainActor func insertionPointUsesTwoPointRoundedStroke() throws {
+  let editor = SearchEditor()
+  let image = NSImage(size: NSSize(width: 12, height: 24))
+  image.lockFocus()
+  NSColor.clear.setFill()
+  NSRect(x: 0, y: 0, width: 12, height: 24).fill(using: .copy)
+  editor.drawInsertionPoint(in: NSRect(x: 4, y: 3, width: 1, height: 18), color: .white, turnedOn: true)
+  image.unlockFocus()
+  let data = try #require(image.tiffRepresentation)
+  let bitmap = try #require(NSBitmapImageRep(data: data))
+  let scale = CGFloat(bitmap.pixelsWide) / 12
+  let row = Int(CGFloat(bitmap.pixelsHigh) / 2)
+  let opaque = (0..<bitmap.pixelsWide).filter { (bitmap.colorAt(x: $0, y: row)?.alphaComponent ?? 0) > 0.5 }
+  #expect(abs(CGFloat(opaque.count) / scale - 2) < 0.5)
+  let corner = try #require(bitmap.colorAt(x: Int(4 * scale), y: Int(3 * scale)))
+  let middle = try #require(bitmap.colorAt(x: Int(4 * scale), y: row))
+  #expect(corner.alphaComponent < middle.alphaComponent)
 }

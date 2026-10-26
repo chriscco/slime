@@ -67,3 +67,17 @@ Files: `README.md`, `README.zh-CN.md`, settings shortcut copy,
 
 - Implementation and independent source review completed; 276 tests and release build pass.
 - Actual system Pinyin and Rime editing checked in a production-panel fixture; full global-gesture acceptance remains pending. PR stays draft until that evidence is available.
+
+## 2026-10-26 — Approved caret appearance follow-up
+
+Owner requested vertically centered text/caret and a 2pt rounded insertion line,
+white on dark panel themes and black on light themes. Also render an accent-color
+comparison for review, without adding a preference. Keep AppKit in charge of blink,
+selection, composition and candidate coordinates. Earlier review fixes remain out
+of scope for this change.
+
+1. Add native layout/drawing regression checks in PanelLayoutTests; observe failure.
+2. Adjust SearchEditor padding/drawing and PanelWindow palette using existing theme
+   appearance. Preserve redraw cleanup when the caret moves or blinks off.
+3. Run scripts/test and a release build, render both color variants from the actual
+   editor, and update release notes, panel handoff and owner-reported acceptance.

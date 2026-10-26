@@ -55,3 +55,13 @@ isolated desktop fixture. That fixture has no global EventTap and uses fake wind
 identities, so it does not prove global gestures or real window activation. See the
 [validation record](../../validation/2026-10-20-chinese-search.md) for evidence and
 remaining acceptance before making PR #103 ready.
+
+
+## 2026-10-26 — Search caret appearance
+
+SearchEditor draws a 2pt rounded caret using the native insertion-point callback.
+AppKit still owns blinking and input-method coordinates; redraw invalidation covers
+the widened stroke. Panel layout always establishes the editor's 22pt height and
+centers the font line with text-container padding. Previously the width-only frame
+check could leave a zero-height editor. Theme appearance selects white/black ink;
+an accent-color comparison is preview-only, with no new setting.

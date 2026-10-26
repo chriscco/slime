@@ -36,6 +36,22 @@ final class SearchEditor: NSTextView {
   }
   required init?(coder: NSCoder) { fatalError("Use init()") }
 
+  override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+    let caret = NSRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height)
+    if flag {
+      color.setFill()
+      NSBezierPath(roundedRect: caret, xRadius: 1, yRadius: 1).fill()
+    } else {
+      setNeedsDisplay(caret)
+    }
+  }
+
+  override func setNeedsDisplay(_ invalidRect: NSRect) {
+    // AppKit invalidates a thin caret; also erase the extra width when it moves or blinks.
+    super.setNeedsDisplay(NSRect(x: invalidRect.minX, y: invalidRect.minY,
+      width: invalidRect.width + 2, height: invalidRect.height))
+  }
+
   func reset() {
     onQuery = nil
     onCommand = nil

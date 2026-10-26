@@ -89,3 +89,17 @@ switching. No accessibility permissions or persistent preferences were changed.
 No macOS 15 desktop acceptance is claimed. Keep PR #103 draft and use `Refs #102`
 until the required acceptance is completed; do not close the issue or mark the
 release accepted based only on automated tests and this fixture.
+
+
+## 2026-10-26 — Owner feedback and caret follow-up
+
+The owner reports that their P1 actual-application testing behaved normally. This
+is owner-reported evidence; no detailed per-case matrix was supplied in that reply.
+They reported an upward-offset caret and requested a rounded stroke with white/black
+contrast by background, plus an accent-color preview. Prior unmodified review items
+remain separate from this appearance change.
+
+Native layout checks cover empty, Latin, Chinese and mixed emoji text. Bitmap checks
+cover the 2pt stroke and rounded corners; existing material/theme tests also check
+black/white caret color. The comparison image uses the actual search view and caret
+drawing with solid backgrounds, not a screenshot of IME candidate UI.
